@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+
+# Environment
+.env
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Data outputs
+/data/profiling/*.json
+/data/profiling/*.csv
+/data/extracted/*
+/data/curated/*
+
+# Alembic local
+alembic/versions/__pycache__/
+
+# OS
+.DS_Store
