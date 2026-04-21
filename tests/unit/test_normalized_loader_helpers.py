@@ -24,6 +24,7 @@ dedupe_rows = MODULE.dedupe_rows
 upsert_rows = MODULE.upsert_rows
 calculate_max_rows_per_upsert = MODULE.calculate_max_rows_per_upsert
 resolve_start_after_id = MODULE.resolve_start_after_id
+build_entity_metrics = MODULE.build_entity_metrics
 
 
 class _DummyResult:
@@ -107,7 +108,7 @@ def test_upsert_rows_splits_batches_when_param_limit_would_be_exceeded() -> None
     upserted = upsert_rows(dummy, NormalizedOrdenCompra, rows, ["codigo_oc"])
 
     assert dummy.execute_calls == 2
-    assert upserted == 2
+    assert upserted == len(rows)
 
 
 def test_upsert_rows_retries_with_smaller_batches_on_operational_error() -> None:
@@ -132,8 +133,22 @@ def test_upsert_rows_retries_with_smaller_batches_on_operational_error() -> None
     session = _ThresholdSession(max_params=10_000)
     upserted = upsert_rows(session, NormalizedOferta, rows, ["oferta_key_sha256"])
 
-    assert upserted > 0
+    assert upserted == len(rows)
     assert session.execute_calls >= 3
+
+
+def test_upsert_rows_reports_deduplicated_count_for_duplicate_keys() -> None:
+    rows = [
+        {"codigo_oc": "OC-1", "monto_total_oc": 100},
+        {"codigo_oc": "OC-1", "monto_total_oc": 200},
+        {"codigo_oc": "OC-2", "monto_total_oc": 300},
+    ]
+    dummy = _DummySession()
+
+    deduplicated = upsert_rows(dummy, NormalizedOrdenCompra, rows, ["codigo_oc"])
+
+    assert deduplicated == 2
+    assert dummy.execute_calls == 1
 
 
 def test_resolve_start_after_id_uses_checkpoint_when_incremental() -> None:
@@ -149,3 +164,29 @@ def test_resolve_start_after_id_returns_zero_when_checkpoint_missing() -> None:
 def test_resolve_start_after_id_returns_zero_when_incremental_disabled() -> None:
     dataset_state = {"last_processed_raw_id": 999}
     assert resolve_start_after_id(dataset_state, incremental=False) == 0
+
+
+def test_build_entity_metrics_computes_inserted_delta_and_existing_or_updated() -> None:
+    metrics = build_entity_metrics(
+        processed_rows=1_000,
+        accepted_rows=900,
+        rejected_rows=100,
+        deduplicated_rows=850,
+        before_scope_rows=10_000,
+        after_scope_rows=10_125,
+    )
+
+    assert metrics["inserted_delta_rows"] == 125
+    assert metrics["existing_or_updated_rows"] == 725
+
+
+def test_build_entity_metrics_fails_when_inserted_delta_exceeds_deduplicated() -> None:
+    with pytest.raises(ValueError, match="inserted_delta_rows cannot exceed deduplicated_rows"):
+        build_entity_metrics(
+            processed_rows=100,
+            accepted_rows=100,
+            rejected_rows=0,
+            deduplicated_rows=50,
+            before_scope_rows=1_000,
+            after_scope_rows=1_060,
+        )

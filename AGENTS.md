@@ -21,6 +21,7 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 ## Core Principles
 
 - KISS and YAGNI.
+- SDD-first for framework/library behavior: consult official docs first and record the source used in `docs/standards/`.
 - TDD-first when changing behavior.
 - Fail-fast on schema drift, invalid config, malformed source files, or broken contracts.
 - No silent fallbacks for required dependencies (database, migrations, required columns).

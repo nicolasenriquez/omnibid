@@ -15,12 +15,65 @@ Fail-fast operational rules:
 - Stop runtime if `DATABASE_URL` targets a `_test` database.
 - Stop integration tests if `TEST_DATABASE_URL` is missing or equals runtime DB.
 
-## Current Telemetry Caveat (as of 2026-04-21)
+## Canonical Telemetry Contract (Raw + Normalized)
 
-- `loaded_rows` and derived `rejected_rows` in raw ingest metadata can be inaccurate when PostgreSQL reports `rowcount = -1` for large `INSERT ... ON CONFLICT` statements.
-- Normalized summaries can exhibit the same symptom in `upserted(...)` counters.
-- Until telemetry reconciliation is implemented, treat these counters as indicative only; do not use them as final audit totals.
-- For operational reconciliation, cross-check totals using table counts grouped by `source_file_id` and ingestion batch metadata.
+The pipeline uses the same metric taxonomy across raw and normalized stages:
+
+- `processed_rows`: input records iterated inside the run scope.
+- `rejected_rows`: records rejected by contract/transform and not sent to storage.
+- `accepted_rows`: `processed_rows - rejected_rows`.
+- `deduplicated_rows`: payload rows after business-key dedupe for storage write.
+- `inserted_delta_rows`: target-table row-count delta (`count_after - count_before`) in the scoped reconciliation query.
+
+Required invariants:
+
+- `inserted_delta_rows <= deduplicated_rows <= accepted_rows <= processed_rows`
+- `existing_or_updated_rows = deduplicated_rows - inserted_delta_rows`
+- Any contract failure that prevents deterministic metrics is fail-fast and marks the run as failed.
+
+Raw-stage formulas:
+
+- `processed_rows`: CSV rows read from file.
+- `rejected_rows`: `0` for valid files (invalid files fail fast; they are not partially accepted).
+- `accepted_rows`: `processed_rows`.
+- `deduplicated_rows`: `accepted_rows` (raw ingest has no transform-level key collapse).
+- `inserted_delta_rows`: delta count in raw target table scoped by `source_file_id`.
+
+Normalized-stage formulas (per entity):
+
+- `processed_rows`: raw rows scanned for the dataset.
+- `rejected_rows`: builder returned `None` for the entity.
+- `accepted_rows`: rows that produced entity payloads.
+- `deduplicated_rows`: accepted payloads after conflict-key dedupe before upsert.
+- `inserted_delta_rows`: row-count delta in target normalized table.
+
+Compatibility mapping (existing operational columns):
+
+- `ingestion_batches.total_rows <- processed_rows`
+- `ingestion_batches.loaded_rows <- inserted_delta_rows`
+- `ingestion_batches.rejected_rows <- deduplicated_rows - inserted_delta_rows`
+- `pipeline_run_steps.rows_in <- processed_rows`
+- `pipeline_run_steps.rows_out <- inserted_delta_rows`
+- `pipeline_run_steps.rows_rejected <- deduplicated_rows - inserted_delta_rows`
+
+## Telemetry Logging Efficiency Policy
+
+Default mode is bounded and checkpoint-based:
+
+- No row-level/per-record logs.
+- Raw progress checkpoints: `max(50_000, chunk_size * 10)`.
+- Normalized progress checkpoints: `max(10_000, fetch_size)`.
+- Normalized state persistence checkpoints: `max(50_000, fetch_size * 5)`.
+- Completion summary includes canonical metrics only.
+
+Debug verbosity is opt-in for controlled runs only. The default operational mode must remain bounded for multi-million-row processing.
+
+## Historical Telemetry Caveat (pre-reconciliation runs)
+
+- Before reconciliation hardening (runs prior to 2026-04-21), `rowcount`-derived counters may be inaccurate (`loaded_rows < 0`, inflated derived rejects, negative `upserted` in normalized logs).
+- These caveats apply to historical run evidence only.
+- For historical audits, use reconciliation queries from `source_file_id`/table scope instead of trusting legacy `rowcount`-based fields.
+- Baseline snapshot of the historical issue: `docs/evidence/load_telemetry_reconciliation_baseline_2026-04-21.md`.
 
 ## Normalized Layer Operational Expectations
 
@@ -66,5 +119,21 @@ Each dataset execution prints:
 
 - Raw row totals and target rows
 - progress checkpoints
-- completion summary with `processed`, `rejected`, and `upserted` counters per entity
-- Note: upsert counters are currently non-authoritative under the caveat above.
+- completion summary with `processed`, `accepted`, `deduplicated`, `inserted_delta`, and `rejected` counters per entity
+
+## Operator Validation Steps
+
+1. Run controlled sample pipelines:
+   - `DATASET_ROOT=<sample-root> LIMIT_FILES=2 UV_NO_SYNC=1 just pipeline-raw`
+   - `NORMALIZED_DATASET=all NORMALIZED_STATE_PATH=<state-path> UV_NO_SYNC=1 just pipeline-normalized`
+2. Validate raw persisted telemetry:
+   - `ingestion_batches.total_rows == processed_rows`
+   - `ingestion_batches.loaded_rows == inserted_delta_rows`
+   - `ingestion_batches.rejected_rows == existing_or_updated_rows`
+   - `pipeline_run_steps.rows_in/out/rejected` matches the same mapping.
+3. Validate normalized summary telemetry:
+   - each entity summary includes `accepted`, `deduplicated`, `inserted_delta`, `existing_or_updated`, `rejected`.
+   - confirm `inserted_delta <= deduplicated <= accepted <= processed`.
+4. Validate logging efficiency:
+   - default mode emits checkpoints and completion summaries only.
+   - no row-level telemetry appears unless debug telemetry is explicitly enabled.

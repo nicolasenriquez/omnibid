@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 try:
-    from tqdm.auto import tqdm as _tqdm
+    from tqdm.auto import tqdm as _tqdm  # type: ignore[import-untyped]
 except ImportError:  # pragma: no cover - optional dependency at runtime
     _tqdm = None
 
