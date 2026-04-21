@@ -1,18 +1,18 @@
 ## Context
 
-The Bronze pipeline is already in place. The next risk is Silver correctness and reliability when loading wide CSV datasets with mixed types and repeated header fields at item grain.
+The raw pipeline is already in place. The next risk is normalized-layer correctness and reliability when loading wide CSV datasets with mixed types and repeated header fields at item grain.
 
 ## Design Goals
 
 - Keep business-key upsert semantics explicit and deterministic.
 - Enforce stronger input normalization and required-field checks.
 - Preserve current functionality while reducing silent data quality drift.
-- Keep implementation localized to Silver and its tests.
+- Keep implementation localized to normalized-layer loaders/transforms and their tests.
 
 ## Technical Approach
 
 1. Strengthen transform helpers (`parse_*`, `pick`, flags) with additional edge-case handling and explicit null/sentinel normalization.
-2. Harden upsert flow in `build_silver.py` with clear conflict keys and rejection accounting.
+2. Harden upsert flow in `build_normalized.py` with clear conflict keys and rejection accounting.
 3. Add focused tests for:
    - licitaciones header/item/oferta mapping
    - ordenes_compra header/item mapping

@@ -23,56 +23,66 @@ If `uv run` tries to resolve dependencies and fails due network/DNS constraints,
 ./.venv/bin/pytest -q -m "not integration"
 ```
 
-## Bronze Pipeline Loop
+## Raw Pipeline Loop
 
 Canonical step:
 
-- `just pipeline-1-bronze`
+- `just pipeline-raw`
 
 Equivalent low-level sequence:
 
-1. Profile source files: `just profile-files`
-2. Ingest raw Bronze: `just ingest-raw`
+1. Profile source files: `just raw-profile`
+2. Ingest raw files: `just raw-ingest`
 3. Inspect API endpoints:
    - `GET /health`
    - `GET /runs`
    - `GET /files`
    - `GET /datasets/summary`
 
-## Silver Pipeline Loop (Hardened)
+## Normalized Pipeline Loop (Hardened)
 
 Run a controlled sample first before full historical load:
 
 ```bash
 UV_NO_SYNC=1 \
-SILVER_DATASET=all \
-SILVER_LIMIT_ROWS=2000 \
-SILVER_FETCH_SIZE=500 \
-SILVER_CHUNK_SIZE=200 \
-just pipeline-2-silver-from-bronze
+NORMALIZED_DATASET=all \
+NORMALIZED_LIMIT_ROWS=2000 \
+NORMALIZED_FETCH_SIZE=500 \
+NORMALIZED_CHUNK_SIZE=200 \
+just pipeline-normalized
 ```
 
 Expected operational output includes:
 
 - progress lines per dataset:
-  - `[silver] licitaciones progress: ...`
-  - `[silver] ordenes_compra progress: ...`
+  - `[normalized] licitaciones progress: ...`
+  - `[normalized] ordenes_compra progress: ...`
 - summary lines with rejection/upsert metrics:
   - `rejected(header/items/ofertas)=...` for licitaciones
   - `rejected(header/items)=...` for ordenes_compra
   - `upserted(...)` counters per entity
 
-For full load, remove `SILVER_LIMIT_ROWS` or set it to `0`.
+For full load, remove `NORMALIZED_LIMIT_ROWS` or set it to `0`.
 
 ## Canonical Sequential Commands
 
 Use these names as the default operating convention:
 
-1. `just pipeline-1-bronze`
-2. `just pipeline-2-silver-from-bronze`
-3. (future) `just pipeline-3-gold`
+1. `just pipeline-raw`
+2. `just pipeline-normalized`
+3. (future) `just pipeline-gold`
 
 End-to-end shortcuts:
 
-- `just pipeline-all`
-- `just pipeline-all-fast` (skips profiling in Bronze)
+- `just pipeline-full`
+- `just pipeline-full-fast` (skips profiling in Raw)
+
+## Stage-Gated Continuation Policy
+
+Do not advance to Gold until previous stages are verifiably stable:
+
+1. Bronze/Raw ingestion foundation completed (contracts, lineage, idempotent replay).
+2. Bronze/Raw reliability hardening completed (trusted load telemetry, rejection accountability).
+3. Silver/Normalized core canonicalization completed (deterministic rebuild + stable keys).
+4. Silver/Normalized domain expansion completed (buyer/supplier/category domain tables and contracts).
+5. Gold implementation starts only after stage 1-4 are accepted.

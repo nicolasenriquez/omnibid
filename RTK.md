@@ -12,12 +12,12 @@ Runtime Toolkit conventions for this repository.
 
 - Setup: `just setup`
 - DB + migrations: `just db-bootstrap`
-- Bronze: `just pipeline-1-bronze`
-- Silver (from Bronze already loaded): `just pipeline-2-silver-from-bronze`
-- End-to-end Bronze -> Silver: `just pipeline-all`
+- Raw: `just pipeline-raw`
+- Normalized (from Raw already loaded): `just pipeline-normalized`
+- End-to-end Raw -> Normalized: `just pipeline-full`
 - Quality: `just quality`
-- CI-fast local: `just backend-ci-fast`
-- CI local full: `just backend-ci`
+- CI-fast local: `just ci-fast`
+- CI local full: `just ci`
 
 ## Guardrails
 

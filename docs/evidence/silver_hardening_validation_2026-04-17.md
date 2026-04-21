@@ -2,10 +2,14 @@
 
 Date: 2026-04-17
 
+Legacy naming note:
+- At this date the project referenced the normalized layer as "Silver".
+- Current command/script names are `pipeline-normalized` and `scripts/build_normalized.py`.
+
 ## Scope
 
-- Validate hardened Silver behavior with test and lint checks.
-- Attempt controlled sample execution of `build-silver`.
+- Validate hardened normalized-layer behavior with test and lint checks.
+- Attempt controlled sample execution of the normalized builder.
 - Record blockers observed in current execution sandbox.
 
 ## 4.1 Validation Commands
@@ -24,7 +28,7 @@ just test-unit
 ### Fallback executed
 
 ```bash
-./.venv/bin/pytest -q tests/unit/test_silver_transform.py tests/unit/test_silver_loader_helpers.py
+./.venv/bin/pytest -q tests/unit/test_normalized_transform.py tests/unit/test_normalized_loader_helpers.py
 ```
 
 Result:
@@ -34,7 +38,7 @@ Result:
 Additional targeted lint check:
 
 ```bash
-./.venv/bin/ruff check backend/silver scripts/build_silver.py tests/unit/test_silver_transform.py tests/unit/test_silver_loader_helpers.py
+./.venv/bin/ruff check backend/normalized scripts/build_normalized.py tests/unit/test_normalized_transform.py tests/unit/test_normalized_loader_helpers.py
 ```
 
 Result:
@@ -47,11 +51,11 @@ Result:
 
 ```bash
 UV_NO_SYNC=1 \
-SILVER_DATASET=all \
-SILVER_LIMIT_ROWS=2000 \
-SILVER_FETCH_SIZE=500 \
-SILVER_CHUNK_SIZE=200 \
-just build-silver
+NORMALIZED_DATASET=all \
+NORMALIZED_LIMIT_ROWS=2000 \
+NORMALIZED_FETCH_SIZE=500 \
+NORMALIZED_CHUNK_SIZE=200 \
+just pipeline-normalized
 ```
 
 ### Result
@@ -64,8 +68,8 @@ just build-silver
 Run these directly in your local shell (outside restricted sandbox):
 
 1. `just test-unit`
-2. `UV_NO_SYNC=1 SILVER_DATASET=all SILVER_LIMIT_ROWS=2000 SILVER_FETCH_SIZE=500 SILVER_CHUNK_SIZE=200 just build-silver`
-3. Confirm Silver output includes:
+2. `UV_NO_SYNC=1 NORMALIZED_DATASET=all NORMALIZED_LIMIT_ROWS=2000 NORMALIZED_FETCH_SIZE=500 NORMALIZED_CHUNK_SIZE=200 just pipeline-normalized`
+3. Confirm normalized output includes:
    - licitaciones progress + summary
    - ordenes_compra progress + summary
    - rejection and upsert counters per entity

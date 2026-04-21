@@ -9,7 +9,7 @@ Define the local CI pipeline and the order of checks for this repository.
 Use this in daily development:
 
 ```bash
-just backend-ci-fast
+just ci-fast
 ```
 
 This runs:
@@ -22,11 +22,11 @@ This runs:
 Use before merge or major refactor:
 
 ```bash
-just backend-ci
+just ci
 ```
 
 This runs:
-1. `just backend-ci-fast`
+1. `just ci-fast`
 2. `just black-check`
 3. `just type-strict`
 4. `just security`
@@ -39,7 +39,7 @@ This runs:
 - `just black-check` -> Black formatting gate
 - `just type-strict` -> Pyright + ty
 - `just security` -> Bandit scan on `backend/`
-- `just quality` -> alias to `just backend-ci-fast`
+- `just quality` -> alias to `just ci-fast`
 
 ## Fail-Fast Policy
 

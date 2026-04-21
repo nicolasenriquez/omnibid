@@ -15,19 +15,26 @@ Fail-fast operational rules:
 - Stop runtime if `DATABASE_URL` targets a `_test` database.
 - Stop integration tests if `TEST_DATABASE_URL` is missing or equals runtime DB.
 
-## Silver Hardening Operational Expectations
+## Current Telemetry Caveat (as of 2026-04-21)
+
+- `loaded_rows` and derived `rejected_rows` in raw ingest metadata can be inaccurate when PostgreSQL reports `rowcount = -1` for large `INSERT ... ON CONFLICT` statements.
+- Normalized summaries can exhibit the same symptom in `upserted(...)` counters.
+- Until telemetry reconciliation is implemented, treat these counters as indicative only; do not use them as final audit totals.
+- For operational reconciliation, cross-check totals using table counts grouped by `source_file_id` and ingestion batch metadata.
+
+## Normalized Layer Operational Expectations
 
 ### Deterministic upsert keys
 
-- `silver_licitaciones`: `codigo_externo`
-- `silver_licitacion_items`: `codigo_externo + codigo_item`
-- `silver_ofertas`: `oferta_key_sha256`
-- `silver_ordenes_compra`: `codigo_oc`
-- `silver_ordenes_compra_items`: `codigo_oc + id_item`
+- `normalized_licitaciones`: `codigo_externo`
+- `normalized_licitacion_items`: `codigo_externo + codigo_item`
+- `normalized_ofertas`: `oferta_key_sha256`
+- `normalized_ordenes_compra`: `codigo_oc`
+- `normalized_ordenes_compra_items`: `codigo_oc + id_item`
 
 ### Fail-fast key validation
 
-Silver loader must fail fast when:
+Normalized loader must fail fast when:
 
 - conflict key set is empty
 - a conflict key value is missing/empty in payload rows
@@ -48,11 +55,16 @@ Rows are rejected (not upserted) when required builder keys are missing:
 - Sentinel dates like `1900-01-01` and `1900-01-01 00:00:00` normalize to null.
 - Currency formats like `"$1.234,56"` normalize to decimal.
 - Boolean variants include `si/no`, `1/0`, and `verdadero/falso`.
+- Text values are preserved as business text; normalization is for comparisons and keys, not for stripping accents from stored content.
+- Timestamp-bearing source columns should preserve the time component when present; do not downcast to date-only if the source carries `HH:MM:SS`.
+- The reviewed `202601_lic.csv` and `202601-oc.csv` samples expose date-only values in the mapped date fields; if future source drops include time in termination fields, add a dedicated timestamp column in the normalized layer.
+- CSV inputs are currently parsed as `latin1` and semicolon-delimited; keep that explicit in ingestion so accent-bearing content round-trips cleanly.
 
-### Expected Silver execution telemetry
+### Expected Normalized execution telemetry
 
 Each dataset execution prints:
 
-- Bronze row totals and target rows
+- Raw row totals and target rows
 - progress checkpoints
 - completion summary with `processed`, `rejected`, and `upserted` counters per entity
+- Note: upsert counters are currently non-authoritative under the caveat above.

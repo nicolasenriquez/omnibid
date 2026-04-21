@@ -16,7 +16,7 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Runtime/package manager: `uv`.
 - Operator interface: `just`.
 - Architecture: monorepo with `backend/` + future `client/`, plus data pipeline modules.
-- Current focus: deterministic procurement data engineering pipeline (Bronze/Silver foundation).
+- Current focus: deterministic procurement data engineering pipeline (Raw/Normalized foundation).
 
 ## Core Principles
 
@@ -32,14 +32,14 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - `backend/db`: engine/session/base.
 - `backend/api`: health + operations endpoints.
 - `backend/ingestion`: file contracts and ingestion logic.
-- `backend/silver`: normalization transforms.
-- `backend/models`: operational, bronze, silver models.
-- `scripts/`: operational pipeline entrypoints (`profile_files.py`, `ingest_raw.py`, `build_silver.py`).
+- `backend/normalized`: normalization transforms.
+- `backend/models`: operational, raw, normalized models.
+- `scripts/`: operational pipeline entrypoints (`profile_raw.py`, `ingest_raw.py`, `build_normalized.py`).
 
 ## Data Engineering Rules
 
-- Bronze remains traceable and append-oriented.
-- Silver remains canonical and query-ready.
+- Raw remains traceable and append-oriented.
+- Normalized remains canonical and query-ready.
 - Use business keys for dedup/upsert semantics.
 - Never aggregate raw rows as business entities without normalizing grain first.
 - Preserve source metadata (`source_file_id`, `ingestion_batch_id`, `pipeline_run_id`).
@@ -48,16 +48,16 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 
 - Setup: `just setup`
 - DB bootstrap: `just db-bootstrap`
-- Bronze profile/load: `just pipeline-1-bronze`
-- Silver build from existing Bronze: `just pipeline-2-silver-from-bronze`
-- End-to-end Bronze -> Silver: `just pipeline-all`
+- Raw profile/load: `just pipeline-raw`
+- Normalized build from existing Raw: `just pipeline-normalized`
+- End-to-end Raw -> Normalized: `just pipeline-full`
 - API: `just api`
 
 ## Quality Gates
 
 - Default local gate: `just quality`
-- Extended CI-fast: `just backend-ci-fast`
-- Extended CI: `just backend-ci`
+- Extended CI-fast: `just ci-fast`
+- Extended CI: `just ci`
 
 ## Testing Policy
 
@@ -82,6 +82,7 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Alembic is schema source of truth.
 - Do not introduce schema drift outside migrations.
 - Keep SQL changes explicit and reviewable.
+- Keep Alembic `revision` ids compact enough for `alembic_version.version_num` (`VARCHAR(32)`); use `just db-revision` to generate timestamped short ids.
 
 ## Documentation Discipline
 

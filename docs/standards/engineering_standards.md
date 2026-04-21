@@ -31,8 +31,8 @@
 - Lint: `just lint`
 - Type: `just type`
 - Unit tests: `just test-unit`
-- Local CI-fast gate: `just backend-ci-fast`
-- Local CI gate: `just backend-ci`
+- Local CI-fast gate: `just ci-fast`
+- Local CI gate: `just ci`
 
 ## Reference Standards
 
