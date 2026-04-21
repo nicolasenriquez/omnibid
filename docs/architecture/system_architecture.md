@@ -5,8 +5,8 @@ Monorepo with modular backend:
 - backend/db: engine, session, models
 - backend/ingestion: file discovery + registration
 - backend/profiling: schema/stats profiling
-- backend/bronze: raw persistence + lineage
-- backend/silver: normalized entities
+- backend/raw: raw persistence + lineage
+- backend/normalized: normalized entities
 - backend/gold: minimal aggregates
 - backend/api: health + operations endpoints
 - client/: frontend placeholder for future UI

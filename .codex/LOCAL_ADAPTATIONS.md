@@ -1,6 +1,6 @@
 # Local Adaptations for `app-chilecompra`
 
-The assets in `codex/` were imported from the reference project and kept mostly intact.
+The assets in `.codex/` were imported from the reference project and kept mostly intact.
 
 For this repository, use these canonical mappings:
 

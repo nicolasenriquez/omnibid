@@ -4,8 +4,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from backend.db.base import Base
 
 
-class SilverLicitacion(Base):
-    __tablename__ = "silver_licitaciones"
+class NormalizedLicitacion(Base):
+    __tablename__ = "normalized_licitaciones"
 
     codigo_externo = sa.Column(sa.Text, primary_key=True)
     codigo = sa.Column(sa.Text, nullable=False)
@@ -54,19 +54,19 @@ class SilverLicitacion(Base):
     updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.Index("ix_silver_licitaciones_estado", "estado"),
-        sa.Index("ix_silver_licitaciones_fecha_publicacion", "fecha_publicacion"),
-        sa.Index("ix_silver_licitaciones_is_elegible_mvp", "is_elegible_mvp"),
-        sa.Index("ix_silver_licitaciones_tipo_adquisicion_norm", "tipo_adquisicion_norm"),
+        sa.Index("ix_normalized_licitaciones_estado", "estado"),
+        sa.Index("ix_normalized_licitaciones_fecha_publicacion", "fecha_publicacion"),
+        sa.Index("ix_normalized_licitaciones_is_elegible_mvp", "is_elegible_mvp"),
+        sa.Index("ix_normalized_licitaciones_tipo_adquisicion_norm", "tipo_adquisicion_norm"),
     )
 
 
-class SilverLicitacionItem(Base):
-    __tablename__ = "silver_licitacion_items"
+class NormalizedLicitacionItem(Base):
+    __tablename__ = "normalized_licitacion_items"
 
     id = sa.Column(sa.BigInteger, primary_key=True, autoincrement=True)
     codigo_externo = sa.Column(
-        sa.Text, sa.ForeignKey("silver_licitaciones.codigo_externo"), nullable=False
+        sa.Text, sa.ForeignKey("normalized_licitaciones.codigo_externo"), nullable=False
     )
     codigo_item = sa.Column(sa.Text, nullable=False)
     correlativo = sa.Column(sa.Text)
@@ -88,18 +88,18 @@ class SilverLicitacionItem(Base):
     updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.UniqueConstraint("codigo_externo", "codigo_item", name="uq_silver_lic_item"),
-        sa.Index("ix_silver_licitacion_items_codigo_externo", "codigo_externo"),
-        sa.Index("ix_silver_licitacion_items_codigo_producto_onu", "codigo_producto_onu"),
+        sa.UniqueConstraint("codigo_externo", "codigo_item", name="uq_normalized_lic_item"),
+        sa.Index("ix_normalized_licitacion_items_codigo_externo", "codigo_externo"),
+        sa.Index("ix_normalized_licitacion_items_codigo_producto_onu", "codigo_producto_onu"),
     )
 
 
-class SilverOferta(Base):
-    __tablename__ = "silver_ofertas"
+class NormalizedOferta(Base):
+    __tablename__ = "normalized_ofertas"
 
     oferta_key_sha256 = sa.Column(sa.String(64), primary_key=True)
     codigo_externo = sa.Column(
-        sa.Text, sa.ForeignKey("silver_licitaciones.codigo_externo"), nullable=False
+        sa.Text, sa.ForeignKey("normalized_licitaciones.codigo_externo"), nullable=False
     )
     codigo_item = sa.Column(sa.Text)
     correlativo = sa.Column(sa.Text)
@@ -129,14 +129,14 @@ class SilverOferta(Base):
     updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.Index("ix_silver_ofertas_codigo_externo", "codigo_externo"),
-        sa.Index("ix_silver_ofertas_codigo_proveedor", "codigo_proveedor"),
-        sa.Index("ix_silver_ofertas_rut_proveedor", "rut_proveedor"),
+        sa.Index("ix_normalized_ofertas_codigo_externo", "codigo_externo"),
+        sa.Index("ix_normalized_ofertas_codigo_proveedor", "codigo_proveedor"),
+        sa.Index("ix_normalized_ofertas_rut_proveedor", "rut_proveedor"),
     )
 
 
-class SilverOrdenCompra(Base):
-    __tablename__ = "silver_ordenes_compra"
+class NormalizedOrdenCompra(Base):
+    __tablename__ = "normalized_ordenes_compra"
 
     codigo_oc = sa.Column(sa.Text, primary_key=True)
     id_oc_raw = sa.Column(sa.Text)
@@ -219,19 +219,19 @@ class SilverOrdenCompra(Base):
     updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.Index("ix_silver_ordenes_compra_estado", "estado"),
-        sa.Index("ix_silver_ordenes_compra_fecha_envio", "fecha_envio"),
-        sa.Index("ix_silver_ordenes_compra_codigo_licitacion", "codigo_licitacion"),
-        sa.Index("ix_silver_ordenes_compra_codigo_proveedor", "codigo_proveedor"),
-        sa.Index("ix_silver_ordenes_compra_codigo_unidad_compra", "codigo_unidad_compra"),
+        sa.Index("ix_normalized_ordenes_compra_estado", "estado"),
+        sa.Index("ix_normalized_ordenes_compra_fecha_envio", "fecha_envio"),
+        sa.Index("ix_normalized_ordenes_compra_codigo_licitacion", "codigo_licitacion"),
+        sa.Index("ix_normalized_ordenes_compra_codigo_proveedor", "codigo_proveedor"),
+        sa.Index("ix_normalized_ordenes_compra_codigo_unidad_compra", "codigo_unidad_compra"),
     )
 
 
-class SilverOrdenCompraItem(Base):
-    __tablename__ = "silver_ordenes_compra_items"
+class NormalizedOrdenCompraItem(Base):
+    __tablename__ = "normalized_ordenes_compra_items"
 
     id = sa.Column(sa.BigInteger, primary_key=True, autoincrement=True)
-    codigo_oc = sa.Column(sa.Text, sa.ForeignKey("silver_ordenes_compra.codigo_oc"), nullable=False)
+    codigo_oc = sa.Column(sa.Text, sa.ForeignKey("normalized_ordenes_compra.codigo_oc"), nullable=False)
     id_item = sa.Column(sa.Text, nullable=False)
 
     codigo_producto_onu = sa.Column(sa.Text)
@@ -259,7 +259,7 @@ class SilverOrdenCompraItem(Base):
     updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.UniqueConstraint("codigo_oc", "id_item", name="uq_silver_oc_item"),
-        sa.Index("ix_silver_ordenes_compra_items_codigo_oc", "codigo_oc"),
-        sa.Index("ix_silver_ordenes_compra_items_codigo_producto_onu", "codigo_producto_onu"),
+        sa.UniqueConstraint("codigo_oc", "id_item", name="uq_normalized_oc_item"),
+        sa.Index("ix_normalized_ordenes_compra_items_codigo_oc", "codigo_oc"),
+        sa.Index("ix_normalized_ordenes_compra_items_codigo_producto_onu", "codigo_producto_onu"),
     )

@@ -1,0 +1,26 @@
+{
+  "licitacion": {
+    "status": "completed",
+    "source_total_rows": 2075196,
+    "source_max_id": 2075196,
+    "mode": "incremental",
+    "start_after_id": 0,
+    "processed_rows_last_run": 2000,
+    "processed_rows_current_run": 2000,
+    "processed_rows_total": 2000,
+    "last_processed_raw_id": 2000,
+    "last_raw_id": 2000
+  },
+  "orden_compra": {
+    "status": "completed",
+    "source_total_rows": 6479737,
+    "source_max_id": 6479737,
+    "mode": "incremental",
+    "start_after_id": 0,
+    "processed_rows_last_run": 2000,
+    "processed_rows_current_run": 2000,
+    "processed_rows_total": 2000,
+    "last_processed_raw_id": 2000,
+    "last_raw_id": 2000
+  }
+}

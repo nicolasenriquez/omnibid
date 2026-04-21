@@ -7,13 +7,13 @@
 - ingestion_batches
 - data_quality_issues
 
-## Bronze
-- bronze_licitaciones_raw
-- bronze_ordenes_compra_raw
+## Raw
+- raw_licitaciones
+- raw_ordenes_compra
 
-## Silver
-- silver_licitaciones
-- silver_licitacion_items
-- silver_ordenes_compra
-- silver_compradores
-- silver_proveedores
+## Normalized
+- normalized_licitaciones
+- normalized_licitacion_items
+- normalized_ofertas
+- normalized_ordenes_compra
+- normalized_ordenes_compra_items

@@ -1,71 +1,82 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # ============================================================
-# Base
+# Canonical Commands (grouped + documented)
 # ============================================================
 
+[group('00 Base')]
+[doc('List available commands grouped by area')]
 default:
     @just --list
 
-# ============================================================
-# Setup / Sync
-# ============================================================
-
+[group('01 Setup')]
+[doc('Install and sync project dependencies with uv')]
 setup:
     command -v uv >/dev/null 2>&1 || (echo "uv is required. Install: https://docs.astral.sh/uv/" && exit 1)
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv sync --extra dev
 
+[group('01 Setup')]
+[doc('Sync local Codex workspace files')]
 codex-sync:
     ./scripts/sync_codex_dir.sh
 
-# ============================================================
-# Runtime
-# ============================================================
-
-# Run FastAPI in local dev mode. Protected by runtime DB guard.
+[group('02 Runtime')]
+[doc('Run FastAPI in local dev mode (guarded against test DB)')]
 api: db-runtime-guard
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
-# ============================================================
-# Code Quality
-# ============================================================
-
+[group('03 Quality')]
+[doc('Format code with Ruff')]
 fmt:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ruff format backend tests scripts
 
+[group('03 Quality')]
+[doc('Run Ruff lint checks')]
 lint:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ruff check backend tests scripts
 
+[group('03 Quality')]
+[doc('Run MyPy type checks')]
 type:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run mypy backend scripts
 
+[group('03 Quality')]
+[doc('Format code with Black')]
 black:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run black backend tests scripts
 
+[group('03 Quality')]
+[doc('Check Black formatting without modifying files')]
 black-check:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run black backend tests scripts --check --diff --workers 1
 
+[group('03 Quality')]
+[doc('Run strict type gates (Pyright + ty)')]
 type-strict:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pyright backend scripts
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ty check backend
 
+[group('03 Quality')]
+[doc('Run high-confidence/high-severity security checks')]
 security:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
 
-# ============================================================
-# Tests (TDD first)
-# ============================================================
-
-# Canonical local test command.
+[group('03 Quality')]
+[doc('Run default test suite (unit tests)')]
 test: test-unit
 
+[group('03 Quality')]
+[doc('Run unit tests only')]
 test-unit:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pytest -q -m "not integration"
 
-# Fallback when uv cannot resolve deps due network restrictions.
+[group('03 Quality')]
+[doc('Run unit tests using local .venv (fallback when uv is restricted)')]
 test-unit-local:
     ./.venv/bin/pytest -q -m "not integration"
 
+[group('03 Quality')]
+[doc('Run integration tests against TEST_DATABASE_URL')]
 test-integration: test-db-check
     #!/usr/bin/env bash
     test_url="${TEST_DATABASE_URL:-}"
@@ -78,19 +89,20 @@ test-integration: test-db-check
     fi
     DATABASE_URL="$test_url" UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pytest -q -m "integration"
 
-# Fast local quality gate (recommended before commit).
-quality: backend-ci-fast
-ci-fast: backend-ci-fast
-backend-ci-fast: lint type test-unit
+[group('03 Quality')]
+[doc('Fast local quality gate: lint + type + unit tests')]
+quality: ci-fast
 
-# Full local CI gate.
-backend-ci: backend-ci-fast black-check type-strict security test-integration
-ci: backend-ci
+[group('03 Quality')]
+[doc('Fast CI gate: lint + type + unit tests')]
+ci-fast: lint type test-unit
 
-# ============================================================
-# DB Guards (fail-fast safety)
-# ============================================================
+[group('03 Quality')]
+[doc('Full CI gate: fast gate + strict type + security + integration')]
+ci: ci-fast black-check type-strict security test-integration
 
+[group('04 Database')]
+[doc('Fail if DATABASE_URL is missing or points to a *_test DB')]
 db-runtime-guard:
     #!/usr/bin/env bash
     raw_url="${DATABASE_URL:-}"
@@ -116,6 +128,8 @@ db-runtime-guard:
 
     echo "Runtime DB guard passed: ${db_name}"
 
+[group('04 Database')]
+[doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL')]
 test-db-check:
     #!/usr/bin/env bash
     test_url="${TEST_DATABASE_URL:-}"
@@ -148,17 +162,21 @@ test-db-check:
 
     echo "Test DB check passed"
 
-# ============================================================
-# DB Schema / Migrations
-# ============================================================
-
+[group('04 Database')]
+[doc('Create a new Alembic migration revision')]
 db-revision name:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic revision -m "{{name}}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    slug="$(printf '%s' "{{name}}" | tr '[:upper:]' '[:lower:]' | tr ' /' '__' | tr -cd 'a-z0-9_' | cut -c1-17)"
+    rev_id="$(date +%Y%m%d%H%M%S)_${slug}"
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic revision --rev-id "$rev_id" -m "{{name}}"
 
+[group('04 Database')]
+[doc('Create runtime database if missing')]
 db-create:
     #!/usr/bin/env bash
     raw_url="${DATABASE_URL:-postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra}"
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" DATABASE_URL="$raw_url" uv run python - <<'PY'
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" DATABASE_URL="$raw_url" uv run python - <<'PY'
     import os
     import sys
     from sqlalchemy import text
@@ -202,52 +220,79 @@ db-create:
     raise SystemExit(asyncio.run(main()))
     PY
 
-db-upgrade:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic upgrade head
+[group('04 Database')]
+[doc('Apply Alembic migrations to head')]
+db-migrate:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic upgrade head
 
-# Canonical DB bootstrap for local development.
-db-bootstrap: db-create db-upgrade
+[group('04 Database')]
+[doc('Create DB and apply migrations')]
+db-bootstrap: db-create db-migrate
 
-# ============================================================
-# Data Pipeline: Bronze
-# ============================================================
+[group('05 Raw')]
+[doc('Profile source CSV files from DATASET_ROOT')]
+raw-profile:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/profile_raw.py --dataset-root "${DATASET_ROOT:-}"
 
-profile-files:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/profile_files.py --dataset-root "${DATASET_ROOT:-}"
+[group('05 Raw')]
+[doc('Ingest raw source files into raw tables')]
+raw-ingest:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/ingest_raw.py --dataset-root "${DATASET_ROOT:-}" --chunk-size "${CHUNK_SIZE:-5000}" --limit-files "${LIMIT_FILES:-0}"
 
-ingest-raw:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/ingest_raw.py --dataset-root "${DATASET_ROOT:-}" --chunk-size "${CHUNK_SIZE:-5000}" --limit-files "${LIMIT_FILES:-0}"
-
-ingest-raw-fast:
+[group('05 Raw')]
+[doc('Fast raw ingest (skip progress bars and pre-count)')]
+raw-ingest-fast:
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/ingest_raw.py --dataset-root "${DATASET_ROOT:-}" --chunk-size "${CHUNK_SIZE:-5000}" --limit-files "${LIMIT_FILES:-0}" --no-progress --no-precount
 
-build-bronze:
-    just ingest-raw
+[group('06 Normalized')]
+[doc('Build normalized layer incrementally from raw data (default mode)')]
+normalized-build:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}"
 
-# Canonical step 1 (Bronze): profile + ingest raw.
-pipeline-1-bronze: db-bootstrap profile-files ingest-raw
+[group('06 Normalized')]
+[doc('Build normalized layer with full refresh semantics (no incremental, no resume)')]
+normalized-full:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}" --no-incremental --no-resume
 
-# Faster variant: skip profiling.
-pipeline-1-bronze-fast: db-bootstrap ingest-raw
+[group('06 Normalized')]
+[doc('Reset normalized state checkpoint file before the next run')]
+normalized-reset:
+    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}" --reset-state
 
-# ============================================================
-# Data Pipeline: Silver / Gold
-# ============================================================
+[group('06 Normalized')]
+[doc('Build normalized layer only for licitaciones dataset')]
+normalized-lic:
+    NORMALIZED_DATASET=licitacion just normalized-build
 
-build-silver:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_silver.py --dataset "${SILVER_DATASET:-all}" --fetch-size "${SILVER_FETCH_SIZE:-10000}" --chunk-size "${SILVER_CHUNK_SIZE:-2000}" --limit-rows "${SILVER_LIMIT_ROWS:-0}"
+[group('06 Normalized')]
+[doc('Build normalized layer only for ordenes_compra dataset')]
+normalized-oc:
+    NORMALIZED_DATASET=orden_compra just normalized-build
 
-# Canonical step 2 (Silver): build Silver using already-ingested Bronze data.
-pipeline-2-silver-from-bronze: db-bootstrap build-silver
+[group('07 Pipelines')]
+[doc('Raw pipeline: db-bootstrap -> raw-profile -> raw-ingest')]
+pipeline-raw: db-bootstrap raw-profile raw-ingest
 
-build-gold:
+[group('07 Pipelines')]
+[doc('Raw fast pipeline: db-bootstrap -> raw-ingest')]
+pipeline-raw-fast: db-bootstrap raw-ingest
+
+[group('07 Pipelines')]
+[doc('Normalized pipeline from existing raw data: db-migrate -> normalized-build')]
+pipeline-normalized: db-migrate normalized-build
+
+[group('07 Pipelines')]
+[doc('Full pipeline: pipeline-raw -> pipeline-normalized')]
+pipeline-full: pipeline-raw pipeline-normalized
+
+[group('07 Pipelines')]
+[doc('Full fast pipeline: pipeline-raw-fast -> pipeline-normalized')]
+pipeline-full-fast: pipeline-raw-fast pipeline-normalized
+
+[group('08 Future')]
+[doc('Placeholder for future Gold build')]
+pipeline-gold:
     echo "TODO: implement gold build"
 
-# Canonical step 3 (Gold): placeholder for future.
-pipeline-3-gold: build-gold
-
-# Canonical end-to-end execution: Bronze -> Silver.
-pipeline-all: pipeline-1-bronze pipeline-2-silver-from-bronze
-
-# Faster end-to-end: Bronze(no profile) -> Silver.
-pipeline-all-fast: pipeline-1-bronze-fast pipeline-2-silver-from-bronze
+# ============================================================
+# Legacy command names intentionally removed to keep the interface clean.

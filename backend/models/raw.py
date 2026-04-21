@@ -4,8 +4,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from backend.db.base import Base
 
 
-class BronzeLicitacionesRaw(Base):
-    __tablename__ = "bronze_licitaciones_raw"
+class RawLicitacion(Base):
+    __tablename__ = "raw_licitaciones"
 
     id = sa.Column(sa.BigInteger, primary_key=True, autoincrement=True)
     source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"), nullable=False)
@@ -18,12 +18,12 @@ class BronzeLicitacionesRaw(Base):
     ingested_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_bronze_lic_raw_file_row"),
+        sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_raw_lic_raw_file_row"),
     )
 
 
-class BronzeOrdenesCompraRaw(Base):
-    __tablename__ = "bronze_ordenes_compra_raw"
+class RawOrdenCompra(Base):
+    __tablename__ = "raw_ordenes_compra"
 
     id = sa.Column(sa.BigInteger, primary_key=True, autoincrement=True)
     source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"), nullable=False)
@@ -37,5 +37,5 @@ class BronzeOrdenesCompraRaw(Base):
     ingested_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
-        sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_bronze_oc_raw_file_row"),
+        sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_raw_oc_raw_file_row"),
     )

@@ -9,16 +9,16 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-try:
-    from tqdm.auto import tqdm
-except ImportError:  # pragma: no cover - optional dependency at runtime
-    tqdm = None
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.ingestion.contracts import validate_required_columns  # noqa: E402
+from backend.observability.cli_ui import (  # noqa: E402
+    create_progress,
+    progress_write,
+    timed_step,
+)
 
 
 @dataclass
@@ -89,20 +89,33 @@ def main() -> int:
         raise SystemExit(f"Dataset root not found: {dataset_root}")
 
     files = discover_files(dataset_root)
-    print(f"Profiling {len(files)} files from: {dataset_root}")
-    iterable = files
-    if args.progress and tqdm is not None:
-        iterable = tqdm(files, desc="profile files", unit="file", dynamic_ncols=True)
-
+    progress_write(f"Profiling {len(files)} files from: {dataset_root}", enabled=args.progress)
     profiles: list[FileProfile] = []
-    for dataset_type, path in iterable:
-        profile = profile_csv(dataset_type, path)
-        profiles.append(profile)
-        if args.progress and tqdm is not None:
-            tqdm.write(
-                f"{profile.dataset_type} | {profile.file_name} | rows={profile.rows:,} | "
-                f"cols={profile.columns} | contract_ok={profile.contract_ok}"
-            )
+    with timed_step("profile files", enabled=args.progress):
+        bar = create_progress(
+            total=len(files),
+            desc="profile files",
+            unit="file",
+            enabled=args.progress,
+            leave=True,
+            stage="raw",
+            footer=True,
+            position=1,
+        )
+        try:
+            for dataset_type, path in files:
+                profile = profile_csv(dataset_type, path)
+                profiles.append(profile)
+                progress_write(
+                    f"{profile.dataset_type} | {profile.file_name} | rows={profile.rows:,} | "
+                    f"cols={profile.columns} | contract_ok={profile.contract_ok}",
+                    enabled=args.progress,
+                )
+                if bar is not None:
+                    bar.update(1)
+        finally:
+            if bar is not None:
+                bar.close()
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +124,7 @@ def main() -> int:
     for profile in profiles:
         if not profile.contract_ok:
             print(f"  missing_required_columns={','.join(profile.missing_required_columns)}")
-    print(f"Wrote profile: {out_path}")
+    progress_write(f"Wrote profile: {out_path}", enabled=args.progress)
     return 0
 
 

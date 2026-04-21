@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.db.base import Base
-from backend.models import bronze, operational, silver  # noqa: F401
+from backend.models import normalized, operational, raw  # noqa: F401
 
 config = context.config
 

@@ -5,14 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db
-from backend.models.bronze import BronzeLicitacionesRaw, BronzeOrdenesCompraRaw
+from backend.models.raw import RawLicitacion, RawOrdenCompra
 from backend.models.operational import PipelineRun, SourceFile
-from backend.models.silver import (
-    SilverLicitacion,
-    SilverLicitacionItem,
-    SilverOferta,
-    SilverOrdenCompra,
-    SilverOrdenCompraItem,
+from backend.models.normalized import (
+    NormalizedLicitacion,
+    NormalizedLicitacionItem,
+    NormalizedOferta,
+    NormalizedOrdenCompra,
+    NormalizedOrdenCompraItem,
 )
 
 router = APIRouter(tags=["operations"])
@@ -101,25 +101,25 @@ def datasets_summary(db: Session = Depends(get_db)) -> dict:
             return None
 
     files = _safe_count(SourceFile)
-    lic_rows = _safe_count(BronzeLicitacionesRaw)
-    oc_rows = _safe_count(BronzeOrdenesCompraRaw)
-    silver_lic = _safe_count(SilverLicitacion)
-    silver_items = _safe_count(SilverLicitacionItem)
-    silver_ofertas = _safe_count(SilverOferta)
-    silver_oc = _safe_count(SilverOrdenCompra)
-    silver_oc_items = _safe_count(SilverOrdenCompraItem)
+    lic_rows = _safe_count(RawLicitacion)
+    oc_rows = _safe_count(RawOrdenCompra)
+    normalized_lic = _safe_count(NormalizedLicitacion)
+    normalized_items = _safe_count(NormalizedLicitacionItem)
+    normalized_ofertas = _safe_count(NormalizedOferta)
+    normalized_oc = _safe_count(NormalizedOrdenCompra)
+    normalized_oc_items = _safe_count(NormalizedOrdenCompraItem)
 
     return {
         "source_files": files,
-        "bronze_rows": {
+        "raw_rows": {
             "licitaciones": lic_rows,
             "ordenes_compra": oc_rows,
         },
-        "silver_rows": {
-            "licitaciones": silver_lic,
-            "licitacion_items": silver_items,
-            "ofertas": silver_ofertas,
-            "ordenes_compra": silver_oc,
-            "ordenes_compra_items": silver_oc_items,
+        "normalized_rows": {
+            "licitaciones": normalized_lic,
+            "licitacion_items": normalized_items,
+            "ofertas": normalized_ofertas,
+            "ordenes_compra": normalized_oc,
+            "ordenes_compra_items": normalized_oc_items,
         },
     }

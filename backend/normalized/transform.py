@@ -17,6 +17,8 @@ DATE_FORMATS: tuple[str, ...] = (
     "%d/%m/%Y",
 )
 
+NUMERIC_20_6_MAX_ABS = Decimal("99999999999999.999999")
+
 
 def clean_raw_value(value: Any) -> str | None:
     if value is None:
@@ -76,9 +78,15 @@ def parse_decimal(value: Any) -> Decimal | None:
         text = text.replace(".", "").replace(",", ".")
 
     try:
-        return Decimal(text)
+        parsed = Decimal(text)
     except InvalidOperation:
         return None
+
+    if not parsed.is_finite():
+        return None
+    if abs(parsed) > NUMERIC_20_6_MAX_ABS:
+        return None
+    return parsed
 
 
 def parse_int(value: Any) -> int | None:

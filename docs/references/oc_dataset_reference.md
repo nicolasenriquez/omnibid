@@ -1,6 +1,6 @@
 # OC Dataset Reference (202601-oc / 202604-oc)
 
-This repository version includes Silver mappings aligned to the OC CSV schema used in:
+This repository version includes normalized mappings aligned to the OC CSV schema used in:
 
 - `202601-oc.csv`
 - `202604-oc.csv`
@@ -11,11 +11,11 @@ Raw rows are treated as **order + item** grain (not one row per order).
 
 ## Header business key
 
-- `Codigo` -> `silver_ordenes_compra.codigo_oc`
+- `Codigo` -> `normalized_ordenes_compra.codigo_oc`
 
 ## Item business key
 
-- `(Codigo, IDItem)` -> `silver_ordenes_compra_items (codigo_oc, id_item)`
+- `(Codigo, IDItem)` -> `normalized_ordenes_compra_items (codigo_oc, id_item)`
 
 ## Included OC header fields (high-level)
 
@@ -47,4 +47,3 @@ Raw rows are treated as **order + item** grain (not one row per order).
 - boolean parsing supports `1/0`, `true/false`, `si/no`, `yes/no`.
 - null-like values (`NA`, empty, sentinel date values) are normalized to null.
 - `Forma de Pago` is preferred over `FormaPago` if both are present.
-

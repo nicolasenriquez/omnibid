@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from backend.silver.transform import (
+from backend.normalized.transform import (
     build_licitacion_item_payload,
     build_licitacion_payload,
     build_orden_compra_item_payload,
@@ -82,6 +82,24 @@ def test_parse_decimal_handles_currency_symbol_and_thousands() -> None:
     value = parse_decimal("$1.234,56")
     assert value is not None
     assert str(value) == "1234.56"
+
+
+def test_parse_decimal_rejects_numeric_20_6_integer_overflow() -> None:
+    assert parse_decimal("100000000000000") is None
+
+
+def test_parse_decimal_accepts_numeric_20_6_upper_boundary() -> None:
+    value = parse_decimal("99999999999999.999999")
+    assert value is not None
+    assert str(value) == "99999999999999.999999"
+
+
+def test_parse_decimal_rejects_numeric_20_6_scale_overflow() -> None:
+    assert parse_decimal("99999999999999.9999999") is None
+
+
+def test_parse_decimal_rejects_large_scientific_overflow() -> None:
+    assert parse_decimal("1e20") is None
 
 
 def test_parse_bool_handles_full_spanish_booleans() -> None:
