@@ -89,3 +89,26 @@ class DataQualityIssue(Base):
     issue_value = sa.Column(sa.Text)
     details = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+
+class DatasetSummarySnapshot(Base):
+    __tablename__ = "dataset_summary_snapshots"
+
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()"))
+    generated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    refresh_mode = sa.Column(sa.Text, nullable=False)
+    status = sa.Column(sa.Text, nullable=False, server_default=sa.text("'success'"))
+    source_files_count = sa.Column(sa.BigInteger, nullable=False)
+    raw_licitaciones_count = sa.Column(sa.BigInteger, nullable=False)
+    raw_ordenes_compra_count = sa.Column(sa.BigInteger, nullable=False)
+    normalized_licitaciones_count = sa.Column(sa.BigInteger, nullable=False)
+    normalized_licitacion_items_count = sa.Column(sa.BigInteger, nullable=False)
+    normalized_ofertas_count = sa.Column(sa.BigInteger, nullable=False)
+    normalized_ordenes_compra_count = sa.Column(sa.BigInteger, nullable=False)
+    normalized_ordenes_compra_items_count = sa.Column(sa.BigInteger, nullable=False)
+    error_details = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+
+    __table_args__ = (
+        sa.Index("ix_dataset_summary_snapshots_generated_at", "generated_at"),
+        sa.Index("ix_dataset_summary_snapshots_status_generated_at", "status", "generated_at"),
+    )

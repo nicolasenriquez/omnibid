@@ -25,16 +25,22 @@ List endpoint limits are bounded:
 - `GET /runs?limit=<n>` supports `1..200` (default `50`).
 - `GET /files?limit=<n>` supports `1..200` (default `100`).
 
-Dataset summary strategy is cache-first for scale:
+Dataset summary strategy is persisted-snapshot-first for scale:
 
-- `GET /datasets/summary` defaults to `mode=cached` and returns cached counts when cache age is within `max_age_seconds` (`10..3600`, default `300`).
-- `GET /datasets/summary?mode=fresh` forces a recount and refreshes cache.
-- Response includes `summary_meta` with `strategy=ttl_cached_full_counts` and `precomputed_summary_storage=deferred_followup_proposal_required`.
+- `GET /datasets/summary` defaults to `mode=cached` and serves the latest successful persisted snapshot.
+- If no snapshot exists yet, default mode performs a one-time bootstrap refresh and persists it.
+- `GET /datasets/summary?mode=fresh` forces a recount and persists a new successful snapshot atomically.
+- If a fresh refresh fails, the API preserves the last successful snapshot and returns stale/failure metadata instead of partial counts.
+- Response includes `summary_meta` with:
+  - `strategy=persisted_success_snapshot`
+  - `precomputed_summary_storage=enabled`
+  - `snapshot_id`, `snapshot_refresh_mode`, `snapshot_age_seconds`, `is_stale`, `refresh_status`
 
-Follow-up requirement (explicitly deferred in this change):
+Operator guidance:
 
-- Precomputed summary persistence must be proposed in a dedicated follow-up change before high-frequency dashboard polling.
-- This hardening change intentionally does **not** add a new precomputed summary table.
+- Keep dashboards/pollers on default `mode=cached`.
+- Use `mode=fresh` for deliberate operator checks or scheduled maintenance refreshes only.
+- Investigate repeated `refresh_status=failed_using_last_successful_snapshot` before relying on `mode=fresh` outcomes.
 
 ## Canonical Telemetry Contract (Raw + Normalized)
 
@@ -215,8 +221,9 @@ Each dataset execution prints:
    - no row-level telemetry appears unless debug telemetry is explicitly enabled.
 5. Validate operations API guardrails:
    - out-of-range limits on `/runs` and `/files` return validation errors.
-   - `/datasets/summary` default mode reports `summary_meta.is_cached=true` on repeated requests within cache age.
-   - use `mode=fresh` only for deliberate operator checks, not for high-frequency polling.
+   - `/datasets/summary` default mode serves the latest persisted snapshot (`summary_meta.strategy=persisted_success_snapshot`).
+   - `/datasets/summary?mode=fresh` returns a new persisted snapshot on success (`summary_meta.refresh_status=refreshed`).
+   - if fresh refresh fails, response keeps the last successful snapshot and reports `summary_meta.refresh_status=failed_using_last_successful_snapshot`.
 
 ## Immediate Reliability Backlog (Waterfall Order)
 
