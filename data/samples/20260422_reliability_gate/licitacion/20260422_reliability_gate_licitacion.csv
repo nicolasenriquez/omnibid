@@ -1,0 +1,6 @@
+Codigo;CodigoExterno;Tipo de Adquisicion;FechaPublicacion;FechaCierre;Codigoitem;CodigoProveedor;NombreProveedor;Estado Oferta;Nombre de la Oferta
+L001;LEXT-20260422-001;Licitacion Publica;2026-04-01;2026-04-10;ITEM-001;PROV-001;Proveedor Uno;Aceptada;Oferta Uno
+L002;LEXT-20260422-002;Licitacion Publica;2026-04-02;2026-04-11;ITEM-002;PROV-002;Proveedor Dos;Aceptada;Oferta Dos
+L003;LEXT-20260422-003;Licitacion Privada;2026-04-03;2026-04-12;ITEM-003;PROV-003;Proveedor Tres;Aceptada;Oferta Tres
+L004;LEXT-20260422-004;Licitacion Privada;2026-04-04;2026-04-13;ITEM-004;PROV-004;Proveedor Cuatro;Aceptada;Oferta Cuatro
+L005;LEXT-20260422-005;Licitacion Publica;2026-04-05;2026-04-14;ITEM-005;PROV-005;Proveedor Cinco;Aceptada;Oferta Cinco

@@ -1,0 +1,6 @@
+Codigo;FechaEnvio;Estado;DescripcionTipoOC;IDItem;codigoProductoONU;totalLineaNeto
+OC001;2026-04-01;Enviada;Orden Estandar;1;78180101;1000
+OC002;2026-04-02;Enviada;Orden Estandar;2;78180102;2000
+OC003;2026-04-03;Enviada;Orden Estandar;3;78180103;3000
+OC004;2026-04-04;Enviada;Orden Estandar;4;78180104;4000
+OC005;2026-04-05;Enviada;Orden Estandar;5;78180105;5000

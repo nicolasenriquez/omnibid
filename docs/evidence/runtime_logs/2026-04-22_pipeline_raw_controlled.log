@@ -1,0 +1,2 @@
+OK 20260422_reliability_gate_licitacion.csv: processed=5 accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0
+OK 20260422_reliability_gate_orden_compra.csv: processed=5 accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0

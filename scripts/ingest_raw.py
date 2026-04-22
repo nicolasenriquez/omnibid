@@ -205,6 +205,33 @@ def build_raw_ingest_metrics(
     }
 
 
+def persist_raw_ingest_failure(
+    session: Session,
+    batch: IngestionBatch,
+    step: PipelineRunStep,
+    run: PipelineRun,
+    exc: Exception,
+) -> None:
+    session.rollback()
+
+    batch_any = cast(Any, batch)
+    step_any = cast(Any, step)
+    run_any = cast(Any, run)
+
+    batch_any.status = "failed"
+    batch_any.finished_at = datetime.now(UTC)
+
+    step_any.status = "failed"
+    step_any.finished_at = datetime.now(UTC)
+    step_any.error_details = {"error": str(exc)}
+
+    run_any.status = "failed"
+    run_any.finished_at = datetime.now(UTC)
+    run_any.error_summary = str(exc)
+
+    session.commit()
+
+
 def ingest_file(
     session: Session,
     dataset_type: str,
@@ -429,6 +456,13 @@ def main() -> int:
                     if files_bar is not None:
                         files_bar.update(1)
                 except Exception as exc:  # noqa: BLE001
+                    persist_raw_ingest_failure(
+                        session=session,
+                        batch=batch,
+                        step=step,
+                        run=run,
+                        exc=exc,
+                    )
                     batch_any = cast(Any, batch)
                     step_any = cast(Any, step)
                     run_any = cast(Any, run)

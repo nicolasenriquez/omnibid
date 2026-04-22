@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -19,6 +20,7 @@ if str(ROOT) not in sys.path:
 
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.models.raw import RawLicitacion, RawOrdenCompra  # noqa: E402
+from backend.models.operational import DataQualityIssue, PipelineRun, PipelineRunStep  # noqa: E402
 from backend.models.normalized import (  # noqa: E402
     NormalizedLicitacion,
     NormalizedLicitacionItem,
@@ -46,6 +48,20 @@ ORDENES_CONFLICT_FIELDS = ["codigo_oc"]
 ORDENES_ITEMS_CONFLICT_FIELDS = ["codigo_oc", "id_item"]
 POSTGRES_MAX_BIND_PARAMS = int(os.getenv("NORMALIZED_MAX_BIND_PARAMS", "32767"))
 POSTGRES_BIND_PARAM_SAFETY_MARGIN = 64
+QUALITY_GATE_POLICY_VERSION = "quality_gate_policy_v1"
+QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS = "normalized_rejected_rows"
+QUALITY_GATE_SEVERITY_WARNING = "warning"
+QUALITY_GATE_SEVERITY_ERROR = "error"
+QUALITY_GATE_MAX_ERROR_RATE = 0.005
+QUALITY_GATE_FAIL_ON_CRITICAL_ERROR = True
+QUALITY_GATE_CRITICAL_ISSUE_TYPES = {QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS}
+QUALITY_GATE_ENTITY_TABLES = {
+    "licitaciones": "normalized_licitaciones",
+    "licitacion_items": "normalized_licitacion_items",
+    "ofertas": "normalized_ofertas",
+    "ordenes_compra": "normalized_ordenes_compra",
+    "ordenes_compra_items": "normalized_ordenes_compra_items",
+}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -63,6 +79,202 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(f"{path.suffix}.tmp")
     tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_path.replace(path)
+
+
+def create_normalized_run(session: Session, dataset: str, mode_label: str) -> tuple[PipelineRun, PipelineRunStep]:
+    run = PipelineRun(
+        run_key=f"normalized:{dataset}:{datetime.now(UTC).isoformat()}",
+        dataset_type=dataset,
+        status="running",
+        config={
+            "mode": mode_label,
+            "quality_gate_policy_version": QUALITY_GATE_POLICY_VERSION,
+        },
+    )
+    session.add(run)
+    session.flush()
+
+    step = PipelineRunStep(
+        run_id=run.id,
+        step_name="normalized_build",
+        status="running",
+    )
+    session.add(step)
+    session.flush()
+    return run, step
+
+
+def collect_normalized_quality_issues(
+    entity_metrics: dict[str, dict[str, int]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for entity_name, metrics in entity_metrics.items():
+        processed_rows = max(0, state_int(metrics.get("processed_rows"), 0))
+        rejected_rows = max(0, state_int(metrics.get("rejected_rows"), 0))
+        if rejected_rows <= 0:
+            continue
+        error_rate = (rejected_rows / processed_rows) if processed_rows > 0 else 0.0
+        issues.append(
+            {
+                "entity_name": entity_name,
+                "table_name": QUALITY_GATE_ENTITY_TABLES.get(entity_name),
+                "issue_type": QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
+                "severity": QUALITY_GATE_SEVERITY_WARNING,
+                "record_ref": entity_name,
+                "details": {
+                    "processed_rows": processed_rows,
+                    "rejected_rows": rejected_rows,
+                    "error_rate": error_rate,
+                },
+            }
+        )
+    return issues
+
+
+def persist_normalized_quality_issues(
+    session: Session,
+    run_id: Any,
+    dataset: str,
+    issues: list[dict[str, Any]],
+) -> None:
+    for issue in issues:
+        quality_issue = DataQualityIssue(
+            run_id=run_id,
+            dataset_type=dataset,
+            table_name=issue.get("table_name"),
+            issue_type=issue["issue_type"],
+            severity=issue["severity"],
+            record_ref=issue.get("record_ref"),
+            details=issue.get("details", {}),
+        )
+        session.add(quality_issue)
+    session.flush()
+
+
+def evaluate_normalized_quality_gate(
+    entity_metrics: dict[str, dict[str, int]],
+    issues: list[dict[str, Any]],
+) -> dict[str, Any]:
+    total_processed_rows = sum(
+        max(0, state_int(metrics.get("processed_rows"), 0)) for metrics in entity_metrics.values()
+    )
+    total_rejected_rows = sum(
+        max(0, state_int(metrics.get("rejected_rows"), 0)) for metrics in entity_metrics.values()
+    )
+    dataset_error_rate = (
+        (total_rejected_rows / total_processed_rows) if total_processed_rows > 0 else 0.0
+    )
+    critical_error_issue_exists = any(
+        issue.get("severity") == QUALITY_GATE_SEVERITY_ERROR
+        and issue.get("issue_type") in QUALITY_GATE_CRITICAL_ISSUE_TYPES
+        for issue in issues
+    )
+
+    if QUALITY_GATE_FAIL_ON_CRITICAL_ERROR and critical_error_issue_exists:
+        decision = "failed"
+        decision_reason = "critical_error_issue_exists"
+    elif dataset_error_rate > QUALITY_GATE_MAX_ERROR_RATE:
+        decision = "failed"
+        decision_reason = "dataset_error_rate_exceeded_threshold"
+    elif issues:
+        decision = "warning"
+        decision_reason = "warning_issues_below_threshold"
+    else:
+        decision = "passed"
+        decision_reason = "no_quality_issues"
+
+    error_issues_count = sum(
+        1 for issue in issues if issue.get("severity") == QUALITY_GATE_SEVERITY_ERROR
+    )
+    warning_issues_count = sum(
+        1 for issue in issues if issue.get("severity") == QUALITY_GATE_SEVERITY_WARNING
+    )
+
+    return {
+        "policy_version": QUALITY_GATE_POLICY_VERSION,
+        "thresholds": {
+            "max_error_rate": QUALITY_GATE_MAX_ERROR_RATE,
+            "fail_on_critical_error": QUALITY_GATE_FAIL_ON_CRITICAL_ERROR,
+            "critical_issue_types": sorted(QUALITY_GATE_CRITICAL_ISSUE_TYPES),
+        },
+        "issue_counts": {
+            "total": len(issues),
+            "error": error_issues_count,
+            "warning": warning_issues_count,
+        },
+        "dataset_metrics": {
+            "processed_rows": total_processed_rows,
+            "rejected_rows": total_rejected_rows,
+            "error_rate": dataset_error_rate,
+        },
+        "decision": decision,
+        "decision_reason": decision_reason,
+    }
+
+
+def mark_normalized_run_completed(
+    run: PipelineRun,
+    step: PipelineRunStep,
+    processed_rows: int,
+    quality_gate: dict[str, Any],
+) -> None:
+    run_any = cast(Any, run)
+    step_any = cast(Any, step)
+    run_any.config = {
+        **(run.config or {}),
+        "quality_gate": quality_gate,
+    }
+    step_any.status = "completed"
+    step_any.finished_at = datetime.now(UTC)
+    step_any.rows_in = processed_rows
+    step_any.rows_rejected = state_int(
+        quality_gate.get("dataset_metrics", {}).get("rejected_rows"),
+        0,
+    )
+    run_any.status = "completed"
+    run_any.finished_at = datetime.now(UTC)
+
+
+def mark_normalized_run_failed(
+    run: PipelineRun,
+    step: PipelineRunStep,
+    error_summary: str,
+    quality_gate: dict[str, Any] | None = None,
+) -> None:
+    run_any = cast(Any, run)
+    step_any = cast(Any, step)
+    error_details: dict[str, Any] = {"error": error_summary}
+    if quality_gate is not None:
+        error_details["quality_gate"] = quality_gate
+        run_any.config = {
+            **(run.config or {}),
+            "quality_gate": quality_gate,
+        }
+    step_any.status = "failed"
+    step_any.finished_at = datetime.now(UTC)
+    step_any.error_details = error_details
+    run_any.status = "failed"
+    run_any.finished_at = datetime.now(UTC)
+    run_any.error_summary = error_summary
+
+
+def persist_failed_dataset_state(
+    session: Session,
+    state: dict[str, Any],
+    dataset: str,
+    snapshot: dict[str, int],
+    state_path: Path,
+) -> None:
+    session.rollback()
+
+    failed_state = state.get(dataset)
+    if not isinstance(failed_state, dict):
+        failed_state = {}
+    failed_state["status"] = "failed"
+    failed_state["source_total_rows"] = snapshot["total_rows"]
+    failed_state["source_max_id"] = snapshot["max_id"]
+    state[dataset] = failed_state
+    save_state(state_path, state)
 
 
 def raw_snapshot(session: Session, dataset: str) -> dict[str, int]:
@@ -861,6 +1073,10 @@ def main() -> int:
                 continue
 
             start_after_id = resolve_start_after_id(dataset_state, incremental=args.incremental)
+            last_processed_checkpoint_before_run = max(
+                0,
+                state_int(dataset_state.get("last_processed_raw_id"), 0),
+            )
             mode_label = "incremental" if args.incremental else "full"
             progress_write(
                 f"[normalized] dataset={dataset} mode={mode_label} start_after_id={start_after_id:,}",
@@ -877,6 +1093,8 @@ def main() -> int:
                 "processed_rows_current_run": 0,
             }
             save_state(state_path, state)
+            run: PipelineRun | None = None
+            step: PipelineRunStep | None = None
 
             def persist_checkpoint(last_raw_id: int, processed_rows: int) -> None:
                 current = state.get(dataset)
@@ -890,6 +1108,8 @@ def main() -> int:
                 save_state(state_path, state)
 
             try:
+                run, step = create_normalized_run(session, dataset, mode_label)
+                session.commit()
                 with timed_step(f"normalized dataset={dataset}", enabled=args.progress):
                     if dataset == "licitacion":
                         metrics = process_licitaciones(
@@ -918,6 +1138,56 @@ def main() -> int:
                     state_int(metrics.get("last_raw_id"), start_after_id),
                     start_after_id,
                 )
+                entity_metrics = cast(
+                    dict[str, dict[str, int]],
+                    metrics.get("entity_metrics", {}),
+                )
+                quality_issues = collect_normalized_quality_issues(entity_metrics)
+                persist_normalized_quality_issues(session, run.id, dataset, quality_issues)
+                quality_gate = evaluate_normalized_quality_gate(entity_metrics, quality_issues)
+                decision = str(quality_gate.get("decision"))
+
+                if decision == "failed":
+                    last_processed_raw_id = last_processed_checkpoint_before_run
+                    error_summary = (
+                        "normalized quality gate failed: "
+                        f"{quality_gate.get('decision_reason', 'unknown_reason')}"
+                    )
+                    mark_normalized_run_failed(
+                        run=run,
+                        step=step,
+                        error_summary=error_summary,
+                        quality_gate=quality_gate,
+                    )
+                    state[dataset] = {
+                        "status": "failed",
+                        "source_total_rows": snapshot["total_rows"],
+                        "source_max_id": snapshot["max_id"],
+                        "mode": mode_label,
+                        "start_after_id": start_after_id,
+                        "processed_rows_last_run": metrics["processed_rows"],
+                        "processed_rows_current_run": metrics["processed_rows"],
+                        "processed_rows_total": state_int(dataset_state.get("processed_rows_total"), 0)
+                        + state_int(metrics.get("processed_rows"), 0),
+                        "last_processed_raw_id": last_processed_raw_id,
+                        "last_raw_id": metrics["last_raw_id"],
+                        "quality_gate": quality_gate,
+                    }
+                    save_state(state_path, state)
+                    session.commit()
+                    progress_write(
+                        f"[normalized] dataset={dataset} failed by quality gate: "
+                        f"{quality_gate.get('decision_reason')}",
+                        enabled=args.progress,
+                    )
+                    return 1
+
+                mark_normalized_run_completed(
+                    run=run,
+                    step=step,
+                    processed_rows=state_int(metrics.get("processed_rows"), 0),
+                    quality_gate=quality_gate,
+                )
                 state[dataset] = {
                     "status": "completed",
                     "source_total_rows": snapshot["total_rows"],
@@ -930,17 +1200,25 @@ def main() -> int:
                     + state_int(metrics.get("processed_rows"), 0),
                     "last_processed_raw_id": last_processed_raw_id,
                     "last_raw_id": metrics["last_raw_id"],
+                    "quality_gate": quality_gate,
                 }
                 save_state(state_path, state)
-            except Exception:
-                failed_state = state.get(dataset)
-                if not isinstance(failed_state, dict):
-                    failed_state = {}
-                failed_state["status"] = "failed"
-                failed_state["source_total_rows"] = snapshot["total_rows"]
-                failed_state["source_max_id"] = snapshot["max_id"]
-                state[dataset] = failed_state
-                save_state(state_path, state)
+                session.commit()
+            except Exception as exc:
+                persist_failed_dataset_state(
+                    session=session,
+                    state=state,
+                    dataset=dataset,
+                    snapshot=snapshot,
+                    state_path=state_path,
+                )
+                if run is not None and step is not None:
+                    mark_normalized_run_failed(
+                        run=run,
+                        step=step,
+                        error_summary=str(exc),
+                    )
+                    session.commit()
                 raise
     return 0
 

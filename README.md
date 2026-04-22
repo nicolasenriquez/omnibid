@@ -66,6 +66,8 @@ This repository follows a controlled sequence where each stage must meet accepta
 - `GET /datasets/summary`
 
 ## Next Steps
-- Bronze/Raw telemetry reconciliation so loaded/rejected counters are auditable
-- Normalized data-quality issue persistence and thresholds
-- Gold outputs and downstream serving endpoints after stage-gate completion
+- Transactional hardening in pipeline scripts (`session.rollback()` guarantees after SQL failures).
+- ORM/migration schema parity hardening for operational/raw indexes and constraints.
+- Normalized data-quality issue persistence + threshold gates before domain expansion.
+- API operational guardrails (`limit` caps and scalable dataset summary strategy).
+- Gold outputs and downstream serving endpoints only after stage-gate completion.

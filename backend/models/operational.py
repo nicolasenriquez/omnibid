@@ -18,6 +18,10 @@ class SourceFile(Base):
     status = sa.Column(sa.Text, nullable=False, server_default=sa.text("'registered'"))
     source_meta = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
 
+    __table_args__ = (
+        sa.Index("ix_source_files_dataset_type", "dataset_type"),
+    )
+
 
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
@@ -31,6 +35,10 @@ class PipelineRun(Base):
     finished_at = sa.Column(sa.DateTime(timezone=True))
     config = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     error_summary = sa.Column(sa.Text)
+
+    __table_args__ = (
+        sa.Index("ix_pipeline_runs_status", "status"),
+    )
 
 
 class PipelineRunStep(Base):
@@ -46,6 +54,10 @@ class PipelineRunStep(Base):
     rows_out = sa.Column(sa.BigInteger)
     rows_rejected = sa.Column(sa.BigInteger)
     error_details = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+
+    __table_args__ = (
+        sa.Index("ix_pipeline_run_steps_run_id", "run_id"),
+    )
 
 
 class IngestionBatch(Base):
