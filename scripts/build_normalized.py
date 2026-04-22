@@ -22,18 +22,27 @@ from backend.db.session import SessionLocal  # noqa: E402
 from backend.models.raw import RawLicitacion, RawOrdenCompra  # noqa: E402
 from backend.models.operational import DataQualityIssue, PipelineRun, PipelineRunStep  # noqa: E402
 from backend.models.normalized import (  # noqa: E402
+    NormalizedBuyer,
+    NormalizedCategory,
     NormalizedLicitacion,
     NormalizedLicitacionItem,
     NormalizedOferta,
     NormalizedOrdenCompra,
     NormalizedOrdenCompraItem,
+    NormalizedSupplier,
 )
 from backend.normalized.transform import (  # noqa: E402
+    build_buyer_domain_payload,
+    build_category_domain_payload,
     build_licitacion_item_payload,
     build_licitacion_payload,
     build_oferta_payload,
     build_orden_compra_item_payload,
     build_orden_compra_payload,
+    build_supplier_domain_payload,
+    resolve_buyer_identity_key as transform_resolve_buyer_identity_key,
+    resolve_category_identity_key as transform_resolve_category_identity_key,
+    resolve_supplier_identity_key as transform_resolve_supplier_identity_key,
 )
 from backend.observability.cli_ui import (  # noqa: E402
     create_progress,
@@ -46,10 +55,14 @@ LICITACION_ITEMS_CONFLICT_FIELDS = ["codigo_externo", "codigo_item"]
 OFERTAS_CONFLICT_FIELDS = ["oferta_key_sha256"]
 ORDENES_CONFLICT_FIELDS = ["codigo_oc"]
 ORDENES_ITEMS_CONFLICT_FIELDS = ["codigo_oc", "id_item"]
+BUYERS_CONFLICT_FIELDS = ["buyer_key"]
+SUPPLIERS_CONFLICT_FIELDS = ["supplier_key"]
+CATEGORIES_CONFLICT_FIELDS = ["category_key"]
 POSTGRES_MAX_BIND_PARAMS = int(os.getenv("NORMALIZED_MAX_BIND_PARAMS", "32767"))
 POSTGRES_BIND_PARAM_SAFETY_MARGIN = 64
 QUALITY_GATE_POLICY_VERSION = "quality_gate_policy_v1"
 QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS = "normalized_rejected_rows"
+QUALITY_GATE_ISSUE_TYPE_MISSING_DOMAIN_IDENTITY = "normalized_missing_domain_identity"
 QUALITY_GATE_SEVERITY_WARNING = "warning"
 QUALITY_GATE_SEVERITY_ERROR = "error"
 QUALITY_GATE_MAX_ERROR_RATE = 0.005
@@ -61,7 +74,79 @@ QUALITY_GATE_ENTITY_TABLES = {
     "ofertas": "normalized_ofertas",
     "ordenes_compra": "normalized_ordenes_compra",
     "ordenes_compra_items": "normalized_ordenes_compra_items",
+    "buyers": "normalized_buyers",
+    "suppliers": "normalized_suppliers",
+    "categories": "normalized_categories",
 }
+QUALITY_GATE_DOMAIN_IDENTITY_FIELDS = {
+    "buyers": "codigo_unidad_compra",
+    "suppliers": "codigo_proveedor_or_rut_proveedor",
+    "categories": "codigo_categoria",
+}
+
+
+def resolve_buyer_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_buyer_identity_key(raw)
+
+
+def resolve_supplier_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_supplier_identity_key(raw)
+
+
+def resolve_category_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_category_identity_key(raw)
+
+
+def build_supplier_domain_from_licitacion_transaction(
+    *,
+    raw: dict[str, Any],
+    source_file_id: Any,
+    oferta_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if oferta_payload is None:
+        return None
+    oferta_payload["supplier_key"] = resolve_supplier_identity_key(raw)
+    return build_supplier_domain_payload(
+        raw=raw,
+        source_file_id=source_file_id,
+    )
+
+
+def build_domain_payloads_from_orden_transaction(
+    *,
+    raw: dict[str, Any],
+    source_file_id: Any,
+    orden_payload: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if orden_payload is None:
+        return None, None
+
+    orden_payload["buyer_key"] = resolve_buyer_identity_key(raw)
+    orden_payload["supplier_key"] = resolve_supplier_identity_key(raw)
+    buyer_payload = build_buyer_domain_payload(
+        raw=raw,
+        source_file_id=source_file_id,
+    )
+    supplier_payload = build_supplier_domain_payload(
+        raw=raw,
+        source_file_id=source_file_id,
+    )
+    return buyer_payload, supplier_payload
+
+
+def build_category_domain_from_orden_item_transaction(
+    *,
+    raw: dict[str, Any],
+    source_file_id: Any,
+    orden_item_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if orden_item_payload is None:
+        return None
+    orden_item_payload["category_key"] = resolve_category_identity_key(raw)
+    return build_category_domain_payload(
+        raw=raw,
+        source_file_id=source_file_id,
+    )
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -114,17 +199,32 @@ def collect_normalized_quality_issues(
         if rejected_rows <= 0:
             continue
         error_rate = (rejected_rows / processed_rows) if processed_rows > 0 else 0.0
+        is_domain_identity_issue = entity_name in QUALITY_GATE_DOMAIN_IDENTITY_FIELDS
+        identity_field = str(
+            metrics.get("identity_field")
+            or QUALITY_GATE_DOMAIN_IDENTITY_FIELDS.get(entity_name, "")
+        )
+        default_rejection_reason = "missing_identity" if is_domain_identity_issue else "rejected_rows"
+        rejection_reason = str(metrics.get("rejection_reason") or default_rejection_reason)
+        issue_type = (
+            QUALITY_GATE_ISSUE_TYPE_MISSING_DOMAIN_IDENTITY
+            if is_domain_identity_issue
+            else QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS
+        )
         issues.append(
             {
                 "entity_name": entity_name,
                 "table_name": QUALITY_GATE_ENTITY_TABLES.get(entity_name),
-                "issue_type": QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
+                "issue_type": issue_type,
                 "severity": QUALITY_GATE_SEVERITY_WARNING,
                 "record_ref": entity_name,
+                "column_name": identity_field if is_domain_identity_issue else None,
                 "details": {
                     "processed_rows": processed_rows,
                     "rejected_rows": rejected_rows,
                     "error_rate": error_rate,
+                    "rejection_reason": rejection_reason,
+                    "identity_field": identity_field if is_domain_identity_issue else None,
                 },
             }
         )
@@ -145,6 +245,7 @@ def persist_normalized_quality_issues(
             issue_type=issue["issue_type"],
             severity=issue["severity"],
             record_ref=issue.get("record_ref"),
+            column_name=issue.get("column_name"),
             details=issue.get("details", {}),
         )
         session.add(quality_issue)
@@ -372,6 +473,24 @@ def build_entity_metrics(
     }
 
 
+def build_domain_entity_metrics(
+    *,
+    accepted_rows: int,
+    rejected_rows: int,
+    deduplicated_rows: int,
+    before_scope_rows: int,
+    after_scope_rows: int,
+) -> dict[str, int]:
+    return build_entity_metrics(
+        processed_rows=accepted_rows + rejected_rows,
+        accepted_rows=accepted_rows,
+        rejected_rows=rejected_rows,
+        deduplicated_rows=deduplicated_rows,
+        before_scope_rows=before_scope_rows,
+        after_scope_rows=after_scope_rows,
+    )
+
+
 def dedupe_rows(rows: list[dict[str, Any]], key_fields: list[str]) -> list[dict[str, Any]]:
     if not key_fields:
         raise ValueError("conflict key fields cannot be empty")
@@ -481,8 +600,12 @@ def flush_if_needed(
     buffer_rows: list[dict[str, Any]],
     conflict_fields: list[str],
     chunk_size: int,
+    *,
+    force: bool = False,
 ) -> int:
-    if len(buffer_rows) < chunk_size:
+    if not force and len(buffer_rows) < chunk_size:
+        return 0
+    if not buffer_rows:
         return 0
     upserted = upsert_rows(session, model, buffer_rows, conflict_fields)
     buffer_rows.clear()
@@ -502,6 +625,181 @@ def flush_remaining(
     return upserted
 
 
+def flush_licitaciones_chunk_buffers(
+    *,
+    session: Session,
+    chunk_size: int,
+    licitaciones_rows: list[dict[str, Any]],
+    licitacion_items_rows: list[dict[str, Any]],
+    suppliers_rows: list[dict[str, Any]],
+    ofertas_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int]:
+    ofertas_chunk_triggered = len(ofertas_rows) >= chunk_size
+    licitaciones = flush_if_needed(
+        session,
+        NormalizedLicitacion,
+        licitaciones_rows,
+        LICITACIONES_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    items = flush_if_needed(
+        session,
+        NormalizedLicitacionItem,
+        licitacion_items_rows,
+        LICITACION_ITEMS_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    # Supplier dimensions must exist before ofertas that reference supplier_key.
+    suppliers = flush_if_needed(
+        session,
+        NormalizedSupplier,
+        suppliers_rows,
+        SUPPLIERS_CONFLICT_FIELDS,
+        chunk_size,
+        force=ofertas_chunk_triggered,
+    )
+    ofertas = flush_if_needed(
+        session,
+        NormalizedOferta,
+        ofertas_rows,
+        OFERTAS_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    return licitaciones, items, suppliers, ofertas
+
+
+def flush_licitaciones_remaining_buffers(
+    *,
+    session: Session,
+    licitaciones_rows: list[dict[str, Any]],
+    licitacion_items_rows: list[dict[str, Any]],
+    suppliers_rows: list[dict[str, Any]],
+    ofertas_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int]:
+    licitaciones = flush_remaining(
+        session,
+        NormalizedLicitacion,
+        licitaciones_rows,
+        LICITACIONES_CONFLICT_FIELDS,
+    )
+    items = flush_remaining(
+        session,
+        NormalizedLicitacionItem,
+        licitacion_items_rows,
+        LICITACION_ITEMS_CONFLICT_FIELDS,
+    )
+    suppliers = flush_remaining(
+        session,
+        NormalizedSupplier,
+        suppliers_rows,
+        SUPPLIERS_CONFLICT_FIELDS,
+    )
+    ofertas = flush_remaining(
+        session,
+        NormalizedOferta,
+        ofertas_rows,
+        OFERTAS_CONFLICT_FIELDS,
+    )
+    return licitaciones, items, suppliers, ofertas
+
+
+def flush_ordenes_chunk_buffers(
+    *,
+    session: Session,
+    chunk_size: int,
+    buyers_rows: list[dict[str, Any]],
+    suppliers_rows: list[dict[str, Any]],
+    categories_rows: list[dict[str, Any]],
+    ordenes_rows: list[dict[str, Any]],
+    ordenes_items_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int]:
+    facts_chunk_triggered = (
+        len(ordenes_rows) >= chunk_size or len(ordenes_items_rows) >= chunk_size
+    )
+    # Dimension/domain entities must exist before fact rows with FK references.
+    buyers = flush_if_needed(
+        session,
+        NormalizedBuyer,
+        buyers_rows,
+        BUYERS_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    suppliers = flush_if_needed(
+        session,
+        NormalizedSupplier,
+        suppliers_rows,
+        SUPPLIERS_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    categories = flush_if_needed(
+        session,
+        NormalizedCategory,
+        categories_rows,
+        CATEGORIES_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    ordenes = flush_if_needed(
+        session,
+        NormalizedOrdenCompra,
+        ordenes_rows,
+        ORDENES_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    ordenes_items = flush_if_needed(
+        session,
+        NormalizedOrdenCompraItem,
+        ordenes_items_rows,
+        ORDENES_ITEMS_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    return buyers, suppliers, categories, ordenes, ordenes_items
+
+
+def flush_ordenes_remaining_buffers(
+    *,
+    session: Session,
+    buyers_rows: list[dict[str, Any]],
+    suppliers_rows: list[dict[str, Any]],
+    categories_rows: list[dict[str, Any]],
+    ordenes_rows: list[dict[str, Any]],
+    ordenes_items_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int]:
+    buyers = flush_remaining(
+        session,
+        NormalizedBuyer,
+        buyers_rows,
+        BUYERS_CONFLICT_FIELDS,
+    )
+    suppliers = flush_remaining(
+        session,
+        NormalizedSupplier,
+        suppliers_rows,
+        SUPPLIERS_CONFLICT_FIELDS,
+    )
+    categories = flush_remaining(
+        session,
+        NormalizedCategory,
+        categories_rows,
+        CATEGORIES_CONFLICT_FIELDS,
+    )
+    ordenes = flush_remaining(
+        session,
+        NormalizedOrdenCompra,
+        ordenes_rows,
+        ORDENES_CONFLICT_FIELDS,
+    )
+    ordenes_items = flush_remaining(
+        session,
+        NormalizedOrdenCompraItem,
+        ordenes_items_rows,
+        ORDENES_ITEMS_CONFLICT_FIELDS,
+    )
+    return buyers, suppliers, categories, ordenes, ordenes_items
+
+
 def process_licitaciones(
     session: Session,
     fetch_size: int,
@@ -515,6 +813,7 @@ def process_licitaciones(
     licitaciones_before = table_row_count(session, NormalizedLicitacion)
     licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
     ofertas_before = table_row_count(session, NormalizedOferta)
+    suppliers_before = table_row_count(session, NormalizedSupplier)
 
     total_rows = session.execute(
         sa.select(sa.func.count())
@@ -535,15 +834,19 @@ def process_licitaciones(
     licitaciones_rows: list[dict[str, Any]] = []
     licitacion_items_rows: list[dict[str, Any]] = []
     ofertas_rows: list[dict[str, Any]] = []
+    suppliers_rows: list[dict[str, Any]] = []
     licitaciones_accepted = 0
     licitacion_items_accepted = 0
     ofertas_accepted = 0
+    suppliers_accepted = 0
     licitaciones_rejected = 0
     licitacion_items_rejected = 0
     ofertas_rejected = 0
+    suppliers_rejected = 0
     licitaciones_deduplicated = 0
     licitacion_items_deduplicated = 0
     ofertas_deduplicated = 0
+    suppliers_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -626,27 +929,34 @@ def process_licitaciones(
                 else:
                     ofertas_rejected += 1
 
-                licitaciones_deduplicated += flush_if_needed(
-                    session,
-                    NormalizedLicitacion,
-                    licitaciones_rows,
-                    LICITACIONES_CONFLICT_FIELDS,
-                    chunk_size,
+                supplier = build_supplier_domain_from_licitacion_transaction(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    oferta_payload=oferta,
                 )
-                licitacion_items_deduplicated += flush_if_needed(
-                    session,
-                    NormalizedLicitacionItem,
-                    licitacion_items_rows,
-                    LICITACION_ITEMS_CONFLICT_FIELDS,
-                    chunk_size,
+                if supplier is not None:
+                    suppliers_rows.append(supplier)
+                    suppliers_accepted += 1
+                elif oferta is not None:
+                    suppliers_rejected += 1
+
+                (
+                    chunk_licitaciones,
+                    chunk_items,
+                    chunk_suppliers,
+                    chunk_ofertas,
+                ) = flush_licitaciones_chunk_buffers(
+                    session=session,
+                    chunk_size=chunk_size,
+                    licitaciones_rows=licitaciones_rows,
+                    licitacion_items_rows=licitacion_items_rows,
+                    suppliers_rows=suppliers_rows,
+                    ofertas_rows=ofertas_rows,
                 )
-                ofertas_deduplicated += flush_if_needed(
-                    session,
-                    NormalizedOferta,
-                    ofertas_rows,
-                    OFERTAS_CONFLICT_FIELDS,
-                    chunk_size,
-                )
+                licitaciones_deduplicated += chunk_licitaciones
+                licitacion_items_deduplicated += chunk_items
+                suppliers_deduplicated += chunk_suppliers
+                ofertas_deduplicated += chunk_ofertas
 
             session.commit()
             if row_bar is not None:
@@ -677,29 +987,28 @@ def process_licitaciones(
         if row_bar is not None:
             row_bar.close()
 
-    licitaciones_deduplicated += flush_remaining(
-        session,
-        NormalizedLicitacion,
-        licitaciones_rows,
-        LICITACIONES_CONFLICT_FIELDS,
+    (
+        remaining_licitaciones,
+        remaining_items,
+        remaining_suppliers,
+        remaining_ofertas,
+    ) = flush_licitaciones_remaining_buffers(
+        session=session,
+        licitaciones_rows=licitaciones_rows,
+        licitacion_items_rows=licitacion_items_rows,
+        suppliers_rows=suppliers_rows,
+        ofertas_rows=ofertas_rows,
     )
-    licitacion_items_deduplicated += flush_remaining(
-        session,
-        NormalizedLicitacionItem,
-        licitacion_items_rows,
-        LICITACION_ITEMS_CONFLICT_FIELDS,
-    )
-    ofertas_deduplicated += flush_remaining(
-        session,
-        NormalizedOferta,
-        ofertas_rows,
-        OFERTAS_CONFLICT_FIELDS,
-    )
+    licitaciones_deduplicated += remaining_licitaciones
+    licitacion_items_deduplicated += remaining_items
+    suppliers_deduplicated += remaining_suppliers
+    ofertas_deduplicated += remaining_ofertas
 
     session.commit()
     licitaciones_after = table_row_count(session, NormalizedLicitacion)
     licitacion_items_after = table_row_count(session, NormalizedLicitacionItem)
     ofertas_after = table_row_count(session, NormalizedOferta)
+    suppliers_after = table_row_count(session, NormalizedSupplier)
 
     licitaciones_metrics = build_entity_metrics(
         processed_rows=processed,
@@ -725,6 +1034,13 @@ def process_licitaciones(
         before_scope_rows=ofertas_before,
         after_scope_rows=ofertas_after,
     )
+    suppliers_metrics = build_domain_entity_metrics(
+        accepted_rows=suppliers_accepted,
+        rejected_rows=suppliers_rejected,
+        deduplicated_rows=suppliers_deduplicated,
+        before_scope_rows=suppliers_before,
+        after_scope_rows=suppliers_after,
+    )
 
     progress_write(
         "[normalized] licitaciones summary: "
@@ -749,6 +1065,13 @@ def process_licitaciones(
         f"inserted_delta={ofertas_metrics['inserted_delta_rows']:,} "
         f"existing_or_updated={ofertas_metrics['existing_or_updated_rows']:,} "
         f"rejected={ofertas_metrics['rejected_rows']:,}"
+        "} "
+        "suppliers{"
+        f"accepted={suppliers_metrics['accepted_rows']:,} "
+        f"deduplicated={suppliers_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={suppliers_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={suppliers_metrics['existing_or_updated_rows']:,} "
+        f"rejected={suppliers_metrics['rejected_rows']:,}"
         "}",
         enabled=show_progress,
     )
@@ -762,6 +1085,7 @@ def process_licitaciones(
             "licitaciones": licitaciones_metrics,
             "licitacion_items": licitacion_items_metrics,
             "ofertas": ofertas_metrics,
+            "suppliers": suppliers_metrics,
         },
     }
 
@@ -778,6 +1102,9 @@ def process_ordenes_compra(
 ) -> dict[str, Any]:
     ordenes_before = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_before = table_row_count(session, NormalizedOrdenCompraItem)
+    buyers_before = table_row_count(session, NormalizedBuyer)
+    suppliers_before = table_row_count(session, NormalizedSupplier)
+    categories_before = table_row_count(session, NormalizedCategory)
 
     total_rows = session.execute(
         sa.select(sa.func.count())
@@ -797,12 +1124,24 @@ def process_ordenes_compra(
 
     ordenes_rows: list[dict[str, Any]] = []
     ordenes_items_rows: list[dict[str, Any]] = []
+    buyers_rows: list[dict[str, Any]] = []
+    suppliers_rows: list[dict[str, Any]] = []
+    categories_rows: list[dict[str, Any]] = []
     ordenes_accepted = 0
     ordenes_items_accepted = 0
+    buyers_accepted = 0
+    suppliers_accepted = 0
+    categories_accepted = 0
     ordenes_rejected = 0
     ordenes_items_rejected = 0
+    buyers_rejected = 0
+    suppliers_rejected = 0
+    categories_rejected = 0
     ordenes_deduplicated = 0
     ordenes_items_deduplicated = 0
+    buyers_deduplicated = 0
+    suppliers_deduplicated = 0
+    categories_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -874,20 +1213,54 @@ def process_ordenes_compra(
                 else:
                     ordenes_items_rejected += 1
 
-                ordenes_deduplicated += flush_if_needed(
-                    session,
-                    NormalizedOrdenCompra,
-                    ordenes_rows,
-                    ORDENES_CONFLICT_FIELDS,
-                    chunk_size,
+                buyer, supplier = build_domain_payloads_from_orden_transaction(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    orden_payload=orden,
                 )
-                ordenes_items_deduplicated += flush_if_needed(
-                    session,
-                    NormalizedOrdenCompraItem,
-                    ordenes_items_rows,
-                    ORDENES_ITEMS_CONFLICT_FIELDS,
-                    chunk_size,
+                if buyer is not None:
+                    buyers_rows.append(buyer)
+                    buyers_accepted += 1
+                elif orden is not None:
+                    buyers_rejected += 1
+
+                if supplier is not None:
+                    suppliers_rows.append(supplier)
+                    suppliers_accepted += 1
+                elif orden is not None:
+                    suppliers_rejected += 1
+
+                category = build_category_domain_from_orden_item_transaction(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    orden_item_payload=orden_item,
                 )
+                if category is not None:
+                    categories_rows.append(category)
+                    categories_accepted += 1
+                elif orden_item is not None:
+                    categories_rejected += 1
+
+                (
+                    chunk_buyers,
+                    chunk_suppliers,
+                    chunk_categories,
+                    chunk_ordenes,
+                    chunk_ordenes_items,
+                ) = flush_ordenes_chunk_buffers(
+                    session=session,
+                    chunk_size=chunk_size,
+                    buyers_rows=buyers_rows,
+                    suppliers_rows=suppliers_rows,
+                    categories_rows=categories_rows,
+                    ordenes_rows=ordenes_rows,
+                    ordenes_items_rows=ordenes_items_rows,
+                )
+                buyers_deduplicated += chunk_buyers
+                suppliers_deduplicated += chunk_suppliers
+                categories_deduplicated += chunk_categories
+                ordenes_deduplicated += chunk_ordenes
+                ordenes_items_deduplicated += chunk_ordenes_items
 
             session.commit()
             if row_bar is not None:
@@ -916,22 +1289,32 @@ def process_ordenes_compra(
         if row_bar is not None:
             row_bar.close()
 
-    ordenes_deduplicated += flush_remaining(
-        session,
-        NormalizedOrdenCompra,
-        ordenes_rows,
-        ORDENES_CONFLICT_FIELDS,
+    (
+        remaining_buyers,
+        remaining_suppliers,
+        remaining_categories,
+        remaining_ordenes,
+        remaining_ordenes_items,
+    ) = flush_ordenes_remaining_buffers(
+        session=session,
+        buyers_rows=buyers_rows,
+        suppliers_rows=suppliers_rows,
+        categories_rows=categories_rows,
+        ordenes_rows=ordenes_rows,
+        ordenes_items_rows=ordenes_items_rows,
     )
-    ordenes_items_deduplicated += flush_remaining(
-        session,
-        NormalizedOrdenCompraItem,
-        ordenes_items_rows,
-        ORDENES_ITEMS_CONFLICT_FIELDS,
-    )
+    buyers_deduplicated += remaining_buyers
+    suppliers_deduplicated += remaining_suppliers
+    categories_deduplicated += remaining_categories
+    ordenes_deduplicated += remaining_ordenes
+    ordenes_items_deduplicated += remaining_ordenes_items
 
     session.commit()
     ordenes_after = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_after = table_row_count(session, NormalizedOrdenCompraItem)
+    buyers_after = table_row_count(session, NormalizedBuyer)
+    suppliers_after = table_row_count(session, NormalizedSupplier)
+    categories_after = table_row_count(session, NormalizedCategory)
 
     ordenes_metrics = build_entity_metrics(
         processed_rows=processed,
@@ -948,6 +1331,27 @@ def process_ordenes_compra(
         deduplicated_rows=ordenes_items_deduplicated,
         before_scope_rows=ordenes_items_before,
         after_scope_rows=ordenes_items_after,
+    )
+    buyers_metrics = build_domain_entity_metrics(
+        accepted_rows=buyers_accepted,
+        rejected_rows=buyers_rejected,
+        deduplicated_rows=buyers_deduplicated,
+        before_scope_rows=buyers_before,
+        after_scope_rows=buyers_after,
+    )
+    suppliers_metrics = build_domain_entity_metrics(
+        accepted_rows=suppliers_accepted,
+        rejected_rows=suppliers_rejected,
+        deduplicated_rows=suppliers_deduplicated,
+        before_scope_rows=suppliers_before,
+        after_scope_rows=suppliers_after,
+    )
+    categories_metrics = build_domain_entity_metrics(
+        accepted_rows=categories_accepted,
+        rejected_rows=categories_rejected,
+        deduplicated_rows=categories_deduplicated,
+        before_scope_rows=categories_before,
+        after_scope_rows=categories_after,
     )
 
     progress_write(
@@ -966,6 +1370,27 @@ def process_ordenes_compra(
         f"inserted_delta={ordenes_items_metrics['inserted_delta_rows']:,} "
         f"existing_or_updated={ordenes_items_metrics['existing_or_updated_rows']:,} "
         f"rejected={ordenes_items_metrics['rejected_rows']:,}"
+        "} "
+        "buyers{"
+        f"accepted={buyers_metrics['accepted_rows']:,} "
+        f"deduplicated={buyers_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={buyers_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={buyers_metrics['existing_or_updated_rows']:,} "
+        f"rejected={buyers_metrics['rejected_rows']:,}"
+        "} "
+        "suppliers{"
+        f"accepted={suppliers_metrics['accepted_rows']:,} "
+        f"deduplicated={suppliers_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={suppliers_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={suppliers_metrics['existing_or_updated_rows']:,} "
+        f"rejected={suppliers_metrics['rejected_rows']:,}"
+        "} "
+        "categories{"
+        f"accepted={categories_metrics['accepted_rows']:,} "
+        f"deduplicated={categories_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={categories_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={categories_metrics['existing_or_updated_rows']:,} "
+        f"rejected={categories_metrics['rejected_rows']:,}"
         "}",
         enabled=show_progress,
     )
@@ -978,6 +1403,9 @@ def process_ordenes_compra(
         "entity_metrics": {
             "ordenes_compra": ordenes_metrics,
             "ordenes_compra_items": ordenes_items_metrics,
+            "buyers": buyers_metrics,
+            "suppliers": suppliers_metrics,
+            "categories": categories_metrics,
         },
     }
 

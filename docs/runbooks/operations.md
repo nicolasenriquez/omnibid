@@ -166,6 +166,9 @@ Debug verbosity is opt-in for controlled runs only. The default operational mode
 - `normalized_ofertas`: `oferta_key_sha256`
 - `normalized_ordenes_compra`: `codigo_oc`
 - `normalized_ordenes_compra_items`: `codigo_oc + id_item`
+- `normalized_buyers`: `buyer_key` (`CodigoUnidadCompra`)
+- `normalized_suppliers`: `supplier_key` (`codigo:<CodigoProveedor>` else `rut:<RutProveedor>`)
+- `normalized_categories`: `category_key` (`codigoCategoria`)
 
 ### Fail-fast key validation
 
@@ -184,6 +187,14 @@ Rows are rejected (not upserted) when required builder keys are missing:
 - oferta requires `CodigoExterno` + supplier identity (`CodigoProveedor` or `RutProveedor`)
 - OC header requires `Codigo`
 - OC item requires `Codigo` + `IDItem`
+- buyer domain row requires `CodigoUnidadCompra`
+- supplier domain row requires (`CodigoProveedor` or `RutProveedor`)
+- category domain row requires `codigoCategoria`
+
+Domain identity rejections are persisted as `data_quality_issues` with:
+- `issue_type=normalized_missing_domain_identity`
+- `record_ref` (`buyers` | `suppliers` | `categories`)
+- `column_name` set to the missing identity column contract
 
 ### Parsing normalization behavior
 
@@ -216,20 +227,23 @@ Each dataset execution prints:
 3. Validate normalized summary telemetry:
    - each entity summary includes `accepted`, `deduplicated`, `inserted_delta`, `existing_or_updated`, `rejected`.
    - confirm `inserted_delta <= deduplicated <= accepted <= processed`.
-4. Validate logging efficiency:
+4. Validate domain replay idempotency:
+   - run the same bounded normalized command twice (`--no-resume --no-incremental`) against the same row window.
+   - confirm second run has `inserted_delta=0` for `buyers`, `suppliers`, and `categories`.
+5. Validate domain rejection persistence:
+   - query `data_quality_issues` for `issue_type=normalized_missing_domain_identity`.
+   - confirm `column_name` and `record_ref` match the affected domain entity.
+6. Validate logging efficiency:
    - default mode emits checkpoints and completion summaries only.
    - no row-level telemetry appears unless debug telemetry is explicitly enabled.
-5. Validate operations API guardrails:
+7. Validate operations API guardrails:
    - out-of-range limits on `/runs` and `/files` return validation errors.
    - `/datasets/summary` default mode serves the latest persisted snapshot (`summary_meta.strategy=persisted_success_snapshot`).
    - `/datasets/summary?mode=fresh` returns a new persisted snapshot on success (`summary_meta.refresh_status=refreshed`).
    - if fresh refresh fails, response keeps the last successful snapshot and reports `summary_meta.refresh_status=failed_using_last_successful_snapshot`.
 
-## Immediate Reliability Backlog (Waterfall Order)
+## Post-Domain Expansion Backlog
 
-1. transaction rollback hardening in pipeline scripts
-2. ORM/migration parity hardening for operational/raw indexes
-3. normalized quality issue persistence with threshold gates
-4. API guardrails for limit bounds and scalable dataset summaries
-
-Do not start domain expansion or Gold work before these steps are validated.
+1. evaluate cross-source buyer identity unification strategy when `CodigoUnidadCompra` is unavailable
+2. add operational read endpoints for domain entities and domain-quality issues
+3. define Gold-layer contract slices on top of canonical buyers/suppliers/categories

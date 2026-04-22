@@ -71,11 +71,41 @@ Expected operational output includes:
   - `[normalized] licitaciones progress: ...`
   - `[normalized] ordenes_compra progress: ...`
 - summary lines with rejection/upsert metrics:
-  - `rejected(header/items/ofertas)=...` for licitaciones
-  - `rejected(header/items)=...` for ordenes_compra
-  - `upserted(...)` counters per entity
+  - licitaciones summary includes `header/items/ofertas/suppliers{accepted,deduplicated,inserted_delta,existing_or_updated,rejected}`
+  - ordenes_compra summary includes `header/items/buyers/suppliers/categories{accepted,deduplicated,inserted_delta,existing_or_updated,rejected}`
 
 For full load, remove `NORMALIZED_LIMIT_ROWS` or set it to `0`.
+
+## Domain Entity Validation Loop
+
+1. Run bounded normalized replay twice:
+
+```bash
+uv run python scripts/build_normalized.py \
+  --dataset all \
+  --fetch-size 500 \
+  --chunk-size 200 \
+  --limit-rows 2000 \
+  --state-path data/runtime/normalized_domain_validation_state.json \
+  --reset-state \
+  --no-resume \
+  --no-incremental
+
+uv run python scripts/build_normalized.py \
+  --dataset all \
+  --fetch-size 500 \
+  --chunk-size 200 \
+  --limit-rows 2000 \
+  --state-path data/runtime/normalized_domain_validation_state.json \
+  --no-resume \
+  --no-incremental
+```
+
+2. Validate idempotency:
+   - second run reports `inserted_delta=0` for `buyers`, `suppliers`, and `categories`.
+3. Validate domain identity issue persistence:
+   - query `data_quality_issues` for `issue_type=normalized_missing_domain_identity`.
+   - confirm `record_ref` and `column_name` identify the affected domain contract.
 
 ## Canonical Sequential Commands
 

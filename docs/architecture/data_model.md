@@ -17,3 +17,6 @@
 - normalized_ofertas
 - normalized_ordenes_compra
 - normalized_ordenes_compra_items
+- normalized_buyers
+- normalized_suppliers
+- normalized_categories

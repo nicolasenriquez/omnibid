@@ -94,6 +94,76 @@ class NormalizedLicitacionItem(Base):
     )
 
 
+class NormalizedBuyer(Base):
+    __tablename__ = "normalized_buyers"
+
+    buyer_key = sa.Column(sa.Text, primary_key=True)
+    codigo_unidad_compra = sa.Column(sa.Text, nullable=False)
+    rut_unidad_compra = sa.Column(sa.Text)
+    unidad_compra = sa.Column(sa.Text)
+    codigo_organismo_publico = sa.Column(sa.Text)
+    organismo_publico = sa.Column(sa.Text)
+    sector = sa.Column(sa.Text)
+    actividad_comprador = sa.Column(sa.Text)
+    ciudad_unidad_compra = sa.Column(sa.Text)
+    region_unidad_compra = sa.Column(sa.Text)
+    pais_unidad_compra = sa.Column(sa.Text)
+
+    source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"), nullable=False)
+
+    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    __table_args__ = (
+        sa.Index("ix_normalized_buyers_codigo_unidad_compra", "codigo_unidad_compra"),
+        sa.Index("ix_normalized_buyers_codigo_organismo_publico", "codigo_organismo_publico"),
+    )
+
+
+class NormalizedSupplier(Base):
+    __tablename__ = "normalized_suppliers"
+
+    supplier_key = sa.Column(sa.Text, primary_key=True)
+    codigo_proveedor = sa.Column(sa.Text)
+    rut_proveedor = sa.Column(sa.Text)
+    nombre_proveedor = sa.Column(sa.Text)
+    razon_social_proveedor = sa.Column(sa.Text)
+    actividad_proveedor = sa.Column(sa.Text)
+    comuna_proveedor = sa.Column(sa.Text)
+    region_proveedor = sa.Column(sa.Text)
+    pais_proveedor = sa.Column(sa.Text)
+
+    source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"), nullable=False)
+
+    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    __table_args__ = (
+        sa.Index("ix_normalized_suppliers_codigo_proveedor", "codigo_proveedor"),
+        sa.Index("ix_normalized_suppliers_rut_proveedor", "rut_proveedor"),
+    )
+
+
+class NormalizedCategory(Base):
+    __tablename__ = "normalized_categories"
+
+    category_key = sa.Column(sa.Text, primary_key=True)
+    codigo_categoria = sa.Column(sa.Text, nullable=False)
+    categoria = sa.Column(sa.Text)
+    rubro_n1 = sa.Column(sa.Text)
+    rubro_n2 = sa.Column(sa.Text)
+    rubro_n3 = sa.Column(sa.Text)
+
+    source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"), nullable=False)
+
+    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    __table_args__ = (
+        sa.Index("ix_normalized_categories_codigo_categoria", "codigo_categoria"),
+    )
+
+
 class NormalizedOferta(Base):
     __tablename__ = "normalized_ofertas"
 
@@ -106,6 +176,7 @@ class NormalizedOferta(Base):
 
     codigo_proveedor = sa.Column(sa.Text)
     rut_proveedor = sa.Column(sa.Text)
+    supplier_key = sa.Column(sa.Text, sa.ForeignKey("normalized_suppliers.supplier_key"))
     nombre_proveedor = sa.Column(sa.Text)
     razon_social_proveedor = sa.Column(sa.Text)
 
@@ -132,6 +203,7 @@ class NormalizedOferta(Base):
         sa.Index("ix_normalized_ofertas_codigo_externo", "codigo_externo"),
         sa.Index("ix_normalized_ofertas_codigo_proveedor", "codigo_proveedor"),
         sa.Index("ix_normalized_ofertas_rut_proveedor", "rut_proveedor"),
+        sa.Index("ix_normalized_ofertas_supplier_key", "supplier_key"),
     )
 
 
@@ -187,6 +259,7 @@ class NormalizedOrdenCompra(Base):
     has_codigo_licitacion = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
 
     codigo_unidad_compra = sa.Column(sa.Text)
+    buyer_key = sa.Column(sa.Text, sa.ForeignKey("normalized_buyers.buyer_key"))
     rut_unidad_compra = sa.Column(sa.Text)
     unidad_compra = sa.Column(sa.Text)
     codigo_organismo_publico = sa.Column(sa.Text)
@@ -201,6 +274,7 @@ class NormalizedOrdenCompra(Base):
     rut_sucursal = sa.Column(sa.Text)
     sucursal = sa.Column(sa.Text)
     codigo_proveedor = sa.Column(sa.Text)
+    supplier_key = sa.Column(sa.Text, sa.ForeignKey("normalized_suppliers.supplier_key"))
     nombre_proveedor = sa.Column(sa.Text)
     actividad_proveedor = sa.Column(sa.Text)
     comuna_proveedor = sa.Column(sa.Text)
@@ -224,6 +298,8 @@ class NormalizedOrdenCompra(Base):
         sa.Index("ix_normalized_ordenes_compra_codigo_licitacion", "codigo_licitacion"),
         sa.Index("ix_normalized_ordenes_compra_codigo_proveedor", "codigo_proveedor"),
         sa.Index("ix_normalized_ordenes_compra_codigo_unidad_compra", "codigo_unidad_compra"),
+        sa.Index("ix_normalized_ordenes_compra_buyer_key", "buyer_key"),
+        sa.Index("ix_normalized_ordenes_compra_supplier_key", "supplier_key"),
     )
 
 
@@ -236,6 +312,7 @@ class NormalizedOrdenCompraItem(Base):
 
     codigo_producto_onu = sa.Column(sa.Text)
     codigo_categoria = sa.Column(sa.Text)
+    category_key = sa.Column(sa.Text, sa.ForeignKey("normalized_categories.category_key"))
     categoria = sa.Column(sa.Text)
     nombre_producto_generico = sa.Column(sa.Text)
     rubro_n1 = sa.Column(sa.Text)
@@ -262,4 +339,5 @@ class NormalizedOrdenCompraItem(Base):
         sa.UniqueConstraint("codigo_oc", "id_item", name="uq_normalized_oc_item"),
         sa.Index("ix_normalized_ordenes_compra_items_codigo_oc", "codigo_oc"),
         sa.Index("ix_normalized_ordenes_compra_items_codigo_producto_onu", "codigo_producto_onu"),
+        sa.Index("ix_normalized_ordenes_compra_items_category_key", "category_key"),
     )

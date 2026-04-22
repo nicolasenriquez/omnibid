@@ -406,3 +406,84 @@ def build_orden_compra_item_payload(
         "source_file_id": source_file_id,
         "row_hash_sha256": row_hash_sha256,
     }
+
+
+def resolve_buyer_identity_key(raw: dict[str, Any]) -> str | None:
+    return pick(raw, "CodigoUnidadCompra")
+
+
+def resolve_supplier_identity_key(raw: dict[str, Any]) -> str | None:
+    codigo_proveedor = pick(raw, "CodigoProveedor")
+    if codigo_proveedor is not None:
+        return f"codigo:{codigo_proveedor}"
+
+    rut_proveedor = pick(raw, "RutProveedor")
+    if rut_proveedor is not None:
+        return f"rut:{rut_proveedor}"
+    return None
+
+
+def resolve_category_identity_key(raw: dict[str, Any]) -> str | None:
+    return pick(raw, "codigoCategoria")
+
+
+def build_buyer_domain_payload(
+    raw: dict[str, Any],
+    source_file_id: Any,
+) -> dict[str, Any] | None:
+    buyer_key = resolve_buyer_identity_key(raw)
+    if buyer_key is None:
+        return None
+    return {
+        "buyer_key": buyer_key,
+        "codigo_unidad_compra": buyer_key,
+        "rut_unidad_compra": pick(raw, "RutUnidadCompra"),
+        "unidad_compra": pick(raw, "UnidadCompra"),
+        "codigo_organismo_publico": pick(raw, "CodigoOrganismoPublico"),
+        "organismo_publico": pick(raw, "OrganismoPublico"),
+        "sector": pick(raw, "sector"),
+        "actividad_comprador": pick(raw, "ActividadComprador"),
+        "ciudad_unidad_compra": pick(raw, "CiudadUnidadCompra"),
+        "region_unidad_compra": pick(raw, "RegionUnidadCompra"),
+        "pais_unidad_compra": pick(raw, "PaisUnidadCompra"),
+        "source_file_id": source_file_id,
+    }
+
+
+def build_supplier_domain_payload(
+    raw: dict[str, Any],
+    source_file_id: Any,
+) -> dict[str, Any] | None:
+    supplier_key = resolve_supplier_identity_key(raw)
+    if supplier_key is None:
+        return None
+    return {
+        "supplier_key": supplier_key,
+        "codigo_proveedor": pick(raw, "CodigoProveedor"),
+        "rut_proveedor": pick(raw, "RutProveedor"),
+        "nombre_proveedor": pick(raw, "NombreProveedor"),
+        "razon_social_proveedor": pick(raw, "RazonSocialProveedor"),
+        "actividad_proveedor": pick(raw, "ActividadProveedor"),
+        "comuna_proveedor": pick(raw, "ComunaProveedor"),
+        "region_proveedor": pick(raw, "RegionProveedor"),
+        "pais_proveedor": pick(raw, "PaisProveedor"),
+        "source_file_id": source_file_id,
+    }
+
+
+def build_category_domain_payload(
+    raw: dict[str, Any],
+    source_file_id: Any,
+) -> dict[str, Any] | None:
+    category_key = resolve_category_identity_key(raw)
+    if category_key is None:
+        return None
+    return {
+        "category_key": category_key,
+        "codigo_categoria": category_key,
+        "categoria": pick(raw, "Categoria"),
+        "rubro_n1": pick(raw, "RubroN1"),
+        "rubro_n2": pick(raw, "RubroN2"),
+        "rubro_n3": pick(raw, "RubroN3"),
+        "source_file_id": source_file_id,
+    }
