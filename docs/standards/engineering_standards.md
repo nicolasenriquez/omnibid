@@ -17,7 +17,7 @@
 
 1. Identify the exact behavior/API to implement.
 2. Consult the official source first (framework docs, language docs, or vendor docs).
-3. Record the reference in `docs/standards/` using the SDD template.
+3. Record the reference in `docs/references/` using the SDD template.
 4. Implement based on the documented contract.
 5. Validate with tests and quality gates.
 
@@ -52,9 +52,14 @@ SDD rules:
 
 ## Reference Standards
 
-- `docs/standards/sdd-standard.md`
-- `docs/standards/sdd-official-sources-registry.md`
-- `docs/standards/sdd-reference-template.md`
+### SDD References
+
+- `docs/references/sdd-standard.md`
+- `docs/references/sdd-official-sources-registry.md`
+- `docs/references/sdd-reference-template.md`
+
+### Library/Module Standards
+
 - `docs/standards/ruff-standard.md`
 - `docs/standards/black-standard.md`
 - `docs/standards/mypy-standard.md`

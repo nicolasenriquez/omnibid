@@ -37,8 +37,20 @@ Equivalent low-level sequence:
    - `GET /health`
    - `GET /runs?limit=50` (bounded to `1..200`)
    - `GET /files?limit=100` (bounded to `1..200`)
-   - `GET /datasets/summary` (default `mode=cached`)
-   - `GET /datasets/summary?mode=fresh` (on-demand recount)
+   - `GET /datasets/summary` (default `mode=cached`, reads latest persisted snapshot)
+   - `GET /datasets/summary?mode=fresh` (explicit recount that persists a new snapshot)
+
+## Persisted Summary Validation Loop
+
+1. Seed or refresh summary snapshot:
+   - `uv run python -c "from backend.api.routers.operations import datasets_summary; from backend.db.session import SessionLocal; s=SessionLocal(); print(datasets_summary(mode='fresh', max_age_seconds=300, db=s)['summary_meta']); s.close()"`
+2. Validate default read path returns persisted metadata:
+   - `summary_meta.strategy == persisted_success_snapshot`
+   - `summary_meta.precomputed_summary_storage == enabled`
+   - `summary_meta.refresh_status == not_requested` when using `mode=cached`
+3. Validate failure fallback behavior (unit-test backed):
+   - `uv run pytest -q tests/unit/test_operations_summary_snapshots.py`
+   - confirm `test_fresh_mode_failure_falls_back_to_last_successful_snapshot` passes.
 
 ## Normalized Pipeline Loop (Hardened)
 

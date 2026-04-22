@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import copy
 from datetime import UTC, datetime
-from threading import Lock
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -17,7 +15,7 @@ from backend.models.normalized import (
     NormalizedOrdenCompra,
     NormalizedOrdenCompraItem,
 )
-from backend.models.operational import PipelineRun, SourceFile
+from backend.models.operational import DatasetSummarySnapshot, PipelineRun, SourceFile
 from backend.models.raw import RawLicitacion, RawOrdenCompra
 
 router = APIRouter(tags=["operations"])
@@ -29,85 +27,104 @@ FILES_LIMIT_MAX = 200
 SUMMARY_CACHE_MAX_AGE_DEFAULT_SECONDS = 300
 SUMMARY_CACHE_MAX_AGE_MIN_SECONDS = 10
 SUMMARY_CACHE_MAX_AGE_MAX_SECONDS = 3_600
-SUMMARY_STRATEGY = "ttl_cached_full_counts"
-SUMMARY_PRECOMPUTED_STORAGE_STATUS = "deferred_followup_proposal_required"
-_DATASETS_SUMMARY_CACHE_LOCK = Lock()
-_DATASETS_SUMMARY_CACHE: dict[str, Any] = {}
+SUMMARY_STRATEGY = "persisted_success_snapshot"
+SUMMARY_PRECOMPUTED_STORAGE_STATUS = "enabled"
+SUMMARY_SNAPSHOT_UNAVAILABLE_DETAIL = (
+    "datasets summary snapshot unavailable and bootstrap refresh failed"
+)
+SUMMARY_REFRESH_FAILED_NO_FALLBACK_DETAIL = (
+    "datasets summary refresh failed and no successful snapshot is available"
+)
 
 
 def reset_datasets_summary_cache() -> None:
-    with _DATASETS_SUMMARY_CACHE_LOCK:
-        _DATASETS_SUMMARY_CACHE.clear()
+    # Backward-compatible no-op: summaries are persisted in operational storage.
+    return None
 
 
-def _safe_count(db: Session, model: type[Any]) -> int | None:
-    try:
-        return db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
-    except Exception:  # noqa: BLE001
-        db.rollback()
-        return None
+def _count_rows(db: Session, model: type[Any]) -> int:
+    return db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
 
 
-def _build_summary_payload(db: Session) -> tuple[dict[str, Any], bool]:
-    files = _safe_count(db, SourceFile)
-    lic_rows = _safe_count(db, RawLicitacion)
-    oc_rows = _safe_count(db, RawOrdenCompra)
-    normalized_lic = _safe_count(db, NormalizedLicitacion)
-    normalized_items = _safe_count(db, NormalizedLicitacionItem)
-    normalized_ofertas = _safe_count(db, NormalizedOferta)
-    normalized_oc = _safe_count(db, NormalizedOrdenCompra)
-    normalized_oc_items = _safe_count(db, NormalizedOrdenCompraItem)
-    counts: list[int | None] = [
-        files,
-        lic_rows,
-        oc_rows,
-        normalized_lic,
-        normalized_items,
-        normalized_ofertas,
-        normalized_oc,
-        normalized_oc_items,
-    ]
-    payload_is_complete = all(value is not None for value in counts)
-
-    return (
-        {
-            "source_files": files,
-            "raw_rows": {
-                "licitaciones": lic_rows,
-                "ordenes_compra": oc_rows,
-            },
-            "normalized_rows": {
-                "licitaciones": normalized_lic,
-                "licitacion_items": normalized_items,
-                "ofertas": normalized_ofertas,
-                "ordenes_compra": normalized_oc,
-                "ordenes_compra_items": normalized_oc_items,
-            },
-        },
-        payload_is_complete,
-    )
+def _compute_summary_counts(db: Session) -> dict[str, int]:
+    return {
+        "source_files_count": _count_rows(db, SourceFile),
+        "raw_licitaciones_count": _count_rows(db, RawLicitacion),
+        "raw_ordenes_compra_count": _count_rows(db, RawOrdenCompra),
+        "normalized_licitaciones_count": _count_rows(db, NormalizedLicitacion),
+        "normalized_licitacion_items_count": _count_rows(db, NormalizedLicitacionItem),
+        "normalized_ofertas_count": _count_rows(db, NormalizedOferta),
+        "normalized_ordenes_compra_count": _count_rows(db, NormalizedOrdenCompra),
+        "normalized_ordenes_compra_items_count": _count_rows(db, NormalizedOrdenCompraItem),
+    }
 
 
-def _read_cached_summary(max_age_seconds: int) -> tuple[dict[str, Any] | None, datetime | None]:
-    with _DATASETS_SUMMARY_CACHE_LOCK:
-        payload = _DATASETS_SUMMARY_CACHE.get("payload")
-        generated_at = _DATASETS_SUMMARY_CACHE.get("generated_at")
-        if not isinstance(payload, dict) or not isinstance(generated_at, datetime):
-            return None, None
-        cached_payload = copy.deepcopy(payload)
-
-    age_seconds = (datetime.now(UTC) - generated_at).total_seconds()
-    if age_seconds > max_age_seconds:
-        return None, None
-    return cached_payload, generated_at
+def _latest_successful_snapshot(db: Session) -> DatasetSummarySnapshot | None:
+    return db.execute(
+        sa.select(DatasetSummarySnapshot)
+        .where(DatasetSummarySnapshot.status == "success")
+        .order_by(DatasetSummarySnapshot.generated_at.desc(), DatasetSummarySnapshot.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
-def _write_cached_summary(payload: dict[str, Any]) -> datetime:
+def _persist_summary_snapshot(db: Session, *, refresh_mode: str) -> DatasetSummarySnapshot:
+    counts = _compute_summary_counts(db)
     generated_at = datetime.now(UTC)
-    with _DATASETS_SUMMARY_CACHE_LOCK:
-        _DATASETS_SUMMARY_CACHE["payload"] = copy.deepcopy(payload)
-        _DATASETS_SUMMARY_CACHE["generated_at"] = generated_at
-    return generated_at
+    snapshot = DatasetSummarySnapshot(
+        generated_at=generated_at,
+        refresh_mode=refresh_mode,
+        status="success",
+        error_details={},
+        **counts,
+    )
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+    return snapshot
+
+
+def _build_snapshot_response(
+    snapshot: DatasetSummarySnapshot,
+    *,
+    mode: Literal["cached", "fresh"],
+    max_age_seconds: int,
+    refresh_status: str,
+    refresh_error: str | None = None,
+) -> dict[str, Any]:
+    age_seconds = max(0, int((datetime.now(UTC) - snapshot.generated_at).total_seconds()))
+    summary_meta: dict[str, Any] = {
+        "mode": mode,
+        "is_cached": False,
+        "generated_at": snapshot.generated_at.isoformat(),
+        "max_age_seconds": max_age_seconds,
+        "strategy": SUMMARY_STRATEGY,
+        "precomputed_summary_storage": SUMMARY_PRECOMPUTED_STORAGE_STATUS,
+        "snapshot_id": str(snapshot.id),
+        "snapshot_status": snapshot.status,
+        "snapshot_refresh_mode": snapshot.refresh_mode,
+        "snapshot_age_seconds": age_seconds,
+        "is_stale": age_seconds > max_age_seconds,
+        "refresh_status": refresh_status,
+    }
+    if refresh_error is not None:
+        summary_meta["refresh_error"] = refresh_error
+
+    return {
+        "source_files": snapshot.source_files_count,
+        "raw_rows": {
+            "licitaciones": snapshot.raw_licitaciones_count,
+            "ordenes_compra": snapshot.raw_ordenes_compra_count,
+        },
+        "normalized_rows": {
+            "licitaciones": snapshot.normalized_licitaciones_count,
+            "licitacion_items": snapshot.normalized_licitacion_items_count,
+            "ofertas": snapshot.normalized_ofertas_count,
+            "ordenes_compra": snapshot.normalized_ordenes_compra_count,
+            "ordenes_compra_items": snapshot.normalized_ordenes_compra_items_count,
+        },
+        "summary_meta": summary_meta,
+    }
 
 
 @router.get("/runs")
@@ -203,34 +220,48 @@ def datasets_summary(
     ),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    if mode == "cached":
-        cached_payload, generated_at = _read_cached_summary(max_age_seconds)
-        if cached_payload is not None and generated_at is not None:
-            return {
-                **cached_payload,
-                "summary_meta": {
-                    "mode": mode,
-                    "is_cached": True,
-                    "generated_at": generated_at.isoformat(),
-                    "max_age_seconds": max_age_seconds,
-                    "strategy": SUMMARY_STRATEGY,
-                    "precomputed_summary_storage": SUMMARY_PRECOMPUTED_STORAGE_STATUS,
-                },
-            }
+    latest_snapshot = _latest_successful_snapshot(db)
 
-    payload, payload_is_complete = _build_summary_payload(db)
-    if payload_is_complete:
-        generated_at = _write_cached_summary(payload)
-    else:
-        generated_at = datetime.now(UTC)
-    return {
-        **payload,
-        "summary_meta": {
-            "mode": mode,
-            "is_cached": False,
-            "generated_at": generated_at.isoformat(),
-            "max_age_seconds": max_age_seconds,
-            "strategy": SUMMARY_STRATEGY,
-            "precomputed_summary_storage": SUMMARY_PRECOMPUTED_STORAGE_STATUS,
-        },
-    }
+    if mode == "cached":
+        if latest_snapshot is None:
+            try:
+                latest_snapshot = _persist_summary_snapshot(db, refresh_mode="bootstrap")
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                raise HTTPException(
+                    status_code=503,
+                    detail=SUMMARY_SNAPSHOT_UNAVAILABLE_DETAIL,
+                ) from exc
+
+        return _build_snapshot_response(
+            latest_snapshot,
+            mode=mode,
+            max_age_seconds=max_age_seconds,
+            refresh_status="not_requested",
+        )
+
+    try:
+        fresh_snapshot = _persist_summary_snapshot(db, refresh_mode="fresh")
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        fallback_snapshot = _latest_successful_snapshot(db)
+        if fallback_snapshot is None:
+            raise HTTPException(
+                status_code=503,
+                detail=SUMMARY_REFRESH_FAILED_NO_FALLBACK_DETAIL,
+            ) from exc
+
+        return _build_snapshot_response(
+            fallback_snapshot,
+            mode=mode,
+            max_age_seconds=max_age_seconds,
+            refresh_status="failed_using_last_successful_snapshot",
+            refresh_error=type(exc).__name__,
+        )
+
+    return _build_snapshot_response(
+        fresh_snapshot,
+        mode=mode,
+        max_age_seconds=max_age_seconds,
+        refresh_status="refreshed",
+    )

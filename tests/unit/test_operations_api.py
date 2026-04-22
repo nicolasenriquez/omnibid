@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -45,6 +46,9 @@ class _DummySession:
         self._responses = responses
         self.execute_calls = 0
         self.rollback_calls = 0
+        self.add_calls = 0
+        self.commit_calls = 0
+        self.refresh_calls = 0
 
     def execute(self, _stmt: object) -> _DummyResult:
         if not self._responses:
@@ -57,6 +61,19 @@ class _DummySession:
 
     def rollback(self) -> None:
         self.rollback_calls += 1
+
+    def add(self, _obj: object) -> None:
+        self.add_calls += 1
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def refresh(self, obj: Any) -> None:
+        self.refresh_calls += 1
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+        if getattr(obj, "generated_at", None) is None:
+            obj.generated_at = datetime.now(UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -120,62 +137,80 @@ def test_list_runs_accepts_bounded_limit() -> None:
     assert session.execute_calls == 1
 
 
-def test_datasets_summary_cached_mode_reuses_cache() -> None:
-    responses = [_DummyResult(scalar=value) for value in [1, 2, 3, 4, 5, 6, 7, 8]]
-    session = _DummySession(responses)
-    _set_db_override(session)
-
-    with TestClient(app) as client:
-        first = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
-        second = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert first.json()["summary_meta"]["strategy"] == "ttl_cached_full_counts"
-    assert first.json()["summary_meta"]["is_cached"] is False
-    assert second.json()["summary_meta"]["is_cached"] is True
-    assert (
-        second.json()["summary_meta"]["precomputed_summary_storage"]
-        == "deferred_followup_proposal_required"
+def _snapshot_row(source_files_count: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid4(),
+        generated_at=datetime.now(UTC),
+        refresh_mode="fresh",
+        status="success",
+        source_files_count=source_files_count,
+        raw_licitaciones_count=2,
+        raw_ordenes_compra_count=3,
+        normalized_licitaciones_count=4,
+        normalized_licitacion_items_count=5,
+        normalized_ofertas_count=6,
+        normalized_ordenes_compra_count=7,
+        normalized_ordenes_compra_items_count=8,
     )
-    assert session.execute_calls == 8
 
 
-def test_datasets_summary_fresh_mode_recomputes_counts() -> None:
-    responses = [_DummyResult(scalar=value) for value in [1] * 16]
-    session = _DummySession(responses)
+def test_datasets_summary_cached_mode_uses_persisted_snapshot() -> None:
+    snapshot = _snapshot_row(source_files_count=21)
+    session = _DummySession([_DummyResult(rows=[snapshot])])
     _set_db_override(session)
 
     with TestClient(app) as client:
-        first = client.get("/datasets/summary", params={"mode": "fresh", "max_age_seconds": 300})
-        second = client.get("/datasets/summary", params={"mode": "fresh", "max_age_seconds": 300})
+        response = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
 
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert first.json()["summary_meta"]["is_cached"] is False
-    assert second.json()["summary_meta"]["is_cached"] is False
-    assert session.execute_calls == 16
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_files"] == 21
+    assert payload["summary_meta"]["strategy"] == "persisted_success_snapshot"
+    assert payload["summary_meta"]["precomputed_summary_storage"] == "enabled"
+    assert payload["summary_meta"]["refresh_status"] == "not_requested"
+    assert session.execute_calls == 1
+    assert session.add_calls == 0
 
 
-def test_datasets_summary_cached_mode_does_not_cache_partial_payloads() -> None:
-    responses: list[_DummyResult | Exception] = [RuntimeError("transient count failure")]
-    responses.extend(_DummyResult(scalar=value) for value in [2, 3, 4, 5, 6, 7, 8])
+def test_datasets_summary_fresh_mode_persists_snapshot() -> None:
+    responses: list[_DummyResult | Exception] = [_DummyResult(rows=[])]
     responses.extend(_DummyResult(scalar=value) for value in [10, 20, 30, 40, 50, 60, 70, 80])
     session = _DummySession(responses)
     _set_db_override(session)
 
     with TestClient(app) as client:
-        first = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
-        second = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
-        third = client.get("/datasets/summary", params={"mode": "cached", "max_age_seconds": 300})
+        response = client.get("/datasets/summary", params={"mode": "fresh", "max_age_seconds": 300})
 
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert third.status_code == 200
-    assert first.json()["source_files"] is None
-    assert second.json()["source_files"] == 10
-    assert first.json()["summary_meta"]["is_cached"] is False
-    assert second.json()["summary_meta"]["is_cached"] is False
-    assert third.json()["summary_meta"]["is_cached"] is True
-    assert session.execute_calls == 16
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_files"] == 10
+    assert payload["summary_meta"]["refresh_status"] == "refreshed"
+    assert payload["summary_meta"]["snapshot_refresh_mode"] == "fresh"
+    assert session.execute_calls == 9
+    assert session.add_calls == 1
+    assert session.commit_calls == 1
+    assert session.rollback_calls == 0
+
+
+def test_datasets_summary_fresh_mode_failure_falls_back_to_last_snapshot() -> None:
+    snapshot = _snapshot_row(source_files_count=77)
+    session = _DummySession(
+        [
+            _DummyResult(rows=[snapshot]),
+            RuntimeError("count failed"),
+            _DummyResult(rows=[snapshot]),
+        ]
+    )
+    _set_db_override(session)
+
+    with TestClient(app) as client:
+        response = client.get("/datasets/summary", params={"mode": "fresh", "max_age_seconds": 300})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_files"] == 77
+    assert payload["summary_meta"]["refresh_status"] == "failed_using_last_successful_snapshot"
+    assert payload["summary_meta"]["refresh_error"] == "RuntimeError"
+    assert session.execute_calls == 3
     assert session.rollback_calls == 1
+    assert session.add_calls == 0
