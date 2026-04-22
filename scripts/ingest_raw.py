@@ -463,6 +463,22 @@ def main() -> int:
                         run=run,
                         exc=exc,
                     )
+                    batch_any = cast(Any, batch)
+                    step_any = cast(Any, step)
+                    run_any = cast(Any, run)
+
+                    batch_any.status = "failed"
+                    batch_any.finished_at = datetime.now(UTC)
+
+                    step_any.status = "failed"
+                    step_any.finished_at = datetime.now(UTC)
+                    step_any.error_details = {"error": str(exc)}
+
+                    run_any.status = "failed"
+                    run_any.finished_at = datetime.now(UTC)
+                    run_any.error_summary = str(exc)
+
+                    session.commit()
                     if files_bar is not None:
                         files_bar.update(1)
                     raise
