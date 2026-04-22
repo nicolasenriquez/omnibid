@@ -2,6 +2,7 @@
 
 ## Core Principles
 
+- SDD-first for framework/library/platform behavior.
 - TDD-first for domain logic and contracts.
 - Fail-fast behavior for invalid configuration, malformed inputs, and schema drift.
 - Typed Python for core logic.
@@ -11,6 +12,21 @@
 - Alembic as schema source of truth.
 - `uv` as dependency/runtime standard.
 - Justfile as operator interface.
+
+## SDD Workflow
+
+1. Identify the exact behavior/API to implement.
+2. Consult the official source first (framework docs, language docs, or vendor docs).
+3. Record the reference in `docs/standards/` using the SDD template.
+4. Implement based on the documented contract.
+5. Validate with tests and quality gates.
+
+SDD rules:
+
+- Prefer primary official documentation over blogs/posts.
+- If sources conflict, the official source wins.
+- If no official source exists, document the fallback rationale explicitly.
+- Keep references actionable (URL + section/topic + decision taken).
 
 ## TDD Workflow
 
@@ -36,6 +52,9 @@
 
 ## Reference Standards
 
+- `docs/standards/sdd-standard.md`
+- `docs/standards/sdd-official-sources-registry.md`
+- `docs/standards/sdd-reference-template.md`
 - `docs/standards/ruff-standard.md`
 - `docs/standards/black-standard.md`
 - `docs/standards/mypy-standard.md`

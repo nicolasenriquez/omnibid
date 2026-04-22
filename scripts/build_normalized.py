@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import sqlalchemy as sa
 from sqlalchemy.exc import OperationalError
@@ -67,7 +67,7 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
 
 def raw_snapshot(session: Session, dataset: str) -> dict[str, int]:
     if dataset == "licitacion":
-        model = RawLicitacion
+        model: Any = RawLicitacion
     else:
         model = RawOrdenCompra
     total_rows = session.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
@@ -112,6 +112,54 @@ def resolve_start_after_id(dataset_state: dict[str, Any] | None, incremental: bo
     return 0
 
 
+def table_row_count(session: Session, model: Any) -> int:
+    return int(session.execute(sa.select(sa.func.count()).select_from(model)).scalar_one())
+
+
+def build_entity_metrics(
+    *,
+    processed_rows: int,
+    accepted_rows: int,
+    rejected_rows: int,
+    deduplicated_rows: int,
+    before_scope_rows: int,
+    after_scope_rows: int,
+) -> dict[str, int]:
+    if processed_rows < 0:
+        raise ValueError("processed_rows must be >= 0")
+    if accepted_rows < 0:
+        raise ValueError("accepted_rows must be >= 0")
+    if rejected_rows < 0:
+        raise ValueError("rejected_rows must be >= 0")
+    if deduplicated_rows < 0:
+        raise ValueError("deduplicated_rows must be >= 0")
+    if before_scope_rows < 0:
+        raise ValueError("before_scope_rows must be >= 0")
+    if after_scope_rows < 0:
+        raise ValueError("after_scope_rows must be >= 0")
+    if after_scope_rows < before_scope_rows:
+        raise ValueError("after_scope_rows must be >= before_scope_rows")
+    if accepted_rows + rejected_rows != processed_rows:
+        raise ValueError("accepted_rows + rejected_rows must equal processed_rows")
+    if deduplicated_rows > accepted_rows:
+        raise ValueError("deduplicated_rows cannot exceed accepted_rows")
+
+    inserted_delta_rows = after_scope_rows - before_scope_rows
+    if inserted_delta_rows > deduplicated_rows:
+        raise ValueError("inserted_delta_rows cannot exceed deduplicated_rows")
+
+    return {
+        "processed_rows": processed_rows,
+        "accepted_rows": accepted_rows,
+        "rejected_rows": rejected_rows,
+        "deduplicated_rows": deduplicated_rows,
+        "inserted_delta_rows": inserted_delta_rows,
+        "existing_or_updated_rows": deduplicated_rows - inserted_delta_rows,
+        "scope_rows_before": before_scope_rows,
+        "scope_rows_after": after_scope_rows,
+    }
+
+
 def dedupe_rows(rows: list[dict[str, Any]], key_fields: list[str]) -> list[dict[str, Any]]:
     if not key_fields:
         raise ValueError("conflict key fields cannot be empty")
@@ -147,13 +195,14 @@ def upsert_rows(
     columns_per_row = max(len(payload) for payload in payloads)
     max_rows_per_stmt = calculate_max_rows_per_upsert(columns_per_row)
 
-    return execute_payloads_with_retry(
+    execute_payloads_with_retry(
         session=session,
         model=model,
         payloads=payloads,
         conflict_fields=conflict_fields,
         max_rows_per_stmt=max_rows_per_stmt,
     )
+    return len(payloads)
 
 
 def execute_payloads_with_retry(
@@ -162,12 +211,11 @@ def execute_payloads_with_retry(
     payloads: list[dict[str, Any]],
     conflict_fields: list[str],
     max_rows_per_stmt: int,
-) -> int:
-    total_upserted = 0
+) -> None:
     for start in range(0, len(payloads), max_rows_per_stmt):
         batch_payloads = payloads[start : start + max_rows_per_stmt]
         try:
-            total_upserted += execute_single_upsert(
+            execute_single_upsert(
                 session=session,
                 model=model,
                 payloads=batch_payloads,
@@ -178,14 +226,13 @@ def execute_payloads_with_retry(
             if len(batch_payloads) <= 1:
                 raise
             smaller_max_rows = max(1, len(batch_payloads) // 2)
-            total_upserted += execute_payloads_with_retry(
+            execute_payloads_with_retry(
                 session=session,
                 model=model,
                 payloads=batch_payloads,
                 conflict_fields=conflict_fields,
                 max_rows_per_stmt=smaller_max_rows,
             )
-    return total_upserted
 
 
 def execute_single_upsert(
@@ -193,7 +240,7 @@ def execute_single_upsert(
     model: Any,
     payloads: list[dict[str, Any]],
     conflict_fields: list[str],
-) -> int:
+) -> None:
     stmt = pg_insert(model).values(payloads)
 
     update_fields = sorted(set(payloads[0].keys()) - set(conflict_fields) - {"created_at"})
@@ -206,8 +253,7 @@ def execute_single_upsert(
     else:
         stmt = stmt.on_conflict_do_nothing(index_elements=conflict_fields)
 
-    result = session.execute(stmt)
-    return result.rowcount or 0
+    session.execute(stmt)
 
 
 def calculate_max_rows_per_upsert(columns_per_row: int) -> int:
@@ -251,8 +297,13 @@ def process_licitaciones(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    debug_telemetry: bool = False,
     on_checkpoint: Callable[[int, int], None] | None = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
+    licitaciones_before = table_row_count(session, NormalizedLicitacion)
+    licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
+    ofertas_before = table_row_count(session, NormalizedOferta)
+
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawLicitacion)
@@ -272,12 +323,15 @@ def process_licitaciones(
     licitaciones_rows: list[dict[str, Any]] = []
     licitacion_items_rows: list[dict[str, Any]] = []
     ofertas_rows: list[dict[str, Any]] = []
+    licitaciones_accepted = 0
+    licitacion_items_accepted = 0
+    ofertas_accepted = 0
     licitaciones_rejected = 0
     licitacion_items_rejected = 0
     ofertas_rejected = 0
-    licitaciones_upserted = 0
-    licitacion_items_upserted = 0
-    ofertas_upserted = 0
+    licitaciones_deduplicated = 0
+    licitacion_items_deduplicated = 0
+    ofertas_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -293,6 +347,8 @@ def process_licitaciones(
     next_checkpoint = checkpoint_every
     state_checkpoint_every = max(50_000, fetch_size * 5)
     next_state_checkpoint = state_checkpoint_every
+    debug_checkpoint_every = checkpoint_every
+    next_debug_checkpoint = debug_checkpoint_every
     try:
         while True:
             if limit_rows > 0 and processed >= limit_rows:
@@ -317,56 +373,62 @@ def process_licitaciones(
             if not batch:
                 break
 
-            for raw_row in batch:
-                last_id = raw_row.id
+            for raw_row_obj in batch:
+                raw_row = cast(Any, raw_row_obj)
+                last_id = int(raw_row.id)
                 processed += 1
-                raw = raw_row.raw_json or {}
+                raw = cast(dict[str, Any], raw_row.raw_json or {})
+                source_file_id = raw_row.source_file_id
+                row_hash_sha256 = str(raw_row.row_hash_sha256)
 
                 lic = build_licitacion_payload(
                     raw=raw,
-                    source_file_id=raw_row.source_file_id,
-                    row_hash_sha256=raw_row.row_hash_sha256,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
                 )
                 if lic is not None:
                     licitaciones_rows.append(lic)
+                    licitaciones_accepted += 1
                 else:
                     licitaciones_rejected += 1
 
                 lic_item = build_licitacion_item_payload(
                     raw=raw,
-                    source_file_id=raw_row.source_file_id,
-                    row_hash_sha256=raw_row.row_hash_sha256,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
                 )
                 if lic_item is not None:
                     licitacion_items_rows.append(lic_item)
+                    licitacion_items_accepted += 1
                 else:
                     licitacion_items_rejected += 1
 
                 oferta = build_oferta_payload(
                     raw=raw,
-                    source_file_id=raw_row.source_file_id,
-                    row_hash_sha256=raw_row.row_hash_sha256,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
                 )
                 if oferta is not None:
                     ofertas_rows.append(oferta)
+                    ofertas_accepted += 1
                 else:
                     ofertas_rejected += 1
 
-                licitaciones_upserted += flush_if_needed(
+                licitaciones_deduplicated += flush_if_needed(
                     session,
                     NormalizedLicitacion,
                     licitaciones_rows,
                     LICITACIONES_CONFLICT_FIELDS,
                     chunk_size,
                 )
-                licitacion_items_upserted += flush_if_needed(
+                licitacion_items_deduplicated += flush_if_needed(
                     session,
                     NormalizedLicitacionItem,
                     licitacion_items_rows,
                     LICITACION_ITEMS_CONFLICT_FIELDS,
                     chunk_size,
                 )
-                ofertas_upserted += flush_if_needed(
+                ofertas_deduplicated += flush_if_needed(
                     session,
                     NormalizedOferta,
                     ofertas_rows,
@@ -384,6 +446,17 @@ def process_licitaciones(
                         enabled=show_progress,
                     )
                     next_checkpoint += checkpoint_every
+            if debug_telemetry and (processed >= next_debug_checkpoint or processed == target_rows):
+                progress_write(
+                    "[normalized][debug] licitaciones checkpoint: "
+                    f"processed={processed:,} "
+                    f"accepted(header/items/ofertas)="
+                    f"{licitaciones_accepted:,}/{licitacion_items_accepted:,}/{ofertas_accepted:,} "
+                    f"deduplicated(header/items/ofertas)="
+                    f"{licitaciones_deduplicated:,}/{licitacion_items_deduplicated:,}/{ofertas_deduplicated:,}",
+                    enabled=show_progress,
+                )
+                next_debug_checkpoint += debug_checkpoint_every
 
             if on_checkpoint is not None and (processed >= next_state_checkpoint):
                 on_checkpoint(last_id, processed)
@@ -392,19 +465,19 @@ def process_licitaciones(
         if row_bar is not None:
             row_bar.close()
 
-    licitaciones_upserted += flush_remaining(
+    licitaciones_deduplicated += flush_remaining(
         session,
         NormalizedLicitacion,
         licitaciones_rows,
         LICITACIONES_CONFLICT_FIELDS,
     )
-    licitacion_items_upserted += flush_remaining(
+    licitacion_items_deduplicated += flush_remaining(
         session,
         NormalizedLicitacionItem,
         licitacion_items_rows,
         LICITACION_ITEMS_CONFLICT_FIELDS,
     )
-    ofertas_upserted += flush_remaining(
+    ofertas_deduplicated += flush_remaining(
         session,
         NormalizedOferta,
         ofertas_rows,
@@ -412,20 +485,73 @@ def process_licitaciones(
     )
 
     session.commit()
+    licitaciones_after = table_row_count(session, NormalizedLicitacion)
+    licitacion_items_after = table_row_count(session, NormalizedLicitacionItem)
+    ofertas_after = table_row_count(session, NormalizedOferta)
+
+    licitaciones_metrics = build_entity_metrics(
+        processed_rows=processed,
+        accepted_rows=licitaciones_accepted,
+        rejected_rows=licitaciones_rejected,
+        deduplicated_rows=licitaciones_deduplicated,
+        before_scope_rows=licitaciones_before,
+        after_scope_rows=licitaciones_after,
+    )
+    licitacion_items_metrics = build_entity_metrics(
+        processed_rows=processed,
+        accepted_rows=licitacion_items_accepted,
+        rejected_rows=licitacion_items_rejected,
+        deduplicated_rows=licitacion_items_deduplicated,
+        before_scope_rows=licitacion_items_before,
+        after_scope_rows=licitacion_items_after,
+    )
+    ofertas_metrics = build_entity_metrics(
+        processed_rows=processed,
+        accepted_rows=ofertas_accepted,
+        rejected_rows=ofertas_rejected,
+        deduplicated_rows=ofertas_deduplicated,
+        before_scope_rows=ofertas_before,
+        after_scope_rows=ofertas_after,
+    )
+
     progress_write(
         "[normalized] licitaciones summary: "
         f"processed={processed:,}, "
-        f"rejected(header/items/ofertas)="
-        f"{licitaciones_rejected:,}/{licitacion_items_rejected:,}/{ofertas_rejected:,}, "
-        f"upserted(header/items/ofertas)="
-        f"{licitaciones_upserted:,}/{licitacion_items_upserted:,}/{ofertas_upserted:,}"
-        ,
+        "header{"
+        f"accepted={licitaciones_metrics['accepted_rows']:,} "
+        f"deduplicated={licitaciones_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={licitaciones_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={licitaciones_metrics['existing_or_updated_rows']:,} "
+        f"rejected={licitaciones_metrics['rejected_rows']:,}"
+        "} "
+        "items{"
+        f"accepted={licitacion_items_metrics['accepted_rows']:,} "
+        f"deduplicated={licitacion_items_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={licitacion_items_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={licitacion_items_metrics['existing_or_updated_rows']:,} "
+        f"rejected={licitacion_items_metrics['rejected_rows']:,}"
+        "} "
+        "ofertas{"
+        f"accepted={ofertas_metrics['accepted_rows']:,} "
+        f"deduplicated={ofertas_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={ofertas_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={ofertas_metrics['existing_or_updated_rows']:,} "
+        f"rejected={ofertas_metrics['rejected_rows']:,}"
+        "}",
         enabled=show_progress,
     )
     progress_write("[normalized] licitaciones done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
-    return {"processed_rows": processed, "last_raw_id": last_id}
+    return {
+        "processed_rows": processed,
+        "last_raw_id": last_id,
+        "entity_metrics": {
+            "licitaciones": licitaciones_metrics,
+            "licitacion_items": licitacion_items_metrics,
+            "ofertas": ofertas_metrics,
+        },
+    }
 
 
 def process_ordenes_compra(
@@ -435,8 +561,12 @@ def process_ordenes_compra(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    debug_telemetry: bool = False,
     on_checkpoint: Callable[[int, int], None] | None = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
+    ordenes_before = table_row_count(session, NormalizedOrdenCompra)
+    ordenes_items_before = table_row_count(session, NormalizedOrdenCompraItem)
+
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawOrdenCompra)
@@ -455,10 +585,12 @@ def process_ordenes_compra(
 
     ordenes_rows: list[dict[str, Any]] = []
     ordenes_items_rows: list[dict[str, Any]] = []
+    ordenes_accepted = 0
+    ordenes_items_accepted = 0
     ordenes_rejected = 0
     ordenes_items_rejected = 0
-    ordenes_upserted = 0
-    ordenes_items_upserted = 0
+    ordenes_deduplicated = 0
+    ordenes_items_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -474,6 +606,8 @@ def process_ordenes_compra(
     next_checkpoint = checkpoint_every
     state_checkpoint_every = max(50_000, fetch_size * 5)
     next_state_checkpoint = state_checkpoint_every
+    debug_checkpoint_every = checkpoint_every
+    next_debug_checkpoint = debug_checkpoint_every
     try:
         while True:
             if limit_rows > 0 and processed >= limit_rows:
@@ -498,39 +632,44 @@ def process_ordenes_compra(
             if not batch:
                 break
 
-            for raw_row in batch:
-                last_id = raw_row.id
+            for raw_row_obj in batch:
+                raw_row = cast(Any, raw_row_obj)
+                last_id = int(raw_row.id)
                 processed += 1
-                raw = raw_row.raw_json or {}
+                raw = cast(dict[str, Any], raw_row.raw_json or {})
+                source_file_id = raw_row.source_file_id
+                row_hash_sha256 = str(raw_row.row_hash_sha256)
 
                 orden = build_orden_compra_payload(
                     raw=raw,
-                    source_file_id=raw_row.source_file_id,
-                    row_hash_sha256=raw_row.row_hash_sha256,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
                 )
                 if orden is not None:
                     ordenes_rows.append(orden)
+                    ordenes_accepted += 1
                 else:
                     ordenes_rejected += 1
 
                 orden_item = build_orden_compra_item_payload(
                     raw=raw,
-                    source_file_id=raw_row.source_file_id,
-                    row_hash_sha256=raw_row.row_hash_sha256,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
                 )
                 if orden_item is not None:
                     ordenes_items_rows.append(orden_item)
+                    ordenes_items_accepted += 1
                 else:
                     ordenes_items_rejected += 1
 
-                ordenes_upserted += flush_if_needed(
+                ordenes_deduplicated += flush_if_needed(
                     session,
                     NormalizedOrdenCompra,
                     ordenes_rows,
                     ORDENES_CONFLICT_FIELDS,
                     chunk_size,
                 )
-                ordenes_items_upserted += flush_if_needed(
+                ordenes_items_deduplicated += flush_if_needed(
                     session,
                     NormalizedOrdenCompraItem,
                     ordenes_items_rows,
@@ -548,6 +687,15 @@ def process_ordenes_compra(
                         enabled=show_progress,
                     )
                     next_checkpoint += checkpoint_every
+            if debug_telemetry and (processed >= next_debug_checkpoint or processed == target_rows):
+                progress_write(
+                    "[normalized][debug] ordenes_compra checkpoint: "
+                    f"processed={processed:,} "
+                    f"accepted(header/items)={ordenes_accepted:,}/{ordenes_items_accepted:,} "
+                    f"deduplicated(header/items)={ordenes_deduplicated:,}/{ordenes_items_deduplicated:,}",
+                    enabled=show_progress,
+                )
+                next_debug_checkpoint += debug_checkpoint_every
 
             if on_checkpoint is not None and (processed >= next_state_checkpoint):
                 on_checkpoint(last_id, processed)
@@ -556,13 +704,13 @@ def process_ordenes_compra(
         if row_bar is not None:
             row_bar.close()
 
-    ordenes_upserted += flush_remaining(
+    ordenes_deduplicated += flush_remaining(
         session,
         NormalizedOrdenCompra,
         ordenes_rows,
         ORDENES_CONFLICT_FIELDS,
     )
-    ordenes_items_upserted += flush_remaining(
+    ordenes_items_deduplicated += flush_remaining(
         session,
         NormalizedOrdenCompraItem,
         ordenes_items_rows,
@@ -570,18 +718,56 @@ def process_ordenes_compra(
     )
 
     session.commit()
+    ordenes_after = table_row_count(session, NormalizedOrdenCompra)
+    ordenes_items_after = table_row_count(session, NormalizedOrdenCompraItem)
+
+    ordenes_metrics = build_entity_metrics(
+        processed_rows=processed,
+        accepted_rows=ordenes_accepted,
+        rejected_rows=ordenes_rejected,
+        deduplicated_rows=ordenes_deduplicated,
+        before_scope_rows=ordenes_before,
+        after_scope_rows=ordenes_after,
+    )
+    ordenes_items_metrics = build_entity_metrics(
+        processed_rows=processed,
+        accepted_rows=ordenes_items_accepted,
+        rejected_rows=ordenes_items_rejected,
+        deduplicated_rows=ordenes_items_deduplicated,
+        before_scope_rows=ordenes_items_before,
+        after_scope_rows=ordenes_items_after,
+    )
+
     progress_write(
         "[normalized] ordenes_compra summary: "
         f"processed={processed:,}, "
-        f"rejected(header/items)={ordenes_rejected:,}/{ordenes_items_rejected:,}, "
-        f"upserted(header/items)={ordenes_upserted:,}/{ordenes_items_upserted:,}"
-        ,
+        "header{"
+        f"accepted={ordenes_metrics['accepted_rows']:,} "
+        f"deduplicated={ordenes_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={ordenes_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={ordenes_metrics['existing_or_updated_rows']:,} "
+        f"rejected={ordenes_metrics['rejected_rows']:,}"
+        "} "
+        "items{"
+        f"accepted={ordenes_items_metrics['accepted_rows']:,} "
+        f"deduplicated={ordenes_items_metrics['deduplicated_rows']:,} "
+        f"inserted_delta={ordenes_items_metrics['inserted_delta_rows']:,} "
+        f"existing_or_updated={ordenes_items_metrics['existing_or_updated_rows']:,} "
+        f"rejected={ordenes_items_metrics['rejected_rows']:,}"
+        "}",
         enabled=show_progress,
     )
     progress_write("[normalized] ordenes_compra done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
-    return {"processed_rows": processed, "last_raw_id": last_id}
+    return {
+        "processed_rows": processed,
+        "last_raw_id": last_id,
+        "entity_metrics": {
+            "ordenes_compra": ordenes_metrics,
+            "ordenes_compra_items": ordenes_items_metrics,
+        },
+    }
 
 
 def main() -> int:
@@ -630,6 +816,12 @@ def main() -> int:
         "--reset-state",
         action="store_true",
         help="Clear existing normalized state file before processing",
+    )
+    parser.add_argument(
+        "--debug-telemetry",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Emit additional checkpoint telemetry details (default: false)",
     )
     args = parser.parse_args()
     if args.fetch_size <= 0:
@@ -707,6 +899,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            debug_telemetry=args.debug_telemetry,
                             on_checkpoint=persist_checkpoint,
                         )
                     else:
@@ -717,6 +910,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            debug_telemetry=args.debug_telemetry,
                             on_checkpoint=persist_checkpoint,
                         )
 

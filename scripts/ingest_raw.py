@@ -9,7 +9,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -149,6 +149,62 @@ def create_batch(session: Session, source_file_id: Any, file_name: str) -> Inges
     return batch
 
 
+def count_raw_rows_for_source_file(session: Session, dataset_type: str, source_file_id: Any) -> int:
+    if dataset_type == "licitacion":
+        model: Any = RawLicitacion
+    else:
+        model = RawOrdenCompra
+
+    return int(
+        session.execute(
+            sa.select(sa.func.count())
+            .select_from(model)
+            .where(model.source_file_id == source_file_id)
+        ).scalar_one()
+    )
+
+
+def build_raw_ingest_metrics(
+    *,
+    processed_rows: int,
+    before_scope_rows: int,
+    after_scope_rows: int,
+    rejected_rows: int = 0,
+) -> dict[str, int]:
+    if processed_rows < 0:
+        raise ValueError("processed_rows must be >= 0")
+    if before_scope_rows < 0:
+        raise ValueError("before_scope_rows must be >= 0")
+    if after_scope_rows < 0:
+        raise ValueError("after_scope_rows must be >= 0")
+    if rejected_rows < 0:
+        raise ValueError("rejected_rows must be >= 0")
+    if after_scope_rows < before_scope_rows:
+        raise ValueError("after_scope_rows must be >= before_scope_rows")
+
+    accepted_rows = processed_rows - rejected_rows
+    if accepted_rows < 0:
+        raise ValueError("accepted_rows cannot be negative")
+
+    deduplicated_rows = accepted_rows
+    inserted_delta_rows = after_scope_rows - before_scope_rows
+    if inserted_delta_rows > deduplicated_rows:
+        raise ValueError("inserted_delta_rows cannot exceed deduplicated_rows")
+
+    existing_or_updated_rows = deduplicated_rows - inserted_delta_rows
+
+    return {
+        "processed_rows": processed_rows,
+        "rejected_rows": rejected_rows,
+        "accepted_rows": accepted_rows,
+        "deduplicated_rows": deduplicated_rows,
+        "inserted_delta_rows": inserted_delta_rows,
+        "existing_or_updated_rows": existing_or_updated_rows,
+        "scope_rows_before": before_scope_rows,
+        "scope_rows_after": after_scope_rows,
+    }
+
+
 def ingest_file(
     session: Session,
     dataset_type: str,
@@ -158,9 +214,8 @@ def ingest_file(
     chunk_size: int,
     show_progress: bool,
     expected_rows: int | None,
-) -> tuple[int, int]:
+) -> int:
     total = 0
-    loaded = 0
     chunk: list[dict[str, Any]] = []
     row_bar = None
     row_bar = create_progress(
@@ -208,7 +263,7 @@ def ingest_file(
             chunk.append(payload)
             if len(chunk) >= chunk_size:
                 chunk_len = len(chunk)
-                loaded += flush_chunk(session, dataset_type, chunk)
+                flush_chunk(session, dataset_type, chunk)
                 chunk.clear()
                 if row_bar is not None:
                     row_bar.update(chunk_len)
@@ -218,7 +273,7 @@ def ingest_file(
 
     if chunk:
         chunk_len = len(chunk)
-        loaded += flush_chunk(session, dataset_type, chunk)
+        flush_chunk(session, dataset_type, chunk)
         chunk.clear()
         if row_bar is not None:
             row_bar.update(chunk_len)
@@ -229,12 +284,12 @@ def ingest_file(
     if row_bar is not None:
         row_bar.close()
 
-    return total, loaded
+    return total
 
 
-def flush_chunk(session: Session, dataset_type: str, chunk: list[dict[str, Any]]) -> int:
+def flush_chunk(session: Session, dataset_type: str, chunk: list[dict[str, Any]]) -> None:
     if not chunk:
-        return 0
+        return
     if dataset_type == "licitacion":
         stmt = pg_insert(RawLicitacion).values(chunk)
         stmt = stmt.on_conflict_do_nothing(index_elements=["source_file_id", "raw_row_num"])
@@ -242,9 +297,8 @@ def flush_chunk(session: Session, dataset_type: str, chunk: list[dict[str, Any]]
         stmt = pg_insert(RawOrdenCompra).values(chunk)
         stmt = stmt.on_conflict_do_nothing(index_elements=["source_file_id", "raw_row_num"])
 
-    result = session.execute(stmt)
+    session.execute(stmt)
     session.flush()
-    return result.rowcount or 0
 
 
 def main() -> int:
@@ -307,8 +361,11 @@ def main() -> int:
 
                 try:
                     expected_rows = count_csv_rows(path) if args.precount else None
+                    before_scope_rows = count_raw_rows_for_source_file(
+                        session, dataset_type, source_file.id
+                    )
                     with timed_step(f"ingest {path.name}", enabled=args.progress):
-                        total, loaded = ingest_file(
+                        processed_rows = ingest_file(
                             session=session,
                             dataset_type=dataset_type,
                             path=path,
@@ -318,38 +375,74 @@ def main() -> int:
                             show_progress=args.progress,
                             expected_rows=expected_rows,
                         )
-                    batch.total_rows = total
-                    batch.loaded_rows = loaded
-                    batch.rejected_rows = total - loaded
-                    batch.status = "completed"
-                    batch.finished_at = datetime.now(UTC)
+                    after_scope_rows = count_raw_rows_for_source_file(
+                        session, dataset_type, source_file.id
+                    )
+                    metrics = build_raw_ingest_metrics(
+                        processed_rows=processed_rows,
+                        before_scope_rows=before_scope_rows,
+                        after_scope_rows=after_scope_rows,
+                    )
 
-                    source_file.status = "loaded"
+                    batch_any = cast(Any, batch)
+                    source_file_any = cast(Any, source_file)
+                    step_any = cast(Any, step)
+                    run_any = cast(Any, run)
 
-                    step.status = "completed"
-                    step.finished_at = datetime.now(UTC)
-                    step.rows_in = total
-                    step.rows_out = loaded
-                    step.rows_rejected = total - loaded
+                    batch_any.total_rows = metrics["processed_rows"]
+                    batch_any.loaded_rows = metrics["inserted_delta_rows"]
+                    batch_any.rejected_rows = metrics["existing_or_updated_rows"]
+                    batch_any.status = "completed"
+                    batch_any.finished_at = datetime.now(UTC)
 
-                    run.status = "completed"
-                    run.finished_at = datetime.now(UTC)
+                    source_file_any.status = "loaded"
+                    source_file_any.source_meta = {
+                        **(source_file.source_meta or {}),
+                        "raw_ingest_metrics": metrics,
+                    }
+
+                    step_any.status = "completed"
+                    step_any.finished_at = datetime.now(UTC)
+                    step_any.rows_in = metrics["processed_rows"]
+                    step_any.rows_out = metrics["inserted_delta_rows"]
+                    step_any.rows_rejected = metrics["existing_or_updated_rows"]
+
+                    run_any.config = {
+                        **(run.config or {}),
+                        "raw_ingest_metrics": metrics,
+                    }
+                    run_any.status = "completed"
+                    run_any.finished_at = datetime.now(UTC)
 
                     session.commit()
-                    log_line(f"OK {path.name}: total={total:,} loaded={loaded:,}", args.progress)
+                    log_line(
+                        (
+                            f"OK {path.name}: "
+                            f"processed={metrics['processed_rows']:,} "
+                            f"accepted={metrics['accepted_rows']:,} "
+                            f"deduplicated={metrics['deduplicated_rows']:,} "
+                            f"inserted_delta={metrics['inserted_delta_rows']:,} "
+                            f"existing_or_updated={metrics['existing_or_updated_rows']:,}"
+                        ),
+                        args.progress,
+                    )
                     if files_bar is not None:
                         files_bar.update(1)
                 except Exception as exc:  # noqa: BLE001
-                    batch.status = "failed"
-                    batch.finished_at = datetime.now(UTC)
+                    batch_any = cast(Any, batch)
+                    step_any = cast(Any, step)
+                    run_any = cast(Any, run)
 
-                    step.status = "failed"
-                    step.finished_at = datetime.now(UTC)
-                    step.error_details = {"error": str(exc)}
+                    batch_any.status = "failed"
+                    batch_any.finished_at = datetime.now(UTC)
 
-                    run.status = "failed"
-                    run.finished_at = datetime.now(UTC)
-                    run.error_summary = str(exc)
+                    step_any.status = "failed"
+                    step_any.finished_at = datetime.now(UTC)
+                    step_any.error_details = {"error": str(exc)}
+
+                    run_any.status = "failed"
+                    run_any.finished_at = datetime.now(UTC)
+                    run_any.error_summary = str(exc)
 
                     session.commit()
                     if files_bar is not None:

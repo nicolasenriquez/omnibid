@@ -28,6 +28,11 @@ Historical batch pipeline only:
 - Strict typing: `just type-strict` (`pyright` + `ty`)
 - Local gates: `just quality`, `just ci-fast`, `just ci`
 
+## Development Methodology
+- **Fail-fast**: invalid config/schema/contracts must stop execution with explicit errors.
+- **TDD-first**: behavior changes start with tests before implementation.
+- **SDD-first**: implementation decisions for frameworks/libraries are grounded on official documentation and recorded in `docs/standards/`.
+
 ## Agent/Codex Assets
 - `AGENTS.md` and `RTK.md` were added for repo-level agent behavior.
 - `codex/` contains imported command/skill assets from the reference project.
