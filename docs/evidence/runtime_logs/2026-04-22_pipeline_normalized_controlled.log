@@ -1,0 +1,14 @@
+[normalized] dataset=licitacion mode=incremental start_after_id=2,076,210
+[start] normalized dataset=licitacion
+[normalized] licitaciones raw rows (delta id > 2,076,210): 5, target: 5
+[normalized] licitaciones progress: 5/5
+[normalized] licitaciones summary: processed=5, header{accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0 rejected=0} items{accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0 rejected=0} ofertas{accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0 rejected=0}
+[normalized] licitaciones done
+[done]  normalized dataset=licitacion in 5.9s
+[normalized] dataset=orden_compra mode=incremental start_after_id=6,480,029
+[start] normalized dataset=orden_compra
+[normalized] ordenes_compra raw rows (delta id > 6,480,029): 5, target: 5
+[normalized] ordenes_compra progress: 5/5
+[normalized] ordenes_compra summary: processed=5, header{accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0 rejected=0} items{accepted=5 deduplicated=5 inserted_delta=5 existing_or_updated=0 rejected=0}
+[normalized] ordenes_compra done
+[done]  normalized dataset=orden_compra in 19.6s

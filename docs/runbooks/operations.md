@@ -10,10 +10,31 @@ Pipeline lifecycle:
 Retry rule:
 - Retry only with same run metadata and idempotent merge logic.
 
+Hardening roadmap reference:
+- `docs/runbooks/data_engineering_hardening_plan.md`
+
 Fail-fast operational rules:
 - Stop ingestion when required dataset columns are missing.
 - Stop runtime if `DATABASE_URL` targets a `_test` database.
 - Stop integration tests if `TEST_DATABASE_URL` is missing or equals runtime DB.
+
+## Operations API Guardrails
+
+List endpoint limits are bounded:
+
+- `GET /runs?limit=<n>` supports `1..200` (default `50`).
+- `GET /files?limit=<n>` supports `1..200` (default `100`).
+
+Dataset summary strategy is cache-first for scale:
+
+- `GET /datasets/summary` defaults to `mode=cached` and returns cached counts when cache age is within `max_age_seconds` (`10..3600`, default `300`).
+- `GET /datasets/summary?mode=fresh` forces a recount and refreshes cache.
+- Response includes `summary_meta` with `strategy=ttl_cached_full_counts` and `precomputed_summary_storage=deferred_followup_proposal_required`.
+
+Follow-up requirement (explicitly deferred in this change):
+
+- Precomputed summary persistence must be proposed in a dedicated follow-up change before high-frequency dashboard polling.
+- This hardening change intentionally does **not** add a new precomputed summary table.
 
 ## Canonical Telemetry Contract (Raw + Normalized)
 
@@ -137,3 +158,16 @@ Each dataset execution prints:
 4. Validate logging efficiency:
    - default mode emits checkpoints and completion summaries only.
    - no row-level telemetry appears unless debug telemetry is explicitly enabled.
+5. Validate operations API guardrails:
+   - out-of-range limits on `/runs` and `/files` return validation errors.
+   - `/datasets/summary` default mode reports `summary_meta.is_cached=true` on repeated requests within cache age.
+   - use `mode=fresh` only for deliberate operator checks, not for high-frequency polling.
+
+## Immediate Reliability Backlog (Waterfall Order)
+
+1. transaction rollback hardening in pipeline scripts
+2. ORM/migration parity hardening for operational/raw indexes
+3. normalized quality issue persistence with threshold gates
+4. API guardrails for limit bounds and scalable dataset summaries
+
+Do not start domain expansion or Gold work before these steps are validated.

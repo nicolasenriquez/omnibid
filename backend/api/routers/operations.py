@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import copy
+from datetime import UTC, datetime
+from threading import Lock
+from typing import Any, Literal
+
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db
-from backend.models.raw import RawLicitacion, RawOrdenCompra
-from backend.models.operational import PipelineRun, SourceFile
 from backend.models.normalized import (
     NormalizedLicitacion,
     NormalizedLicitacionItem,
@@ -14,12 +17,104 @@ from backend.models.normalized import (
     NormalizedOrdenCompra,
     NormalizedOrdenCompraItem,
 )
+from backend.models.operational import PipelineRun, SourceFile
+from backend.models.raw import RawLicitacion, RawOrdenCompra
 
 router = APIRouter(tags=["operations"])
 
+RUNS_LIMIT_DEFAULT = 50
+RUNS_LIMIT_MAX = 200
+FILES_LIMIT_DEFAULT = 100
+FILES_LIMIT_MAX = 200
+SUMMARY_CACHE_MAX_AGE_DEFAULT_SECONDS = 300
+SUMMARY_CACHE_MAX_AGE_MIN_SECONDS = 10
+SUMMARY_CACHE_MAX_AGE_MAX_SECONDS = 3_600
+SUMMARY_STRATEGY = "ttl_cached_full_counts"
+SUMMARY_PRECOMPUTED_STORAGE_STATUS = "deferred_followup_proposal_required"
+_DATASETS_SUMMARY_CACHE_LOCK = Lock()
+_DATASETS_SUMMARY_CACHE: dict[str, Any] = {}
+
+
+def reset_datasets_summary_cache() -> None:
+    with _DATASETS_SUMMARY_CACHE_LOCK:
+        _DATASETS_SUMMARY_CACHE.clear()
+
+
+def _safe_count(db: Session, model: type[Any]) -> int | None:
+    try:
+        return db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        return None
+
+
+def _build_summary_payload(db: Session) -> tuple[dict[str, Any], bool]:
+    files = _safe_count(db, SourceFile)
+    lic_rows = _safe_count(db, RawLicitacion)
+    oc_rows = _safe_count(db, RawOrdenCompra)
+    normalized_lic = _safe_count(db, NormalizedLicitacion)
+    normalized_items = _safe_count(db, NormalizedLicitacionItem)
+    normalized_ofertas = _safe_count(db, NormalizedOferta)
+    normalized_oc = _safe_count(db, NormalizedOrdenCompra)
+    normalized_oc_items = _safe_count(db, NormalizedOrdenCompraItem)
+    counts: list[int | None] = [
+        files,
+        lic_rows,
+        oc_rows,
+        normalized_lic,
+        normalized_items,
+        normalized_ofertas,
+        normalized_oc,
+        normalized_oc_items,
+    ]
+    payload_is_complete = all(value is not None for value in counts)
+
+    return (
+        {
+            "source_files": files,
+            "raw_rows": {
+                "licitaciones": lic_rows,
+                "ordenes_compra": oc_rows,
+            },
+            "normalized_rows": {
+                "licitaciones": normalized_lic,
+                "licitacion_items": normalized_items,
+                "ofertas": normalized_ofertas,
+                "ordenes_compra": normalized_oc,
+                "ordenes_compra_items": normalized_oc_items,
+            },
+        },
+        payload_is_complete,
+    )
+
+
+def _read_cached_summary(max_age_seconds: int) -> tuple[dict[str, Any] | None, datetime | None]:
+    with _DATASETS_SUMMARY_CACHE_LOCK:
+        payload = _DATASETS_SUMMARY_CACHE.get("payload")
+        generated_at = _DATASETS_SUMMARY_CACHE.get("generated_at")
+        if not isinstance(payload, dict) or not isinstance(generated_at, datetime):
+            return None, None
+        cached_payload = copy.deepcopy(payload)
+
+    age_seconds = (datetime.now(UTC) - generated_at).total_seconds()
+    if age_seconds > max_age_seconds:
+        return None, None
+    return cached_payload, generated_at
+
+
+def _write_cached_summary(payload: dict[str, Any]) -> datetime:
+    generated_at = datetime.now(UTC)
+    with _DATASETS_SUMMARY_CACHE_LOCK:
+        _DATASETS_SUMMARY_CACHE["payload"] = copy.deepcopy(payload)
+        _DATASETS_SUMMARY_CACHE["generated_at"] = generated_at
+    return generated_at
+
 
 @router.get("/runs")
-def list_runs(limit: int = 50, db: Session = Depends(get_db)) -> list[dict]:
+def list_runs(
+    limit: int = Query(default=RUNS_LIMIT_DEFAULT, ge=1, le=RUNS_LIMIT_MAX),
+    db: Session = Depends(get_db),
+) -> list[dict]:
     rows = db.execute(
         sa.select(PipelineRun)
         .order_by(PipelineRun.started_at.desc())
@@ -57,8 +152,15 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/files")
-def list_files(limit: int = 100, db: Session = Depends(get_db)) -> list[dict]:
-    rows = db.execute(sa.select(SourceFile).order_by(SourceFile.registered_at.desc()).limit(limit)).scalars()
+def list_files(
+    limit: int = Query(default=FILES_LIMIT_DEFAULT, ge=1, le=FILES_LIMIT_MAX),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    rows = db.execute(
+        sa.select(SourceFile)
+        .order_by(SourceFile.registered_at.desc())
+        .limit(limit)
+    ).scalars()
     return [
         {
             "id": str(f.id),
@@ -92,34 +194,43 @@ def get_file(source_file_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/datasets/summary")
-def datasets_summary(db: Session = Depends(get_db)) -> dict:
-    def _safe_count(model: type) -> int | None:
-        try:
-            return db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
-        except Exception:  # noqa: BLE001
-            db.rollback()
-            return None
+def datasets_summary(
+    mode: Literal["cached", "fresh"] = Query(default="cached"),
+    max_age_seconds: int = Query(
+        default=SUMMARY_CACHE_MAX_AGE_DEFAULT_SECONDS,
+        ge=SUMMARY_CACHE_MAX_AGE_MIN_SECONDS,
+        le=SUMMARY_CACHE_MAX_AGE_MAX_SECONDS,
+    ),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if mode == "cached":
+        cached_payload, generated_at = _read_cached_summary(max_age_seconds)
+        if cached_payload is not None and generated_at is not None:
+            return {
+                **cached_payload,
+                "summary_meta": {
+                    "mode": mode,
+                    "is_cached": True,
+                    "generated_at": generated_at.isoformat(),
+                    "max_age_seconds": max_age_seconds,
+                    "strategy": SUMMARY_STRATEGY,
+                    "precomputed_summary_storage": SUMMARY_PRECOMPUTED_STORAGE_STATUS,
+                },
+            }
 
-    files = _safe_count(SourceFile)
-    lic_rows = _safe_count(RawLicitacion)
-    oc_rows = _safe_count(RawOrdenCompra)
-    normalized_lic = _safe_count(NormalizedLicitacion)
-    normalized_items = _safe_count(NormalizedLicitacionItem)
-    normalized_ofertas = _safe_count(NormalizedOferta)
-    normalized_oc = _safe_count(NormalizedOrdenCompra)
-    normalized_oc_items = _safe_count(NormalizedOrdenCompraItem)
-
+    payload, payload_is_complete = _build_summary_payload(db)
+    if payload_is_complete:
+        generated_at = _write_cached_summary(payload)
+    else:
+        generated_at = datetime.now(UTC)
     return {
-        "source_files": files,
-        "raw_rows": {
-            "licitaciones": lic_rows,
-            "ordenes_compra": oc_rows,
-        },
-        "normalized_rows": {
-            "licitaciones": normalized_lic,
-            "licitacion_items": normalized_items,
-            "ofertas": normalized_ofertas,
-            "ordenes_compra": normalized_oc,
-            "ordenes_compra_items": normalized_oc_items,
+        **payload,
+        "summary_meta": {
+            "mode": mode,
+            "is_cached": False,
+            "generated_at": generated_at.isoformat(),
+            "max_age_seconds": max_age_seconds,
+            "strategy": SUMMARY_STRATEGY,
+            "precomputed_summary_storage": SUMMARY_PRECOMPUTED_STORAGE_STATUS,
         },
     }

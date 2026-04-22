@@ -18,6 +18,7 @@ class RawLicitacion(Base):
     ingested_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
+        sa.Index("ix_raw_licitaciones_codigo_externo", "codigo_externo"),
         sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_raw_lic_raw_file_row"),
     )
 
@@ -37,5 +38,7 @@ class RawOrdenCompra(Base):
     ingested_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
+        sa.Index("ix_raw_ordenes_compra_codigo_oc", "codigo_oc"),
+        sa.Index("ix_raw_ordenes_compra_codigo_licitacion", "codigo_licitacion"),
         sa.UniqueConstraint("source_file_id", "raw_row_num", name="uq_raw_oc_raw_file_row"),
     )

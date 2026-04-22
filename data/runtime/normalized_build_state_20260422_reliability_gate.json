@@ -1,0 +1,70 @@
+{
+  "licitacion": {
+    "status": "completed",
+    "source_total_rows": 2076215,
+    "source_max_id": 2076215,
+    "mode": "incremental",
+    "start_after_id": 2076210,
+    "processed_rows_last_run": 5,
+    "processed_rows_current_run": 5,
+    "processed_rows_total": 5,
+    "last_processed_raw_id": 2076215,
+    "last_raw_id": 2076215,
+    "quality_gate": {
+      "policy_version": "quality_gate_policy_v1",
+      "thresholds": {
+        "max_error_rate": 0.005,
+        "fail_on_critical_error": true,
+        "critical_issue_types": [
+          "normalized_rejected_rows"
+        ]
+      },
+      "issue_counts": {
+        "total": 0,
+        "error": 0,
+        "warning": 0
+      },
+      "dataset_metrics": {
+        "processed_rows": 15,
+        "rejected_rows": 0,
+        "error_rate": 0.0
+      },
+      "decision": "passed",
+      "decision_reason": "no_quality_issues"
+    }
+  },
+  "orden_compra": {
+    "status": "completed",
+    "source_total_rows": 6480034,
+    "source_max_id": 6480034,
+    "mode": "incremental",
+    "start_after_id": 6480029,
+    "processed_rows_last_run": 5,
+    "processed_rows_current_run": 5,
+    "processed_rows_total": 5,
+    "last_processed_raw_id": 6480034,
+    "last_raw_id": 6480034,
+    "quality_gate": {
+      "policy_version": "quality_gate_policy_v1",
+      "thresholds": {
+        "max_error_rate": 0.005,
+        "fail_on_critical_error": true,
+        "critical_issue_types": [
+          "normalized_rejected_rows"
+        ]
+      },
+      "issue_counts": {
+        "total": 0,
+        "error": 0,
+        "warning": 0
+      },
+      "dataset_metrics": {
+        "processed_rows": 10,
+        "rejected_rows": 0,
+        "error_rate": 0.0
+      },
+      "decision": "passed",
+      "decision_reason": "no_quality_issues"
+    }
+  }
+}

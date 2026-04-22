@@ -35,9 +35,10 @@ Equivalent low-level sequence:
 2. Ingest raw files: `just raw-ingest`
 3. Inspect API endpoints:
    - `GET /health`
-   - `GET /runs`
-   - `GET /files`
-   - `GET /datasets/summary`
+   - `GET /runs?limit=50` (bounded to `1..200`)
+   - `GET /files?limit=100` (bounded to `1..200`)
+   - `GET /datasets/summary` (default `mode=cached`)
+   - `GET /datasets/summary?mode=fresh` (on-demand recount)
 
 ## Normalized Pipeline Loop (Hardened)
 
