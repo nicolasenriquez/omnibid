@@ -30,6 +30,21 @@ from backend.models.normalized import (  # noqa: E402
     NormalizedOrdenCompra,
     NormalizedOrdenCompraItem,
     NormalizedSupplier,
+    SilverAwardOutcome,
+    SilverBidSubmission,
+    SilverBuyingOrg,
+    SilverCategoryRef,
+    SilverContractingUnit,
+    SilverNotice,
+    SilverNoticeLine,
+    SilverNoticeLineTextAnn,
+    SilverNoticeTextAnn,
+    SilverNoticePurchaseOrderLink,
+    SilverPurchaseOrder,
+    SilverPurchaseOrderLine,
+    SilverPurchaseOrderLineTextAnn,
+    SilverSupplier,
+    SilverSupplierParticipation,
 )
 from backend.normalized.transform import (  # noqa: E402
     build_buyer_domain_payload,
@@ -39,9 +54,27 @@ from backend.normalized.transform import (  # noqa: E402
     build_oferta_payload,
     build_orden_compra_item_payload,
     build_orden_compra_payload,
+    build_silver_award_outcome_payload,
+    build_silver_bid_submission_payload,
+    build_silver_buying_org_payload,
+    build_silver_category_ref_payload,
+    build_silver_contracting_unit_payload,
+    build_silver_notice_line_payload,
+    build_silver_notice_line_text_ann_payload,
+    build_silver_notice_payload,
+    build_silver_notice_text_ann_payload,
+    build_silver_notice_purchase_order_link_payload,
+    build_silver_purchase_order_line_payload,
+    build_silver_purchase_order_line_text_ann_payload,
+    build_silver_purchase_order_payload,
+    build_silver_supplier_participation_payload,
+    build_silver_supplier_payload,
     build_supplier_domain_payload,
     resolve_buyer_identity_key as transform_resolve_buyer_identity_key,
+    resolve_buying_org_identity_key as transform_resolve_buying_org_identity_key,
+    resolve_contracting_unit_identity_key as transform_resolve_contracting_unit_identity_key,
     resolve_category_identity_key as transform_resolve_category_identity_key,
+    resolve_category_ref_identity_key as transform_resolve_category_ref_identity_key,
     resolve_supplier_identity_key as transform_resolve_supplier_identity_key,
 )
 from backend.observability.cli_ui import (  # noqa: E402
@@ -58,6 +91,21 @@ ORDENES_ITEMS_CONFLICT_FIELDS = ["codigo_oc", "id_item"]
 BUYERS_CONFLICT_FIELDS = ["buyer_key"]
 SUPPLIERS_CONFLICT_FIELDS = ["supplier_key"]
 CATEGORIES_CONFLICT_FIELDS = ["category_key"]
+SILVER_NOTICE_CONFLICT_FIELDS = ["notice_id"]
+SILVER_NOTICE_LINE_CONFLICT_FIELDS = ["notice_id", "item_code"]
+SILVER_BID_SUBMISSION_CONFLICT_FIELDS = ["bid_submission_id"]
+SILVER_AWARD_OUTCOME_CONFLICT_FIELDS = ["award_outcome_id"]
+SILVER_PURCHASE_ORDER_CONFLICT_FIELDS = ["purchase_order_id"]
+SILVER_PURCHASE_ORDER_LINE_CONFLICT_FIELDS = ["purchase_order_id", "line_item_id"]
+SILVER_BUYING_ORG_CONFLICT_FIELDS = ["buying_org_id"]
+SILVER_CONTRACTING_UNIT_CONFLICT_FIELDS = ["contracting_unit_id"]
+SILVER_SUPPLIER_CONFLICT_FIELDS = ["supplier_id"]
+SILVER_CATEGORY_REF_CONFLICT_FIELDS = ["category_ref_id"]
+SILVER_NOTICE_PURCHASE_ORDER_LINK_CONFLICT_FIELDS = ["notice_id", "purchase_order_id", "link_type"]
+SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS = ["supplier_id", "notice_id"]
+SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "nlp_version"]
+SILVER_NOTICE_LINE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "item_code", "nlp_version"]
+SILVER_PURCHASE_ORDER_LINE_TEXT_ANN_CONFLICT_FIELDS = ["purchase_order_id", "line_item_id", "nlp_version"]
 POSTGRES_MAX_BIND_PARAMS = int(os.getenv("NORMALIZED_MAX_BIND_PARAMS", "32767"))
 POSTGRES_BIND_PARAM_SAFETY_MARGIN = 64
 QUALITY_GATE_POLICY_VERSION = "quality_gate_policy_v1"
@@ -77,12 +125,53 @@ QUALITY_GATE_ENTITY_TABLES = {
     "buyers": "normalized_buyers",
     "suppliers": "normalized_suppliers",
     "categories": "normalized_categories",
+    "silver_notice": "silver_notice",
+    "silver_notice_line": "silver_notice_line",
+    "silver_bid_submission": "silver_bid_submission",
+    "silver_award_outcome": "silver_award_outcome",
+    "silver_purchase_order": "silver_purchase_order",
+    "silver_purchase_order_line": "silver_purchase_order_line",
+    "silver_buying_org": "silver_buying_org",
+    "silver_contracting_unit": "silver_contracting_unit",
+    "silver_supplier": "silver_supplier",
+    "silver_category_ref": "silver_category_ref",
+    "silver_notice_purchase_order_link": "silver_notice_purchase_order_link",
+    "silver_supplier_participation": "silver_supplier_participation",
+    "silver_notice_text_ann": "silver_notice_text_ann",
+    "silver_notice_line_text_ann": "silver_notice_line_text_ann",
+    "silver_purchase_order_line_text_ann": "silver_purchase_order_line_text_ann",
 }
 QUALITY_GATE_DOMAIN_IDENTITY_FIELDS = {
     "buyers": "codigo_unidad_compra",
     "suppliers": "codigo_proveedor_or_rut_proveedor",
     "categories": "codigo_categoria",
 }
+SILVER_FORBIDDEN_FEATURE_COLUMNS = {
+    "opportunity_rank",
+    "opportunity_score",
+    "winnability_score",
+    "convenience_score",
+    "win_probability",
+    "award_probability",
+    "forecast_value",
+    "forecast_label",
+    "anomaly_verdict",
+    "recommendation_score",
+}
+SILVER_FORBIDDEN_FEATURE_SUFFIXES = (
+    "_score",
+    "_probability",
+    "_forecast",
+    "_prediction",
+    "_rank",
+)
+SILVER_FORBIDDEN_FEATURE_PREFIXES = ("future_",)
+SILVER_ANNOTATION_TFIDF_REF_PREFIX = "tfidf://"
+SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS = (
+    "tfidf_vector",
+    "tfidf_values",
+    "tfidf_matrix",
+)
 
 
 def resolve_buyer_identity_key(raw: dict[str, Any]) -> str | None:
@@ -95,6 +184,18 @@ def resolve_supplier_identity_key(raw: dict[str, Any]) -> str | None:
 
 def resolve_category_identity_key(raw: dict[str, Any]) -> str | None:
     return transform_resolve_category_identity_key(raw)
+
+
+def resolve_buying_org_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_buying_org_identity_key(raw)
+
+
+def resolve_contracting_unit_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_contracting_unit_identity_key(raw)
+
+
+def resolve_category_ref_identity_key(raw: dict[str, Any]) -> str | None:
+    return transform_resolve_category_ref_identity_key(raw)
 
 
 def build_supplier_domain_from_licitacion_transaction(
@@ -508,6 +609,48 @@ def dedupe_rows(rows: list[dict[str, Any]], key_fields: list[str]) -> list[dict[
     return list(latest_by_key.values())
 
 
+def validate_silver_feature_guardrails(*, model: Any, payloads: list[dict[str, Any]]) -> None:
+    table_name = str(getattr(model, "__tablename__", ""))
+    if not table_name.startswith("silver_"):
+        return
+
+    for payload in payloads:
+        if table_name.endswith("_text_ann"):
+            tfidf_ref = payload.get("tfidf_artifact_ref")
+            if tfidf_ref is not None:
+                if not isinstance(tfidf_ref, str) or not tfidf_ref.startswith(
+                    SILVER_ANNOTATION_TFIDF_REF_PREFIX
+                ):
+                    raise ValueError(
+                        f"silver annotation contract violation for {table_name}: "
+                        "tfidf_artifact_ref must be a reference string starting with 'tfidf://'"
+                    )
+            vector_columns = sorted(
+                field for field in payload if field in SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS
+            )
+            if vector_columns:
+                vector_columns_csv = ", ".join(vector_columns)
+                raise ValueError(
+                    f"silver annotation contract violation for {table_name}: "
+                    f"serialized TF-IDF vector columns are forbidden [{vector_columns_csv}]"
+                )
+
+        violations = sorted(
+            field
+            for field in payload
+            if field in SILVER_FORBIDDEN_FEATURE_COLUMNS
+            or field.endswith(SILVER_FORBIDDEN_FEATURE_SUFFIXES)
+            or field.startswith(SILVER_FORBIDDEN_FEATURE_PREFIXES)
+        )
+        if not violations:
+            continue
+        violations_csv = ", ".join(violations)
+        raise ValueError(
+            f"silver leakage guardrail violation for {table_name}: "
+            f"forbidden feature columns [{violations_csv}]"
+        )
+
+
 def upsert_rows(
     session: Session,
     model: Any,
@@ -518,6 +661,7 @@ def upsert_rows(
         return 0
 
     payloads = dedupe_rows(rows, conflict_fields)
+    validate_silver_feature_guardrails(model=model, payloads=payloads)
     missing_fields = [field for field in conflict_fields if field not in payloads[0]]
     if missing_fields:
         fields_csv = ", ".join(missing_fields)
@@ -800,6 +944,625 @@ def flush_ordenes_remaining_buffers(
     return buyers, suppliers, categories, ordenes, ordenes_items
 
 
+def flush_silver_licitaciones_chunk_buffers(
+    *,
+    session: Session,
+    chunk_size: int,
+    buying_org_rows: list[dict[str, Any]],
+    contracting_unit_rows: list[dict[str, Any]],
+    supplier_rows: list[dict[str, Any]],
+    category_ref_rows: list[dict[str, Any]],
+    notice_rows: list[dict[str, Any]],
+    notice_line_rows: list[dict[str, Any]],
+    bid_submission_rows: list[dict[str, Any]],
+    award_outcome_rows: list[dict[str, Any]],
+    supplier_participation_rows: list[dict[str, Any]],
+    notice_text_ann_rows: list[dict[str, Any]],
+    notice_line_text_ann_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int, int, int, int, int, int, int]:
+    facts_chunk_triggered = any(
+        len(rows) >= chunk_size
+        for rows in (
+            notice_rows,
+            notice_line_rows,
+            bid_submission_rows,
+            award_outcome_rows,
+            supplier_participation_rows,
+            notice_text_ann_rows,
+            notice_line_text_ann_rows,
+        )
+    )
+    buying_org = flush_if_needed(
+        session,
+        SilverBuyingOrg,
+        buying_org_rows,
+        SILVER_BUYING_ORG_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    contracting_unit = flush_if_needed(
+        session,
+        SilverContractingUnit,
+        contracting_unit_rows,
+        SILVER_CONTRACTING_UNIT_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    supplier = flush_if_needed(
+        session,
+        SilverSupplier,
+        supplier_rows,
+        SILVER_SUPPLIER_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    category_ref = flush_if_needed(
+        session,
+        SilverCategoryRef,
+        category_ref_rows,
+        SILVER_CATEGORY_REF_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    notice = flush_if_needed(
+        session,
+        SilverNotice,
+        notice_rows,
+        SILVER_NOTICE_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    notice_line = flush_if_needed(
+        session,
+        SilverNoticeLine,
+        notice_line_rows,
+        SILVER_NOTICE_LINE_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    bid_submission = flush_if_needed(
+        session,
+        SilverBidSubmission,
+        bid_submission_rows,
+        SILVER_BID_SUBMISSION_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    award_outcome = flush_if_needed(
+        session,
+        SilverAwardOutcome,
+        award_outcome_rows,
+        SILVER_AWARD_OUTCOME_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    supplier_participation = flush_if_needed(
+        session,
+        SilverSupplierParticipation,
+        supplier_participation_rows,
+        SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    notice_text_ann = flush_if_needed(
+        session,
+        SilverNoticeTextAnn,
+        notice_text_ann_rows,
+        SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    notice_line_text_ann = flush_if_needed(
+        session,
+        SilverNoticeLineTextAnn,
+        notice_line_text_ann_rows,
+        SILVER_NOTICE_LINE_TEXT_ANN_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    return (
+        buying_org,
+        contracting_unit,
+        supplier,
+        category_ref,
+        notice,
+        notice_line,
+        bid_submission,
+        award_outcome,
+        supplier_participation,
+        notice_text_ann,
+        notice_line_text_ann,
+    )
+
+
+def flush_silver_licitaciones_remaining_buffers(
+    *,
+    session: Session,
+    buying_org_rows: list[dict[str, Any]],
+    contracting_unit_rows: list[dict[str, Any]],
+    supplier_rows: list[dict[str, Any]],
+    category_ref_rows: list[dict[str, Any]],
+    notice_rows: list[dict[str, Any]],
+    notice_line_rows: list[dict[str, Any]],
+    bid_submission_rows: list[dict[str, Any]],
+    award_outcome_rows: list[dict[str, Any]],
+    supplier_participation_rows: list[dict[str, Any]],
+    notice_text_ann_rows: list[dict[str, Any]],
+    notice_line_text_ann_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int, int, int, int, int, int, int]:
+    buying_org = flush_remaining(
+        session,
+        SilverBuyingOrg,
+        buying_org_rows,
+        SILVER_BUYING_ORG_CONFLICT_FIELDS,
+    )
+    contracting_unit = flush_remaining(
+        session,
+        SilverContractingUnit,
+        contracting_unit_rows,
+        SILVER_CONTRACTING_UNIT_CONFLICT_FIELDS,
+    )
+    supplier = flush_remaining(
+        session,
+        SilverSupplier,
+        supplier_rows,
+        SILVER_SUPPLIER_CONFLICT_FIELDS,
+    )
+    category_ref = flush_remaining(
+        session,
+        SilverCategoryRef,
+        category_ref_rows,
+        SILVER_CATEGORY_REF_CONFLICT_FIELDS,
+    )
+    notice = flush_remaining(
+        session,
+        SilverNotice,
+        notice_rows,
+        SILVER_NOTICE_CONFLICT_FIELDS,
+    )
+    notice_line = flush_remaining(
+        session,
+        SilverNoticeLine,
+        notice_line_rows,
+        SILVER_NOTICE_LINE_CONFLICT_FIELDS,
+    )
+    bid_submission = flush_remaining(
+        session,
+        SilverBidSubmission,
+        bid_submission_rows,
+        SILVER_BID_SUBMISSION_CONFLICT_FIELDS,
+    )
+    award_outcome = flush_remaining(
+        session,
+        SilverAwardOutcome,
+        award_outcome_rows,
+        SILVER_AWARD_OUTCOME_CONFLICT_FIELDS,
+    )
+    supplier_participation = flush_remaining(
+        session,
+        SilverSupplierParticipation,
+        supplier_participation_rows,
+        SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS,
+    )
+    notice_text_ann = flush_remaining(
+        session,
+        SilverNoticeTextAnn,
+        notice_text_ann_rows,
+        SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS,
+    )
+    notice_line_text_ann = flush_remaining(
+        session,
+        SilverNoticeLineTextAnn,
+        notice_line_text_ann_rows,
+        SILVER_NOTICE_LINE_TEXT_ANN_CONFLICT_FIELDS,
+    )
+    return (
+        buying_org,
+        contracting_unit,
+        supplier,
+        category_ref,
+        notice,
+        notice_line,
+        bid_submission,
+        award_outcome,
+        supplier_participation,
+        notice_text_ann,
+        notice_line_text_ann,
+    )
+
+
+def flush_silver_ordenes_chunk_buffers(
+    *,
+    session: Session,
+    chunk_size: int,
+    buying_org_rows: list[dict[str, Any]],
+    contracting_unit_rows: list[dict[str, Any]],
+    supplier_rows: list[dict[str, Any]],
+    category_ref_rows: list[dict[str, Any]],
+    purchase_order_rows: list[dict[str, Any]],
+    purchase_order_line_rows: list[dict[str, Any]],
+    notice_purchase_order_link_rows: list[dict[str, Any]],
+    purchase_order_line_text_ann_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int, int, int, int]:
+    facts_chunk_triggered = any(
+        len(rows) >= chunk_size
+        for rows in (
+            purchase_order_rows,
+            purchase_order_line_rows,
+            notice_purchase_order_link_rows,
+            purchase_order_line_text_ann_rows,
+        )
+    )
+    buying_org = flush_if_needed(
+        session,
+        SilverBuyingOrg,
+        buying_org_rows,
+        SILVER_BUYING_ORG_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    contracting_unit = flush_if_needed(
+        session,
+        SilverContractingUnit,
+        contracting_unit_rows,
+        SILVER_CONTRACTING_UNIT_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    supplier = flush_if_needed(
+        session,
+        SilverSupplier,
+        supplier_rows,
+        SILVER_SUPPLIER_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    category_ref = flush_if_needed(
+        session,
+        SilverCategoryRef,
+        category_ref_rows,
+        SILVER_CATEGORY_REF_CONFLICT_FIELDS,
+        chunk_size,
+        force=facts_chunk_triggered,
+    )
+    purchase_order = flush_if_needed(
+        session,
+        SilverPurchaseOrder,
+        purchase_order_rows,
+        SILVER_PURCHASE_ORDER_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    purchase_order_line = flush_if_needed(
+        session,
+        SilverPurchaseOrderLine,
+        purchase_order_line_rows,
+        SILVER_PURCHASE_ORDER_LINE_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    notice_purchase_order_link = flush_if_needed(
+        session,
+        SilverNoticePurchaseOrderLink,
+        notice_purchase_order_link_rows,
+        SILVER_NOTICE_PURCHASE_ORDER_LINK_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    purchase_order_line_text_ann = flush_if_needed(
+        session,
+        SilverPurchaseOrderLineTextAnn,
+        purchase_order_line_text_ann_rows,
+        SILVER_PURCHASE_ORDER_LINE_TEXT_ANN_CONFLICT_FIELDS,
+        chunk_size,
+    )
+    return (
+        buying_org,
+        contracting_unit,
+        supplier,
+        category_ref,
+        purchase_order,
+        purchase_order_line,
+        notice_purchase_order_link,
+        purchase_order_line_text_ann,
+    )
+
+
+def flush_silver_ordenes_remaining_buffers(
+    *,
+    session: Session,
+    buying_org_rows: list[dict[str, Any]],
+    contracting_unit_rows: list[dict[str, Any]],
+    supplier_rows: list[dict[str, Any]],
+    category_ref_rows: list[dict[str, Any]],
+    purchase_order_rows: list[dict[str, Any]],
+    purchase_order_line_rows: list[dict[str, Any]],
+    notice_purchase_order_link_rows: list[dict[str, Any]],
+    purchase_order_line_text_ann_rows: list[dict[str, Any]],
+) -> tuple[int, int, int, int, int, int, int, int]:
+    buying_org = flush_remaining(
+        session,
+        SilverBuyingOrg,
+        buying_org_rows,
+        SILVER_BUYING_ORG_CONFLICT_FIELDS,
+    )
+    contracting_unit = flush_remaining(
+        session,
+        SilverContractingUnit,
+        contracting_unit_rows,
+        SILVER_CONTRACTING_UNIT_CONFLICT_FIELDS,
+    )
+    supplier = flush_remaining(
+        session,
+        SilverSupplier,
+        supplier_rows,
+        SILVER_SUPPLIER_CONFLICT_FIELDS,
+    )
+    category_ref = flush_remaining(
+        session,
+        SilverCategoryRef,
+        category_ref_rows,
+        SILVER_CATEGORY_REF_CONFLICT_FIELDS,
+    )
+    purchase_order = flush_remaining(
+        session,
+        SilverPurchaseOrder,
+        purchase_order_rows,
+        SILVER_PURCHASE_ORDER_CONFLICT_FIELDS,
+    )
+    purchase_order_line = flush_remaining(
+        session,
+        SilverPurchaseOrderLine,
+        purchase_order_line_rows,
+        SILVER_PURCHASE_ORDER_LINE_CONFLICT_FIELDS,
+    )
+    notice_purchase_order_link = flush_remaining(
+        session,
+        SilverNoticePurchaseOrderLink,
+        notice_purchase_order_link_rows,
+        SILVER_NOTICE_PURCHASE_ORDER_LINK_CONFLICT_FIELDS,
+    )
+    purchase_order_line_text_ann = flush_remaining(
+        session,
+        SilverPurchaseOrderLineTextAnn,
+        purchase_order_line_text_ann_rows,
+        SILVER_PURCHASE_ORDER_LINE_TEXT_ANN_CONFLICT_FIELDS,
+    )
+    return (
+        buying_org,
+        contracting_unit,
+        supplier,
+        category_ref,
+        purchase_order,
+        purchase_order_line,
+        notice_purchase_order_link,
+        purchase_order_line_text_ann,
+    )
+
+
+def refresh_silver_notice_and_line_enrichments(session: Session) -> None:
+    notice_line_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverNoticeLine)
+        .where(SilverNoticeLine.notice_id == SilverNotice.notice_id)
+        .scalar_subquery()
+    )
+    notice_bid_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverBidSubmission)
+        .where(SilverBidSubmission.notice_id == SilverNotice.notice_id)
+        .scalar_subquery()
+    )
+    notice_supplier_count_sq = (
+        sa.select(sa.func.count(sa.distinct(SilverBidSubmission.supplier_key)))
+        .select_from(SilverBidSubmission)
+        .where(SilverBidSubmission.notice_id == SilverNotice.notice_id)
+        .scalar_subquery()
+    )
+    notice_selected_bid_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverBidSubmission)
+        .where(
+            SilverBidSubmission.notice_id == SilverNotice.notice_id,
+            SilverBidSubmission.selected_offer_flag.is_(True),
+        )
+        .scalar_subquery()
+    )
+    notice_awarded_line_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverAwardOutcome)
+        .where(
+            SilverAwardOutcome.notice_id == SilverNotice.notice_id,
+            sa.or_(
+                SilverAwardOutcome.selected_offer_flag.is_(True),
+                SilverAwardOutcome.awarded_line_amount.is_not(None),
+            ),
+        )
+        .scalar_subquery()
+    )
+    notice_purchase_order_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverNoticePurchaseOrderLink)
+        .where(SilverNoticePurchaseOrderLink.notice_id == SilverNotice.notice_id)
+        .scalar_subquery()
+    )
+
+    session.execute(
+        sa.update(SilverNotice).values(
+            notice_line_count=sa.func.coalesce(notice_line_count_sq, 0),
+            notice_bid_count=sa.func.coalesce(notice_bid_count_sq, 0),
+            notice_supplier_count=sa.func.coalesce(notice_supplier_count_sq, 0),
+            notice_selected_bid_count=sa.func.coalesce(notice_selected_bid_count_sq, 0),
+            notice_awarded_line_count=sa.func.coalesce(notice_awarded_line_count_sq, 0),
+            notice_purchase_order_count=sa.func.coalesce(notice_purchase_order_count_sq, 0),
+            notice_has_purchase_order_flag=sa.case(
+                (sa.func.coalesce(notice_purchase_order_count_sq, 0) > 0, True),
+                else_=False,
+            ),
+            notice_awarded_to_order_conversion_flag=sa.case(
+                (
+                    sa.and_(
+                        sa.func.coalesce(notice_awarded_line_count_sq, 0) > 0,
+                        sa.func.coalesce(notice_purchase_order_count_sq, 0) > 0,
+                    ),
+                    True,
+                ),
+                else_=False,
+            ),
+            updated_at=sa.func.now(),
+        )
+    )
+
+    line_bid_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverBidSubmission)
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+    line_supplier_count_sq = (
+        sa.select(sa.func.count(sa.distinct(SilverBidSubmission.supplier_key)))
+        .select_from(SilverBidSubmission)
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+    line_min_offer_amount_sq = (
+        sa.select(sa.func.min(SilverBidSubmission.total_price_offered))
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+    line_max_offer_amount_sq = (
+        sa.select(sa.func.max(SilverBidSubmission.total_price_offered))
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+    line_avg_offer_amount_sq = (
+        sa.select(sa.func.avg(SilverBidSubmission.total_price_offered))
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+    line_median_offer_amount_sq = (
+        sa.select(
+            sa.func.percentile_cont(0.5).within_group(SilverBidSubmission.total_price_offered)
+        )
+        .where(
+            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
+            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
+        )
+        .scalar_subquery()
+    )
+
+    session.execute(
+        sa.update(SilverNoticeLine).values(
+            line_bid_count=sa.func.coalesce(line_bid_count_sq, 0),
+            line_supplier_count=sa.func.coalesce(line_supplier_count_sq, 0),
+            line_min_offer_amount=line_min_offer_amount_sq,
+            line_max_offer_amount=line_max_offer_amount_sq,
+            line_avg_offer_amount=line_avg_offer_amount_sq,
+            line_median_offer_amount=line_median_offer_amount_sq,
+            line_price_dispersion_ratio=sa.case(
+                (
+                    sa.and_(
+                        line_avg_offer_amount_sq.is_not(None),
+                        line_avg_offer_amount_sq != 0,
+                        line_min_offer_amount_sq.is_not(None),
+                        line_max_offer_amount_sq.is_not(None),
+                    ),
+                    (line_max_offer_amount_sq - line_min_offer_amount_sq) / line_avg_offer_amount_sq,
+                ),
+                else_=None,
+            ),
+            updated_at=sa.func.now(),
+        )
+    )
+
+
+def refresh_silver_purchase_order_enrichments(session: Session) -> None:
+    line_count_sq = (
+        sa.select(sa.func.count())
+        .select_from(SilverPurchaseOrderLine)
+        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
+        .scalar_subquery()
+    )
+    total_quantity_sq = (
+        sa.select(sa.func.sum(SilverPurchaseOrderLine.quantity_ordered))
+        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
+        .scalar_subquery()
+    )
+    total_net_amount_sq = (
+        sa.select(sa.func.sum(SilverPurchaseOrderLine.line_net_total))
+        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
+        .scalar_subquery()
+    )
+    unique_product_count_sq = (
+        sa.select(sa.func.count(sa.distinct(SilverPurchaseOrderLine.onu_product_code)))
+        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
+        .scalar_subquery()
+    )
+
+    session.execute(
+        sa.update(SilverPurchaseOrder).values(
+            purchase_order_line_count=sa.func.coalesce(line_count_sq, 0),
+            purchase_order_total_quantity=total_quantity_sq,
+            purchase_order_total_net_amount=total_net_amount_sq,
+            purchase_order_unique_product_count=sa.func.coalesce(unique_product_count_sq, 0),
+            is_linked_to_notice_flag=sa.case(
+                (SilverPurchaseOrder.linked_notice_id.is_not(None), True),
+                else_=False,
+            ),
+            updated_at=sa.func.now(),
+        )
+    )
+
+
+def reconcile_silver_notice_purchase_order_links(session: Session) -> int:
+    link_type = "explicit_code_match"
+    insert_stmt = pg_insert(SilverNoticePurchaseOrderLink).from_select(
+        [
+            "notice_id",
+            "purchase_order_id",
+            "link_type",
+            "link_confidence",
+            "source_system",
+            "source_file_id",
+        ],
+        sa.select(
+            SilverPurchaseOrder.linked_notice_id.label("notice_id"),
+            SilverPurchaseOrder.purchase_order_id.label("purchase_order_id"),
+            sa.literal(link_type).label("link_type"),
+            sa.literal(1).label("link_confidence"),
+            sa.literal("mercado_publico_csv").label("source_system"),
+            SilverPurchaseOrder.source_file_id.label("source_file_id"),
+        )
+        .join(
+            SilverNotice,
+            SilverNotice.notice_id == SilverPurchaseOrder.linked_notice_id,
+        )
+        .outerjoin(
+            SilverNoticePurchaseOrderLink,
+            sa.and_(
+                SilverNoticePurchaseOrderLink.notice_id == SilverPurchaseOrder.linked_notice_id,
+                SilverNoticePurchaseOrderLink.purchase_order_id
+                == SilverPurchaseOrder.purchase_order_id,
+                SilverNoticePurchaseOrderLink.link_type == link_type,
+            ),
+        )
+        .where(
+            SilverPurchaseOrder.linked_notice_id.is_not(None),
+            SilverNoticePurchaseOrderLink.notice_purchase_order_link_id.is_(None),
+        ),
+    )
+    insert_stmt = insert_stmt.on_conflict_do_nothing(
+        index_elements=SILVER_NOTICE_PURCHASE_ORDER_LINK_CONFLICT_FIELDS
+    )
+    result = cast(Any, session.execute(insert_stmt))
+    return max(0, int(result.rowcount or 0))
+
+
 def process_licitaciones(
     session: Session,
     fetch_size: int,
@@ -814,6 +1577,17 @@ def process_licitaciones(
     licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
     ofertas_before = table_row_count(session, NormalizedOferta)
     suppliers_before = table_row_count(session, NormalizedSupplier)
+    silver_buying_org_before = table_row_count(session, SilverBuyingOrg)
+    silver_contracting_unit_before = table_row_count(session, SilverContractingUnit)
+    silver_supplier_before = table_row_count(session, SilverSupplier)
+    silver_category_ref_before = table_row_count(session, SilverCategoryRef)
+    silver_notice_before = table_row_count(session, SilverNotice)
+    silver_notice_line_before = table_row_count(session, SilverNoticeLine)
+    silver_bid_submission_before = table_row_count(session, SilverBidSubmission)
+    silver_award_outcome_before = table_row_count(session, SilverAwardOutcome)
+    silver_supplier_participation_before = table_row_count(session, SilverSupplierParticipation)
+    silver_notice_text_ann_before = table_row_count(session, SilverNoticeTextAnn)
+    silver_notice_line_text_ann_before = table_row_count(session, SilverNoticeLineTextAnn)
 
     total_rows = session.execute(
         sa.select(sa.func.count())
@@ -835,6 +1609,17 @@ def process_licitaciones(
     licitacion_items_rows: list[dict[str, Any]] = []
     ofertas_rows: list[dict[str, Any]] = []
     suppliers_rows: list[dict[str, Any]] = []
+    silver_buying_org_rows: list[dict[str, Any]] = []
+    silver_contracting_unit_rows: list[dict[str, Any]] = []
+    silver_supplier_rows: list[dict[str, Any]] = []
+    silver_category_ref_rows: list[dict[str, Any]] = []
+    silver_notice_rows: list[dict[str, Any]] = []
+    silver_notice_line_rows: list[dict[str, Any]] = []
+    silver_bid_submission_rows: list[dict[str, Any]] = []
+    silver_award_outcome_rows: list[dict[str, Any]] = []
+    silver_supplier_participation_rows: list[dict[str, Any]] = []
+    silver_notice_text_ann_rows: list[dict[str, Any]] = []
+    silver_notice_line_text_ann_rows: list[dict[str, Any]] = []
     licitaciones_accepted = 0
     licitacion_items_accepted = 0
     ofertas_accepted = 0
@@ -847,6 +1632,39 @@ def process_licitaciones(
     licitacion_items_deduplicated = 0
     ofertas_deduplicated = 0
     suppliers_deduplicated = 0
+    silver_buying_org_accepted = 0
+    silver_contracting_unit_accepted = 0
+    silver_supplier_accepted = 0
+    silver_category_ref_accepted = 0
+    silver_notice_accepted = 0
+    silver_notice_line_accepted = 0
+    silver_bid_submission_accepted = 0
+    silver_award_outcome_accepted = 0
+    silver_supplier_participation_accepted = 0
+    silver_notice_text_ann_accepted = 0
+    silver_notice_line_text_ann_accepted = 0
+    silver_buying_org_rejected = 0
+    silver_contracting_unit_rejected = 0
+    silver_supplier_rejected = 0
+    silver_category_ref_rejected = 0
+    silver_notice_rejected = 0
+    silver_notice_line_rejected = 0
+    silver_bid_submission_rejected = 0
+    silver_award_outcome_rejected = 0
+    silver_supplier_participation_rejected = 0
+    silver_notice_text_ann_rejected = 0
+    silver_notice_line_text_ann_rejected = 0
+    silver_buying_org_deduplicated = 0
+    silver_contracting_unit_deduplicated = 0
+    silver_supplier_deduplicated = 0
+    silver_category_ref_deduplicated = 0
+    silver_notice_deduplicated = 0
+    silver_notice_line_deduplicated = 0
+    silver_bid_submission_deduplicated = 0
+    silver_award_outcome_deduplicated = 0
+    silver_supplier_participation_deduplicated = 0
+    silver_notice_text_ann_deduplicated = 0
+    silver_notice_line_text_ann_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -940,6 +1758,110 @@ def process_licitaciones(
                 elif oferta is not None:
                     suppliers_rejected += 1
 
+                silver_notice = build_silver_notice_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_notice is not None:
+                    silver_notice_rows.append(silver_notice)
+                    silver_notice_accepted += 1
+                else:
+                    silver_notice_rejected += 1
+
+                silver_notice_line = build_silver_notice_line_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_notice_line is not None:
+                    silver_notice_line_rows.append(silver_notice_line)
+                    silver_notice_line_accepted += 1
+                else:
+                    silver_notice_line_rejected += 1
+
+                silver_bid_submission = build_silver_bid_submission_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_bid_submission is not None:
+                    silver_bid_submission_rows.append(silver_bid_submission)
+                    silver_bid_submission_accepted += 1
+
+                silver_award_outcome = build_silver_award_outcome_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_award_outcome is not None:
+                    silver_award_outcome_rows.append(silver_award_outcome)
+                    silver_award_outcome_accepted += 1
+
+                silver_buying_org = build_silver_buying_org_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_buying_org is not None:
+                    silver_buying_org_rows.append(silver_buying_org)
+                    silver_buying_org_accepted += 1
+
+                silver_contracting_unit = build_silver_contracting_unit_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_contracting_unit is not None:
+                    silver_contracting_unit_rows.append(silver_contracting_unit)
+                    silver_contracting_unit_accepted += 1
+
+                silver_supplier = build_silver_supplier_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_supplier is not None:
+                    silver_supplier_rows.append(silver_supplier)
+                    silver_supplier_accepted += 1
+
+                silver_category_ref = build_silver_category_ref_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_category_ref is not None:
+                    silver_category_ref_rows.append(silver_category_ref)
+                    silver_category_ref_accepted += 1
+
+                silver_supplier_participation = build_silver_supplier_participation_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    bid_submission_payload=silver_bid_submission,
+                    award_outcome_payload=silver_award_outcome,
+                )
+                if silver_supplier_participation is not None:
+                    silver_supplier_participation_rows.append(silver_supplier_participation)
+                    silver_supplier_participation_accepted += 1
+
+                silver_notice_text_ann = build_silver_notice_text_ann_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_notice_text_ann is not None:
+                    silver_notice_text_ann_rows.append(silver_notice_text_ann)
+                    silver_notice_text_ann_accepted += 1
+                else:
+                    silver_notice_text_ann_rejected += 1
+
+                silver_notice_line_text_ann = build_silver_notice_line_text_ann_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_notice_line_text_ann is not None:
+                    silver_notice_line_text_ann_rows.append(silver_notice_line_text_ann)
+                    silver_notice_line_text_ann_accepted += 1
+                else:
+                    silver_notice_line_text_ann_rejected += 1
+
                 (
                     chunk_licitaciones,
                     chunk_items,
@@ -957,6 +1879,45 @@ def process_licitaciones(
                 licitacion_items_deduplicated += chunk_items
                 suppliers_deduplicated += chunk_suppliers
                 ofertas_deduplicated += chunk_ofertas
+
+                (
+                    chunk_silver_buying_org,
+                    chunk_silver_contracting_unit,
+                    chunk_silver_supplier,
+                    chunk_silver_category_ref,
+                    chunk_silver_notice,
+                    chunk_silver_notice_line,
+                    chunk_silver_bid_submission,
+                    chunk_silver_award_outcome,
+                    chunk_silver_supplier_participation,
+                    chunk_silver_notice_text_ann,
+                    chunk_silver_notice_line_text_ann,
+                ) = flush_silver_licitaciones_chunk_buffers(
+                    session=session,
+                    chunk_size=chunk_size,
+                    buying_org_rows=silver_buying_org_rows,
+                    contracting_unit_rows=silver_contracting_unit_rows,
+                    supplier_rows=silver_supplier_rows,
+                    category_ref_rows=silver_category_ref_rows,
+                    notice_rows=silver_notice_rows,
+                    notice_line_rows=silver_notice_line_rows,
+                    bid_submission_rows=silver_bid_submission_rows,
+                    award_outcome_rows=silver_award_outcome_rows,
+                    supplier_participation_rows=silver_supplier_participation_rows,
+                    notice_text_ann_rows=silver_notice_text_ann_rows,
+                    notice_line_text_ann_rows=silver_notice_line_text_ann_rows,
+                )
+                silver_buying_org_deduplicated += chunk_silver_buying_org
+                silver_contracting_unit_deduplicated += chunk_silver_contracting_unit
+                silver_supplier_deduplicated += chunk_silver_supplier
+                silver_category_ref_deduplicated += chunk_silver_category_ref
+                silver_notice_deduplicated += chunk_silver_notice
+                silver_notice_line_deduplicated += chunk_silver_notice_line
+                silver_bid_submission_deduplicated += chunk_silver_bid_submission
+                silver_award_outcome_deduplicated += chunk_silver_award_outcome
+                silver_supplier_participation_deduplicated += chunk_silver_supplier_participation
+                silver_notice_text_ann_deduplicated += chunk_silver_notice_text_ann
+                silver_notice_line_text_ann_deduplicated += chunk_silver_notice_line_text_ann
 
             session.commit()
             if row_bar is not None:
@@ -1004,11 +1965,63 @@ def process_licitaciones(
     suppliers_deduplicated += remaining_suppliers
     ofertas_deduplicated += remaining_ofertas
 
+    (
+        remaining_silver_buying_org,
+        remaining_silver_contracting_unit,
+        remaining_silver_supplier,
+        remaining_silver_category_ref,
+        remaining_silver_notice,
+        remaining_silver_notice_line,
+        remaining_silver_bid_submission,
+        remaining_silver_award_outcome,
+        remaining_silver_supplier_participation,
+        remaining_silver_notice_text_ann,
+        remaining_silver_notice_line_text_ann,
+    ) = flush_silver_licitaciones_remaining_buffers(
+        session=session,
+        buying_org_rows=silver_buying_org_rows,
+        contracting_unit_rows=silver_contracting_unit_rows,
+        supplier_rows=silver_supplier_rows,
+        category_ref_rows=silver_category_ref_rows,
+        notice_rows=silver_notice_rows,
+        notice_line_rows=silver_notice_line_rows,
+        bid_submission_rows=silver_bid_submission_rows,
+        award_outcome_rows=silver_award_outcome_rows,
+        supplier_participation_rows=silver_supplier_participation_rows,
+        notice_text_ann_rows=silver_notice_text_ann_rows,
+        notice_line_text_ann_rows=silver_notice_line_text_ann_rows,
+    )
+    silver_buying_org_deduplicated += remaining_silver_buying_org
+    silver_contracting_unit_deduplicated += remaining_silver_contracting_unit
+    silver_supplier_deduplicated += remaining_silver_supplier
+    silver_category_ref_deduplicated += remaining_silver_category_ref
+    silver_notice_deduplicated += remaining_silver_notice
+    silver_notice_line_deduplicated += remaining_silver_notice_line
+    silver_bid_submission_deduplicated += remaining_silver_bid_submission
+    silver_award_outcome_deduplicated += remaining_silver_award_outcome
+    silver_supplier_participation_deduplicated += remaining_silver_supplier_participation
+    silver_notice_text_ann_deduplicated += remaining_silver_notice_text_ann
+    silver_notice_line_text_ann_deduplicated += remaining_silver_notice_line_text_ann
+
+    reconcile_silver_notice_purchase_order_links(session)
+    refresh_silver_notice_and_line_enrichments(session)
+
     session.commit()
     licitaciones_after = table_row_count(session, NormalizedLicitacion)
     licitacion_items_after = table_row_count(session, NormalizedLicitacionItem)
     ofertas_after = table_row_count(session, NormalizedOferta)
     suppliers_after = table_row_count(session, NormalizedSupplier)
+    silver_buying_org_after = table_row_count(session, SilverBuyingOrg)
+    silver_contracting_unit_after = table_row_count(session, SilverContractingUnit)
+    silver_supplier_after = table_row_count(session, SilverSupplier)
+    silver_category_ref_after = table_row_count(session, SilverCategoryRef)
+    silver_notice_after = table_row_count(session, SilverNotice)
+    silver_notice_line_after = table_row_count(session, SilverNoticeLine)
+    silver_bid_submission_after = table_row_count(session, SilverBidSubmission)
+    silver_award_outcome_after = table_row_count(session, SilverAwardOutcome)
+    silver_supplier_participation_after = table_row_count(session, SilverSupplierParticipation)
+    silver_notice_text_ann_after = table_row_count(session, SilverNoticeTextAnn)
+    silver_notice_line_text_ann_after = table_row_count(session, SilverNoticeLineTextAnn)
 
     licitaciones_metrics = build_entity_metrics(
         processed_rows=processed,
@@ -1041,6 +2054,83 @@ def process_licitaciones(
         before_scope_rows=suppliers_before,
         after_scope_rows=suppliers_after,
     )
+    silver_buying_org_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_buying_org_accepted,
+        rejected_rows=silver_buying_org_rejected,
+        deduplicated_rows=silver_buying_org_deduplicated,
+        before_scope_rows=silver_buying_org_before,
+        after_scope_rows=silver_buying_org_after,
+    )
+    silver_contracting_unit_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_contracting_unit_accepted,
+        rejected_rows=silver_contracting_unit_rejected,
+        deduplicated_rows=silver_contracting_unit_deduplicated,
+        before_scope_rows=silver_contracting_unit_before,
+        after_scope_rows=silver_contracting_unit_after,
+    )
+    silver_supplier_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_supplier_accepted,
+        rejected_rows=silver_supplier_rejected,
+        deduplicated_rows=silver_supplier_deduplicated,
+        before_scope_rows=silver_supplier_before,
+        after_scope_rows=silver_supplier_after,
+    )
+    silver_category_ref_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_category_ref_accepted,
+        rejected_rows=silver_category_ref_rejected,
+        deduplicated_rows=silver_category_ref_deduplicated,
+        before_scope_rows=silver_category_ref_before,
+        after_scope_rows=silver_category_ref_after,
+    )
+    silver_notice_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_notice_accepted,
+        rejected_rows=silver_notice_rejected,
+        deduplicated_rows=silver_notice_deduplicated,
+        before_scope_rows=silver_notice_before,
+        after_scope_rows=silver_notice_after,
+    )
+    silver_notice_line_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_notice_line_accepted,
+        rejected_rows=silver_notice_line_rejected,
+        deduplicated_rows=silver_notice_line_deduplicated,
+        before_scope_rows=silver_notice_line_before,
+        after_scope_rows=silver_notice_line_after,
+    )
+    silver_bid_submission_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_bid_submission_accepted,
+        rejected_rows=silver_bid_submission_rejected,
+        deduplicated_rows=silver_bid_submission_deduplicated,
+        before_scope_rows=silver_bid_submission_before,
+        after_scope_rows=silver_bid_submission_after,
+    )
+    silver_award_outcome_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_award_outcome_accepted,
+        rejected_rows=silver_award_outcome_rejected,
+        deduplicated_rows=silver_award_outcome_deduplicated,
+        before_scope_rows=silver_award_outcome_before,
+        after_scope_rows=silver_award_outcome_after,
+    )
+    silver_supplier_participation_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_supplier_participation_accepted,
+        rejected_rows=silver_supplier_participation_rejected,
+        deduplicated_rows=silver_supplier_participation_deduplicated,
+        before_scope_rows=silver_supplier_participation_before,
+        after_scope_rows=silver_supplier_participation_after,
+    )
+    silver_notice_text_ann_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_notice_text_ann_accepted,
+        rejected_rows=silver_notice_text_ann_rejected,
+        deduplicated_rows=silver_notice_text_ann_deduplicated,
+        before_scope_rows=silver_notice_text_ann_before,
+        after_scope_rows=silver_notice_text_ann_after,
+    )
+    silver_notice_line_text_ann_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_notice_line_text_ann_accepted,
+        rejected_rows=silver_notice_line_text_ann_rejected,
+        deduplicated_rows=silver_notice_line_text_ann_deduplicated,
+        before_scope_rows=silver_notice_line_text_ann_before,
+        after_scope_rows=silver_notice_line_text_ann_after,
+    )
 
     progress_write(
         "[normalized] licitaciones summary: "
@@ -1072,6 +2162,25 @@ def process_licitaciones(
         f"inserted_delta={suppliers_metrics['inserted_delta_rows']:,} "
         f"existing_or_updated={suppliers_metrics['existing_or_updated_rows']:,} "
         f"rejected={suppliers_metrics['rejected_rows']:,}"
+        "} "
+        "silver_core{"
+        f"notice_deduplicated={silver_notice_metrics['deduplicated_rows']:,} "
+        f"notice_line_deduplicated={silver_notice_line_metrics['deduplicated_rows']:,} "
+        f"bid_deduplicated={silver_bid_submission_metrics['deduplicated_rows']:,} "
+        f"award_deduplicated={silver_award_outcome_metrics['deduplicated_rows']:,}"
+        "} "
+        "silver_dims{"
+        f"org_deduplicated={silver_buying_org_metrics['deduplicated_rows']:,} "
+        f"unit_deduplicated={silver_contracting_unit_metrics['deduplicated_rows']:,} "
+        f"supplier_deduplicated={silver_supplier_metrics['deduplicated_rows']:,} "
+        f"category_deduplicated={silver_category_ref_metrics['deduplicated_rows']:,}"
+        "} "
+        "silver_links{"
+        f"supplier_participation_deduplicated={silver_supplier_participation_metrics['deduplicated_rows']:,}"
+        " annotations{"
+        f"notice_text_ann_deduplicated={silver_notice_text_ann_metrics['deduplicated_rows']:,} "
+        f"notice_line_text_ann_deduplicated={silver_notice_line_text_ann_metrics['deduplicated_rows']:,}"
+        "}"
         "}",
         enabled=show_progress,
     )
@@ -1086,6 +2195,17 @@ def process_licitaciones(
             "licitacion_items": licitacion_items_metrics,
             "ofertas": ofertas_metrics,
             "suppliers": suppliers_metrics,
+            "silver_buying_org": silver_buying_org_metrics,
+            "silver_contracting_unit": silver_contracting_unit_metrics,
+            "silver_supplier": silver_supplier_metrics,
+            "silver_category_ref": silver_category_ref_metrics,
+            "silver_notice": silver_notice_metrics,
+            "silver_notice_line": silver_notice_line_metrics,
+            "silver_bid_submission": silver_bid_submission_metrics,
+            "silver_award_outcome": silver_award_outcome_metrics,
+            "silver_supplier_participation": silver_supplier_participation_metrics,
+            "silver_notice_text_ann": silver_notice_text_ann_metrics,
+            "silver_notice_line_text_ann": silver_notice_line_text_ann_metrics,
         },
     }
 
@@ -1105,6 +2225,20 @@ def process_ordenes_compra(
     buyers_before = table_row_count(session, NormalizedBuyer)
     suppliers_before = table_row_count(session, NormalizedSupplier)
     categories_before = table_row_count(session, NormalizedCategory)
+    silver_buying_org_before = table_row_count(session, SilverBuyingOrg)
+    silver_contracting_unit_before = table_row_count(session, SilverContractingUnit)
+    silver_supplier_before = table_row_count(session, SilverSupplier)
+    silver_category_ref_before = table_row_count(session, SilverCategoryRef)
+    silver_purchase_order_before = table_row_count(session, SilverPurchaseOrder)
+    silver_purchase_order_line_before = table_row_count(session, SilverPurchaseOrderLine)
+    silver_notice_purchase_order_link_before = table_row_count(session, SilverNoticePurchaseOrderLink)
+    silver_purchase_order_line_text_ann_before = table_row_count(
+        session,
+        SilverPurchaseOrderLineTextAnn,
+    )
+    existing_notice_ids = set(
+        session.execute(sa.select(SilverNotice.notice_id)).scalars().all()
+    )
 
     total_rows = session.execute(
         sa.select(sa.func.count())
@@ -1127,6 +2261,14 @@ def process_ordenes_compra(
     buyers_rows: list[dict[str, Any]] = []
     suppliers_rows: list[dict[str, Any]] = []
     categories_rows: list[dict[str, Any]] = []
+    silver_buying_org_rows: list[dict[str, Any]] = []
+    silver_contracting_unit_rows: list[dict[str, Any]] = []
+    silver_supplier_rows: list[dict[str, Any]] = []
+    silver_category_ref_rows: list[dict[str, Any]] = []
+    silver_purchase_order_rows: list[dict[str, Any]] = []
+    silver_purchase_order_line_rows: list[dict[str, Any]] = []
+    silver_notice_purchase_order_link_rows: list[dict[str, Any]] = []
+    silver_purchase_order_line_text_ann_rows: list[dict[str, Any]] = []
     ordenes_accepted = 0
     ordenes_items_accepted = 0
     buyers_accepted = 0
@@ -1142,6 +2284,30 @@ def process_ordenes_compra(
     buyers_deduplicated = 0
     suppliers_deduplicated = 0
     categories_deduplicated = 0
+    silver_buying_org_accepted = 0
+    silver_contracting_unit_accepted = 0
+    silver_supplier_accepted = 0
+    silver_category_ref_accepted = 0
+    silver_purchase_order_accepted = 0
+    silver_purchase_order_line_accepted = 0
+    silver_notice_purchase_order_link_accepted = 0
+    silver_purchase_order_line_text_ann_accepted = 0
+    silver_buying_org_rejected = 0
+    silver_contracting_unit_rejected = 0
+    silver_supplier_rejected = 0
+    silver_category_ref_rejected = 0
+    silver_purchase_order_rejected = 0
+    silver_purchase_order_line_rejected = 0
+    silver_notice_purchase_order_link_rejected = 0
+    silver_purchase_order_line_text_ann_rejected = 0
+    silver_buying_org_deduplicated = 0
+    silver_contracting_unit_deduplicated = 0
+    silver_supplier_deduplicated = 0
+    silver_category_ref_deduplicated = 0
+    silver_purchase_order_deduplicated = 0
+    silver_purchase_order_line_deduplicated = 0
+    silver_notice_purchase_order_link_deduplicated = 0
+    silver_purchase_order_line_text_ann_deduplicated = 0
 
     row_bar = create_progress(
         total=target_rows,
@@ -1241,6 +2407,86 @@ def process_ordenes_compra(
                 elif orden_item is not None:
                     categories_rejected += 1
 
+                silver_purchase_order = build_silver_purchase_order_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_purchase_order is not None:
+                    silver_purchase_order_rows.append(silver_purchase_order)
+                    silver_purchase_order_accepted += 1
+                else:
+                    silver_purchase_order_rejected += 1
+
+                silver_purchase_order_line = build_silver_purchase_order_line_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_purchase_order_line is not None:
+                    silver_purchase_order_line_rows.append(silver_purchase_order_line)
+                    silver_purchase_order_line_accepted += 1
+                else:
+                    silver_purchase_order_line_rejected += 1
+
+                silver_buying_org = build_silver_buying_org_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_buying_org is not None:
+                    silver_buying_org_rows.append(silver_buying_org)
+                    silver_buying_org_accepted += 1
+
+                silver_contracting_unit = build_silver_contracting_unit_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_contracting_unit is not None:
+                    silver_contracting_unit_rows.append(silver_contracting_unit)
+                    silver_contracting_unit_accepted += 1
+
+                silver_supplier = build_silver_supplier_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_supplier is not None:
+                    silver_supplier_rows.append(silver_supplier)
+                    silver_supplier_accepted += 1
+
+                silver_category_ref = build_silver_category_ref_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                )
+                if silver_category_ref is not None:
+                    silver_category_ref_rows.append(silver_category_ref)
+                    silver_category_ref_accepted += 1
+
+                silver_notice_purchase_order_link = build_silver_notice_purchase_order_link_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    purchase_order_payload=silver_purchase_order,
+                )
+                if silver_notice_purchase_order_link is not None:
+                    notice_id = silver_notice_purchase_order_link.get("notice_id")
+                    if isinstance(notice_id, str) and notice_id in existing_notice_ids:
+                        silver_notice_purchase_order_link_rows.append(
+                            silver_notice_purchase_order_link
+                        )
+                        silver_notice_purchase_order_link_accepted += 1
+
+                silver_purchase_order_line_text_ann = build_silver_purchase_order_line_text_ann_payload(
+                    raw=raw,
+                    source_file_id=source_file_id,
+                    row_hash_sha256=row_hash_sha256,
+                )
+                if silver_purchase_order_line_text_ann is not None:
+                    silver_purchase_order_line_text_ann_rows.append(
+                        silver_purchase_order_line_text_ann
+                    )
+                    silver_purchase_order_line_text_ann_accepted += 1
+                else:
+                    silver_purchase_order_line_text_ann_rejected += 1
+
                 (
                     chunk_buyers,
                     chunk_suppliers,
@@ -1261,6 +2507,40 @@ def process_ordenes_compra(
                 categories_deduplicated += chunk_categories
                 ordenes_deduplicated += chunk_ordenes
                 ordenes_items_deduplicated += chunk_ordenes_items
+
+                (
+                    chunk_silver_buying_org,
+                    chunk_silver_contracting_unit,
+                    chunk_silver_supplier,
+                    chunk_silver_category_ref,
+                    chunk_silver_purchase_order,
+                    chunk_silver_purchase_order_line,
+                    chunk_silver_notice_purchase_order_link,
+                    chunk_silver_purchase_order_line_text_ann,
+                ) = flush_silver_ordenes_chunk_buffers(
+                    session=session,
+                    chunk_size=chunk_size,
+                    buying_org_rows=silver_buying_org_rows,
+                    contracting_unit_rows=silver_contracting_unit_rows,
+                    supplier_rows=silver_supplier_rows,
+                    category_ref_rows=silver_category_ref_rows,
+                    purchase_order_rows=silver_purchase_order_rows,
+                    purchase_order_line_rows=silver_purchase_order_line_rows,
+                    notice_purchase_order_link_rows=silver_notice_purchase_order_link_rows,
+                    purchase_order_line_text_ann_rows=silver_purchase_order_line_text_ann_rows,
+                )
+                silver_buying_org_deduplicated += chunk_silver_buying_org
+                silver_contracting_unit_deduplicated += chunk_silver_contracting_unit
+                silver_supplier_deduplicated += chunk_silver_supplier
+                silver_category_ref_deduplicated += chunk_silver_category_ref
+                silver_purchase_order_deduplicated += chunk_silver_purchase_order
+                silver_purchase_order_line_deduplicated += chunk_silver_purchase_order_line
+                silver_notice_purchase_order_link_deduplicated += (
+                    chunk_silver_notice_purchase_order_link
+                )
+                silver_purchase_order_line_text_ann_deduplicated += (
+                    chunk_silver_purchase_order_line_text_ann
+                )
 
             session.commit()
             if row_bar is not None:
@@ -1309,12 +2589,56 @@ def process_ordenes_compra(
     ordenes_deduplicated += remaining_ordenes
     ordenes_items_deduplicated += remaining_ordenes_items
 
+    (
+        remaining_silver_buying_org,
+        remaining_silver_contracting_unit,
+        remaining_silver_supplier,
+        remaining_silver_category_ref,
+        remaining_silver_purchase_order,
+        remaining_silver_purchase_order_line,
+        remaining_silver_notice_purchase_order_link,
+        remaining_silver_purchase_order_line_text_ann,
+    ) = flush_silver_ordenes_remaining_buffers(
+        session=session,
+        buying_org_rows=silver_buying_org_rows,
+        contracting_unit_rows=silver_contracting_unit_rows,
+        supplier_rows=silver_supplier_rows,
+        category_ref_rows=silver_category_ref_rows,
+        purchase_order_rows=silver_purchase_order_rows,
+        purchase_order_line_rows=silver_purchase_order_line_rows,
+        notice_purchase_order_link_rows=silver_notice_purchase_order_link_rows,
+        purchase_order_line_text_ann_rows=silver_purchase_order_line_text_ann_rows,
+    )
+    silver_buying_org_deduplicated += remaining_silver_buying_org
+    silver_contracting_unit_deduplicated += remaining_silver_contracting_unit
+    silver_supplier_deduplicated += remaining_silver_supplier
+    silver_category_ref_deduplicated += remaining_silver_category_ref
+    silver_purchase_order_deduplicated += remaining_silver_purchase_order
+    silver_purchase_order_line_deduplicated += remaining_silver_purchase_order_line
+    silver_notice_purchase_order_link_deduplicated += remaining_silver_notice_purchase_order_link
+    silver_purchase_order_line_text_ann_deduplicated += remaining_silver_purchase_order_line_text_ann
+
+    reconciled_notice_purchase_order_links = reconcile_silver_notice_purchase_order_links(session)
+    silver_notice_purchase_order_link_accepted += reconciled_notice_purchase_order_links
+    silver_notice_purchase_order_link_deduplicated += reconciled_notice_purchase_order_links
+
+    refresh_silver_purchase_order_enrichments(session)
+    refresh_silver_notice_and_line_enrichments(session)
+
     session.commit()
     ordenes_after = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_after = table_row_count(session, NormalizedOrdenCompraItem)
     buyers_after = table_row_count(session, NormalizedBuyer)
     suppliers_after = table_row_count(session, NormalizedSupplier)
     categories_after = table_row_count(session, NormalizedCategory)
+    silver_buying_org_after = table_row_count(session, SilverBuyingOrg)
+    silver_contracting_unit_after = table_row_count(session, SilverContractingUnit)
+    silver_supplier_after = table_row_count(session, SilverSupplier)
+    silver_category_ref_after = table_row_count(session, SilverCategoryRef)
+    silver_purchase_order_after = table_row_count(session, SilverPurchaseOrder)
+    silver_purchase_order_line_after = table_row_count(session, SilverPurchaseOrderLine)
+    silver_notice_purchase_order_link_after = table_row_count(session, SilverNoticePurchaseOrderLink)
+    silver_purchase_order_line_text_ann_after = table_row_count(session, SilverPurchaseOrderLineTextAnn)
 
     ordenes_metrics = build_entity_metrics(
         processed_rows=processed,
@@ -1352,6 +2676,62 @@ def process_ordenes_compra(
         deduplicated_rows=categories_deduplicated,
         before_scope_rows=categories_before,
         after_scope_rows=categories_after,
+    )
+    silver_buying_org_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_buying_org_accepted,
+        rejected_rows=silver_buying_org_rejected,
+        deduplicated_rows=silver_buying_org_deduplicated,
+        before_scope_rows=silver_buying_org_before,
+        after_scope_rows=silver_buying_org_after,
+    )
+    silver_contracting_unit_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_contracting_unit_accepted,
+        rejected_rows=silver_contracting_unit_rejected,
+        deduplicated_rows=silver_contracting_unit_deduplicated,
+        before_scope_rows=silver_contracting_unit_before,
+        after_scope_rows=silver_contracting_unit_after,
+    )
+    silver_supplier_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_supplier_accepted,
+        rejected_rows=silver_supplier_rejected,
+        deduplicated_rows=silver_supplier_deduplicated,
+        before_scope_rows=silver_supplier_before,
+        after_scope_rows=silver_supplier_after,
+    )
+    silver_category_ref_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_category_ref_accepted,
+        rejected_rows=silver_category_ref_rejected,
+        deduplicated_rows=silver_category_ref_deduplicated,
+        before_scope_rows=silver_category_ref_before,
+        after_scope_rows=silver_category_ref_after,
+    )
+    silver_purchase_order_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_purchase_order_accepted,
+        rejected_rows=silver_purchase_order_rejected,
+        deduplicated_rows=silver_purchase_order_deduplicated,
+        before_scope_rows=silver_purchase_order_before,
+        after_scope_rows=silver_purchase_order_after,
+    )
+    silver_purchase_order_line_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_purchase_order_line_accepted,
+        rejected_rows=silver_purchase_order_line_rejected,
+        deduplicated_rows=silver_purchase_order_line_deduplicated,
+        before_scope_rows=silver_purchase_order_line_before,
+        after_scope_rows=silver_purchase_order_line_after,
+    )
+    silver_notice_purchase_order_link_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_notice_purchase_order_link_accepted,
+        rejected_rows=silver_notice_purchase_order_link_rejected,
+        deduplicated_rows=silver_notice_purchase_order_link_deduplicated,
+        before_scope_rows=silver_notice_purchase_order_link_before,
+        after_scope_rows=silver_notice_purchase_order_link_after,
+    )
+    silver_purchase_order_line_text_ann_metrics = build_domain_entity_metrics(
+        accepted_rows=silver_purchase_order_line_text_ann_accepted,
+        rejected_rows=silver_purchase_order_line_text_ann_rejected,
+        deduplicated_rows=silver_purchase_order_line_text_ann_deduplicated,
+        before_scope_rows=silver_purchase_order_line_text_ann_before,
+        after_scope_rows=silver_purchase_order_line_text_ann_after,
     )
 
     progress_write(
@@ -1391,6 +2771,22 @@ def process_ordenes_compra(
         f"inserted_delta={categories_metrics['inserted_delta_rows']:,} "
         f"existing_or_updated={categories_metrics['existing_or_updated_rows']:,} "
         f"rejected={categories_metrics['rejected_rows']:,}"
+        "} "
+        "silver_core{"
+        f"purchase_order_deduplicated={silver_purchase_order_metrics['deduplicated_rows']:,} "
+        f"purchase_order_line_deduplicated={silver_purchase_order_line_metrics['deduplicated_rows']:,}"
+        "} "
+        "silver_dims{"
+        f"org_deduplicated={silver_buying_org_metrics['deduplicated_rows']:,} "
+        f"unit_deduplicated={silver_contracting_unit_metrics['deduplicated_rows']:,} "
+        f"supplier_deduplicated={silver_supplier_metrics['deduplicated_rows']:,} "
+        f"category_deduplicated={silver_category_ref_metrics['deduplicated_rows']:,}"
+        "} "
+        "silver_links{"
+        f"notice_purchase_order_link_deduplicated={silver_notice_purchase_order_link_metrics['deduplicated_rows']:,}"
+        "} "
+        "annotations{"
+        f"purchase_order_line_text_ann_deduplicated={silver_purchase_order_line_text_ann_metrics['deduplicated_rows']:,}"
         "}",
         enabled=show_progress,
     )
@@ -1406,6 +2802,14 @@ def process_ordenes_compra(
             "buyers": buyers_metrics,
             "suppliers": suppliers_metrics,
             "categories": categories_metrics,
+            "silver_buying_org": silver_buying_org_metrics,
+            "silver_contracting_unit": silver_contracting_unit_metrics,
+            "silver_supplier": silver_supplier_metrics,
+            "silver_category_ref": silver_category_ref_metrics,
+            "silver_purchase_order": silver_purchase_order_metrics,
+            "silver_purchase_order_line": silver_purchase_order_line_metrics,
+            "silver_notice_purchase_order_link": silver_notice_purchase_order_link_metrics,
+            "silver_purchase_order_line_text_ann": silver_purchase_order_line_text_ann_metrics,
         },
     }
 

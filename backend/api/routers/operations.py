@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,6 +35,8 @@ SUMMARY_SNAPSHOT_UNAVAILABLE_DETAIL = (
 SUMMARY_REFRESH_FAILED_NO_FALLBACK_DETAIL = (
     "datasets summary refresh failed and no successful snapshot is available"
 )
+SUMMARY_AUTO_REFRESHED_STATUS = "auto_refreshed"
+SUMMARY_AUTO_REFRESH_FAILED_STATUS = "auto_refresh_failed_using_last_successful_snapshot"
 
 
 def reset_datasets_summary_cache() -> None:
@@ -125,6 +127,13 @@ def _build_snapshot_response(
         },
         "summary_meta": summary_meta,
     }
+
+
+def _is_snapshot_from_today(snapshot: DatasetSummarySnapshot) -> bool:
+    now_local_date = datetime.now(UTC).astimezone().date()
+    snapshot_generated_at = cast(datetime, snapshot.generated_at)
+    snapshot_local_date = snapshot_generated_at.astimezone().date()
+    return snapshot_local_date == now_local_date
 
 
 @router.get("/runs")
@@ -232,6 +241,24 @@ def datasets_summary(
                     status_code=503,
                     detail=SUMMARY_SNAPSHOT_UNAVAILABLE_DETAIL,
                 ) from exc
+        elif not _is_snapshot_from_today(latest_snapshot):
+            try:
+                latest_snapshot = _persist_summary_snapshot(db, refresh_mode="auto_daily")
+                return _build_snapshot_response(
+                    latest_snapshot,
+                    mode=mode,
+                    max_age_seconds=max_age_seconds,
+                    refresh_status=SUMMARY_AUTO_REFRESHED_STATUS,
+                )
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                return _build_snapshot_response(
+                    latest_snapshot,
+                    mode=mode,
+                    max_age_seconds=max_age_seconds,
+                    refresh_status=SUMMARY_AUTO_REFRESH_FAILED_STATUS,
+                    refresh_error=type(exc).__name__,
+                )
 
         return _build_snapshot_response(
             latest_snapshot,

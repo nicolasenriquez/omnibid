@@ -17,28 +17,26 @@ Phase 1 is executed with controlled gates:
 2. Bronze/Raw reliability and data-quality hardening
 3. Silver/Normalized core canonicalization
 4. Silver/Normalized domain modeling expansion
-5. Gold business layer implementation
+5. Silver procurement-cycle canonicalization + deterministic feature foundations
+6. Gold business layer implementation
 
 Gold is intentionally deferred until the normalized layer is operationally trusted.
 
-## Current Hardening Priorities (Post Telemetry Reconciliation)
+## Current Priorities (Post Domain-Entity Expansion)
 
-Before domain expansion and Gold work, execution should follow this sequence:
+Before Gold work, execution should follow this sequence:
 
-1. Transaction consistency hardening in ETL scripts:
-   - explicit rollback behavior after SQL failures
-   - deterministic failure-state persistence
-2. Schema/metadata parity hardening:
-   - align ORM metadata with migrated indexes/constraints
-   - prevent autogenerate drift and hidden schema assumptions
-3. Operational quality gates:
-   - persist normalized data-quality issues
-   - enforce threshold-based fail/warn rules per run
-4. Operational API guardrails:
-   - bounded list endpoint limits
-   - non-expensive dataset summary strategy for large tables
+1. Expand Silver to canonical procurement process entities:
+   - notice -> line -> bid -> award -> purchase order -> purchase-order line
+2. Complete explicit master and bridge contracts:
+   - organizations, units, supplier registry, category reference
+   - optional notice-to-OC link and supplier participation bridge
+3. Add deterministic feature foundations in Silver:
+   - temporal, structural, competition, and materialization derivations
+4. Add versioned semantic annotation contracts:
+   - annotation-only semantics (no business prediction outputs)
 
-Only after those gates are stable should the roadmap move to normalized domain expansion.
+Only after these gates are stable should the roadmap move to Gold outputs and predictive business layers.
 
 ## Not in Phase 1
 - Full user app
