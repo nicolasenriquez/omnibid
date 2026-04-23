@@ -121,6 +121,44 @@ def test_cached_mode_bootstraps_snapshot_when_missing() -> None:
     assert session.rollback_calls == 0
 
 
+def test_cached_mode_auto_refreshes_when_snapshot_not_from_today() -> None:
+    old_snapshot = _snapshot(source_files_count=11, age_seconds=60 * 60 * 30)
+    responses: list[_DummyResult | Exception] = [_DummyResult(scalar_or_none_value=old_snapshot)]
+    responses.extend(_DummyResult(scalar_value=value) for value in [101, 201, 301, 401, 501, 601, 701, 801])
+    session = _DummySession(responses)
+
+    payload = operations.datasets_summary(mode="cached", max_age_seconds=300, db=session)
+
+    assert payload["source_files"] == 101
+    assert payload["summary_meta"]["refresh_status"] == operations.SUMMARY_AUTO_REFRESHED_STATUS
+    assert payload["summary_meta"]["snapshot_refresh_mode"] == "auto_daily"
+    assert session.execute_calls == 9
+    assert session.add_calls == 1
+    assert session.commit_calls == 1
+    assert session.refresh_calls == 1
+    assert session.rollback_calls == 0
+
+
+def test_cached_mode_auto_refresh_failure_falls_back_to_latest_snapshot() -> None:
+    old_snapshot = _snapshot(source_files_count=55, age_seconds=60 * 60 * 30)
+    session = _DummySession(
+        [
+            _DummyResult(scalar_or_none_value=old_snapshot),
+            RuntimeError("count query failed"),
+        ]
+    )
+
+    payload = operations.datasets_summary(mode="cached", max_age_seconds=300, db=session)
+
+    assert payload["source_files"] == 55
+    assert payload["summary_meta"]["refresh_status"] == operations.SUMMARY_AUTO_REFRESH_FAILED_STATUS
+    assert payload["summary_meta"]["refresh_error"] == "RuntimeError"
+    assert session.execute_calls == 2
+    assert session.rollback_calls == 1
+    assert session.add_calls == 0
+    assert session.commit_calls == 0
+
+
 def test_fresh_mode_persists_new_snapshot() -> None:
     fixed_now = datetime(2026, 4, 22, 12, 0, 0, tzinfo=UTC)
 

@@ -2,6 +2,12 @@
 
 Date: 2026-04-21
 
+Historical note:
+- This document captured the pre-domain-expansion hardening sequence.
+- The current next-stage plan for Silver procurement-cycle and feature foundations is documented in:
+  - `docs/runbooks/silver_procurement_cycle_implementation_plan.md`
+  - `openspec/changes/expand-silver-procurement-cycle-and-feature-foundation-2026-04-22/`
+
 ## Objective
 
 Increase pipeline reliability and schema consistency before normalized domain expansion and Gold implementation.
