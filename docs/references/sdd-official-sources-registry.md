@@ -7,6 +7,7 @@ This registry defines the preferred official sources for this repository stack.
 - Python: https://docs.python.org/3/
 - uv: https://docs.astral.sh/uv/
 - Just: https://just.systems/man/en/
+- Docker Engine/Compose: https://docs.docker.com/
 
 ## API and Validation
 

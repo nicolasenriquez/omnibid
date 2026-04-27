@@ -116,6 +116,12 @@ QUALITY_GATE_SEVERITY_ERROR = "error"
 QUALITY_GATE_MAX_ERROR_RATE = 0.005
 QUALITY_GATE_FAIL_ON_CRITICAL_ERROR = True
 QUALITY_GATE_CRITICAL_ISSUE_TYPES = {QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS}
+QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT = int(
+    os.getenv("NORMALIZED_QUALITY_GATE_CHECKPOINT_EVERY_PAGES", "10")
+)
+QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT = int(
+    os.getenv("NORMALIZED_QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST", "100000")
+)
 QUALITY_GATE_ENTITY_TABLES = {
     "licitaciones": "normalized_licitaciones",
     "licitacion_items": "normalized_licitacion_items",
@@ -530,6 +536,218 @@ def table_row_count(session: Session, model: Any) -> int:
     return int(session.execute(sa.select(sa.func.count()).select_from(model)).scalar_one())
 
 
+def _non_empty_text_expr(expr: Any) -> Any:
+    return sa.func.nullif(sa.func.btrim(sa.cast(expr, sa.Text)), "")
+
+
+def _json_first_non_empty_text(json_expr: Any, *keys: str) -> Any:
+    candidates = [_non_empty_text_expr(json_expr[key].astext) for key in keys]
+    return sa.func.coalesce(*candidates)
+
+
+def _raw_subset_subquery(
+    *,
+    model: Any,
+    start_after_id: int,
+    limit_rows: int,
+    name: str,
+) -> Any:
+    stmt = (
+        sa.select(model.id.label("id"), model.raw_json.label("raw_json"))
+        .where(model.id > start_after_id)
+        .order_by(model.id.asc())
+    )
+    if limit_rows > 0:
+        stmt = stmt.limit(limit_rows)
+    return stmt.subquery(name)
+
+
+def run_dataset_preflight_quality_audit(
+    session: Session,
+    *,
+    dataset: str,
+    start_after_id: int,
+    limit_rows: int,
+) -> dict[str, Any]:
+    if dataset == "licitacion":
+        subset = _raw_subset_subquery(
+            model=RawLicitacion,
+            start_after_id=start_after_id,
+            limit_rows=limit_rows,
+            name="raw_licitaciones_subset",
+        )
+        raw_json = subset.c.raw_json
+        has_codigo_externo = _json_first_non_empty_text(raw_json, "CodigoExterno").is_not(None)
+        has_codigo = _json_first_non_empty_text(raw_json, "Codigo").is_not(None)
+        has_item_code = _json_first_non_empty_text(raw_json, "Codigoitem", "CodigoItem").is_not(None)
+        has_offer_signal = _json_first_non_empty_text(
+            raw_json,
+            "NombreProveedor",
+            "Nombre de la Oferta",
+            "Estado Oferta",
+        ).is_not(None)
+        has_supplier_identity = _json_first_non_empty_text(
+            raw_json,
+            "CodigoProveedor",
+            "RutProveedor",
+        ).is_not(None)
+
+        licitacion_missing_keys = sa.not_(sa.and_(has_codigo_externo, has_codigo))
+        item_missing_keys = sa.not_(sa.and_(has_codigo_externo, has_item_code))
+        oferta_missing_supplier = sa.and_(
+            has_codigo_externo,
+            has_offer_signal,
+            sa.not_(has_supplier_identity),
+        )
+
+        row = session.execute(
+            sa.select(
+                sa.func.count().label("scope_rows"),
+                sa.func.count().filter(licitacion_missing_keys).label("licitacion_missing_keys"),
+                sa.func.count().filter(item_missing_keys).label("item_missing_keys"),
+                sa.func.count().filter(oferta_missing_supplier).label("oferta_missing_supplier"),
+            ).select_from(subset)
+        ).mappings().one()
+        scope_rows = int(row["scope_rows"] or 0)
+        checks = [
+            {
+                "name": "licitacion_missing_primary_keys",
+                "rows": int(row["licitacion_missing_keys"] or 0),
+            },
+            {
+                "name": "licitacion_item_missing_primary_keys",
+                "rows": int(row["item_missing_keys"] or 0),
+            },
+            {
+                "name": "oferta_missing_supplier_identity",
+                "rows": int(row["oferta_missing_supplier"] or 0),
+            },
+        ]
+    else:
+        subset = _raw_subset_subquery(
+            model=RawOrdenCompra,
+            start_after_id=start_after_id,
+            limit_rows=limit_rows,
+            name="raw_ordenes_subset",
+        )
+        raw_json = subset.c.raw_json
+        has_codigo = _json_first_non_empty_text(raw_json, "Codigo").is_not(None)
+        has_item_code = _json_first_non_empty_text(raw_json, "IDItem").is_not(None)
+        has_buyer_identity = _json_first_non_empty_text(raw_json, "CodigoUnidadCompra").is_not(None)
+        has_supplier_identity = _json_first_non_empty_text(
+            raw_json,
+            "CodigoProveedor",
+            "RutProveedor",
+        ).is_not(None)
+        has_category_identity = _json_first_non_empty_text(
+            raw_json,
+            "codigoCategoria",
+            "codigoProductoONU",
+            "CodigoProductoONU",
+        ).is_not(None)
+
+        buyer_missing = sa.and_(has_codigo, sa.not_(has_buyer_identity))
+        supplier_missing = sa.and_(has_codigo, sa.not_(has_supplier_identity))
+        category_missing_after_fallback = sa.and_(
+            has_codigo,
+            has_item_code,
+            sa.not_(has_category_identity),
+        )
+
+        row = session.execute(
+            sa.select(
+                sa.func.count().label("scope_rows"),
+                sa.func.count().filter(buyer_missing).label("buyer_missing"),
+                sa.func.count().filter(supplier_missing).label("supplier_missing"),
+                sa.func.count()
+                .filter(category_missing_after_fallback)
+                .label("category_missing_after_fallback"),
+            ).select_from(subset)
+        ).mappings().one()
+        scope_rows = int(row["scope_rows"] or 0)
+        checks = [
+            {
+                "name": "buyer_missing_identity",
+                "rows": int(row["buyer_missing"] or 0),
+            },
+            {
+                "name": "supplier_missing_identity",
+                "rows": int(row["supplier_missing"] or 0),
+            },
+            {
+                "name": "category_missing_identity_after_onu_fallback",
+                "rows": int(row["category_missing_after_fallback"] or 0),
+            },
+        ]
+
+    max_rate = 0.0
+    for check in checks:
+        rows = int(check["rows"])
+        rate = (rows / scope_rows) if scope_rows > 0 else 0.0
+        check["rate"] = rate
+        if rate > max_rate:
+            max_rate = rate
+
+    return {
+        "dataset": dataset,
+        "scope_rows": scope_rows,
+        "checks": checks,
+        "max_rate": max_rate,
+        "threshold": QUALITY_GATE_MAX_ERROR_RATE,
+    }
+
+
+def format_preflight_quality_audit(audit: dict[str, Any]) -> str:
+    dataset = str(audit.get("dataset", "unknown"))
+    scope_rows = state_int(audit.get("scope_rows"), 0)
+    threshold = float(audit.get("threshold") or QUALITY_GATE_MAX_ERROR_RATE)
+    checks = cast(list[dict[str, Any]], audit.get("checks") or [])
+    check_parts: list[str] = []
+    for check in checks:
+        name = str(check.get("name", "unknown_check"))
+        rows = state_int(check.get("rows"), 0)
+        rate = float(check.get("rate") or 0.0)
+        check_parts.append(f"{name}={rows:,} ({rate:.2%})")
+    checks_joined = " | ".join(check_parts) if check_parts else "none"
+    return (
+        f"[normalized][preflight] dataset={dataset} scope_rows={scope_rows:,} "
+        f"threshold={threshold:.2%} :: {checks_joined}"
+    )
+
+
+def close_stale_running_runs(session: Session, *, dataset: str) -> int:
+    stale_runs = session.execute(
+        sa.select(PipelineRun)
+        .where(PipelineRun.dataset_type == dataset)
+        .where(PipelineRun.status == "running")
+    ).scalars().all()
+    if not stale_runs:
+        return 0
+
+    stale_run_ids = [run.id for run in stale_runs]
+    now_utc = datetime.now(UTC)
+    for run in stale_runs:
+        run_any = cast(Any, run)
+        run_any.status = "failed"
+        run_any.finished_at = now_utc
+        run_any.error_summary = "stale running run auto-closed before new execution"
+
+    stale_steps = session.execute(
+        sa.select(PipelineRunStep)
+        .where(PipelineRunStep.run_id.in_(stale_run_ids))
+        .where(PipelineRunStep.status == "running")
+    ).scalars().all()
+    for step in stale_steps:
+        step_any = cast(Any, step)
+        step_any.status = "failed"
+        step_any.finished_at = now_utc
+        step_any.error_details = {
+            **(step.error_details or {}),
+            "error": "stale running step auto-closed before new execution",
+        }
+    return len(stale_runs)
+
+
 def build_entity_metrics(
     *,
     processed_rows: int,
@@ -767,6 +985,55 @@ def flush_remaining(
     upserted = upsert_rows(session, model, buffer_rows, conflict_fields)
     buffer_rows.clear()
     return upserted
+
+
+def prune_orphan_notice_purchase_order_links(
+    session: Session,
+    notice_purchase_order_link_rows: list[dict[str, Any]],
+) -> int:
+    if not notice_purchase_order_link_rows:
+        return 0
+
+    purchase_order_ids = sorted(
+        {
+            purchase_order_id
+            for row in notice_purchase_order_link_rows
+            for purchase_order_id in [row.get("purchase_order_id")]
+            if isinstance(purchase_order_id, str) and purchase_order_id.strip() != ""
+        }
+    )
+    if not purchase_order_ids:
+        dropped = len(notice_purchase_order_link_rows)
+        notice_purchase_order_link_rows.clear()
+        return dropped
+
+    existing_purchase_order_ids: set[str] = set()
+    batch_size = 1000
+    for start in range(0, len(purchase_order_ids), batch_size):
+        batch = purchase_order_ids[start : start + batch_size]
+        existing_purchase_order_ids.update(
+            session.execute(
+                sa.select(SilverPurchaseOrder.purchase_order_id).where(
+                    SilverPurchaseOrder.purchase_order_id.in_(batch)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    if len(existing_purchase_order_ids) == len(purchase_order_ids):
+        return 0
+
+    filtered_rows = [
+        row
+        for row in notice_purchase_order_link_rows
+        if row.get("purchase_order_id") in existing_purchase_order_ids
+    ]
+    dropped = len(notice_purchase_order_link_rows) - len(filtered_rows)
+    if dropped > 0:
+        notice_purchase_order_link_rows.clear()
+        notice_purchase_order_link_rows.extend(filtered_rows)
+    return dropped
 
 
 def flush_licitaciones_chunk_buffers(
@@ -1176,15 +1443,22 @@ def flush_silver_ordenes_chunk_buffers(
     purchase_order_line_rows: list[dict[str, Any]],
     notice_purchase_order_link_rows: list[dict[str, Any]],
     purchase_order_line_text_ann_rows: list[dict[str, Any]],
-) -> tuple[int, int, int, int, int, int, int, int]:
-    facts_chunk_triggered = any(
-        len(rows) >= chunk_size
-        for rows in (
-            purchase_order_rows,
-            purchase_order_line_rows,
-            notice_purchase_order_link_rows,
-            purchase_order_line_text_ann_rows,
-        )
+) -> tuple[int, int, int, int, int, int, int, int, int]:
+    purchase_order_chunk_triggered = len(purchase_order_rows) >= chunk_size
+    purchase_order_line_chunk_triggered = len(purchase_order_line_rows) >= chunk_size
+    notice_purchase_order_link_chunk_triggered = len(notice_purchase_order_link_rows) >= chunk_size
+    purchase_order_line_text_ann_chunk_triggered = (
+        len(purchase_order_line_text_ann_rows) >= chunk_size
+    )
+    facts_chunk_triggered = (
+        purchase_order_chunk_triggered
+        or purchase_order_line_chunk_triggered
+        or notice_purchase_order_link_chunk_triggered
+        or purchase_order_line_text_ann_chunk_triggered
+    )
+    purchase_order_parent_chunk_triggered = facts_chunk_triggered
+    purchase_order_line_parent_chunk_triggered = (
+        purchase_order_line_chunk_triggered or purchase_order_line_text_ann_chunk_triggered
     )
     buying_org = flush_if_needed(
         session,
@@ -1224,6 +1498,7 @@ def flush_silver_ordenes_chunk_buffers(
         purchase_order_rows,
         SILVER_PURCHASE_ORDER_CONFLICT_FIELDS,
         chunk_size,
+        force=purchase_order_parent_chunk_triggered,
     )
     purchase_order_line = flush_if_needed(
         session,
@@ -1231,7 +1506,14 @@ def flush_silver_ordenes_chunk_buffers(
         purchase_order_line_rows,
         SILVER_PURCHASE_ORDER_LINE_CONFLICT_FIELDS,
         chunk_size,
+        force=purchase_order_line_parent_chunk_triggered,
     )
+    notice_purchase_order_link_rejected = 0
+    if notice_purchase_order_link_chunk_triggered and notice_purchase_order_link_rows:
+        notice_purchase_order_link_rejected = prune_orphan_notice_purchase_order_links(
+            session,
+            notice_purchase_order_link_rows,
+        )
     notice_purchase_order_link = flush_if_needed(
         session,
         SilverNoticePurchaseOrderLink,
@@ -1255,6 +1537,7 @@ def flush_silver_ordenes_chunk_buffers(
         purchase_order_line,
         notice_purchase_order_link,
         purchase_order_line_text_ann,
+        notice_purchase_order_link_rejected,
     )
 
 
@@ -1269,7 +1552,7 @@ def flush_silver_ordenes_remaining_buffers(
     purchase_order_line_rows: list[dict[str, Any]],
     notice_purchase_order_link_rows: list[dict[str, Any]],
     purchase_order_line_text_ann_rows: list[dict[str, Any]],
-) -> tuple[int, int, int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int, int]:
     buying_org = flush_remaining(
         session,
         SilverBuyingOrg,
@@ -1306,6 +1589,10 @@ def flush_silver_ordenes_remaining_buffers(
         purchase_order_line_rows,
         SILVER_PURCHASE_ORDER_LINE_CONFLICT_FIELDS,
     )
+    notice_purchase_order_link_rejected = prune_orphan_notice_purchase_order_links(
+        session,
+        notice_purchase_order_link_rows,
+    )
     notice_purchase_order_link = flush_remaining(
         session,
         SilverNoticePurchaseOrderLink,
@@ -1327,6 +1614,7 @@ def flush_silver_ordenes_remaining_buffers(
         purchase_order_line,
         notice_purchase_order_link,
         purchase_order_line_text_ann,
+        notice_purchase_order_link_rejected,
     )
 
 
@@ -1571,7 +1859,10 @@ def process_licitaciones(
     show_progress: bool,
     start_after_id: int = 0,
     debug_telemetry: bool = False,
+    state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
+    on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
+    quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
 ) -> dict[str, Any]:
     licitaciones_before = table_row_count(session, NormalizedLicitacion)
     licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
@@ -1678,10 +1969,10 @@ def process_licitaciones(
     )
     checkpoint_every = max(10_000, fetch_size)
     next_checkpoint = checkpoint_every
-    state_checkpoint_every = max(50_000, fetch_size * 5)
-    next_state_checkpoint = state_checkpoint_every
     debug_checkpoint_every = checkpoint_every
     next_debug_checkpoint = debug_checkpoint_every
+    pages_committed = 0
+    quality_checkpoint_every_pages = max(1, quality_gate_checkpoint_every_pages)
     try:
         while True:
             if limit_rows > 0 and processed >= limit_rows:
@@ -1919,7 +2210,119 @@ def process_licitaciones(
                 silver_notice_text_ann_deduplicated += chunk_silver_notice_text_ann
                 silver_notice_line_text_ann_deduplicated += chunk_silver_notice_line_text_ann
 
+            next_page_number = pages_committed + 1
+            checkpoint_due = (
+                on_checkpoint is not None
+                and next_page_number % state_checkpoint_every_pages == 0
+            )
+            quality_checkpoint_due = (
+                on_quality_checkpoint is not None
+                and next_page_number % quality_checkpoint_every_pages == 0
+            )
+            if checkpoint_due:
+                (
+                    remaining_licitaciones_checkpoint,
+                    remaining_items_checkpoint,
+                    remaining_suppliers_checkpoint,
+                    remaining_ofertas_checkpoint,
+                ) = flush_licitaciones_remaining_buffers(
+                    session=session,
+                    licitaciones_rows=licitaciones_rows,
+                    licitacion_items_rows=licitacion_items_rows,
+                    suppliers_rows=suppliers_rows,
+                    ofertas_rows=ofertas_rows,
+                )
+                licitaciones_deduplicated += remaining_licitaciones_checkpoint
+                licitacion_items_deduplicated += remaining_items_checkpoint
+                suppliers_deduplicated += remaining_suppliers_checkpoint
+                ofertas_deduplicated += remaining_ofertas_checkpoint
+
+                (
+                    remaining_silver_buying_org_checkpoint,
+                    remaining_silver_contracting_unit_checkpoint,
+                    remaining_silver_supplier_checkpoint,
+                    remaining_silver_category_ref_checkpoint,
+                    remaining_silver_notice_checkpoint,
+                    remaining_silver_notice_line_checkpoint,
+                    remaining_silver_bid_submission_checkpoint,
+                    remaining_silver_award_outcome_checkpoint,
+                    remaining_silver_supplier_participation_checkpoint,
+                    remaining_silver_notice_text_ann_checkpoint,
+                    remaining_silver_notice_line_text_ann_checkpoint,
+                ) = flush_silver_licitaciones_remaining_buffers(
+                    session=session,
+                    buying_org_rows=silver_buying_org_rows,
+                    contracting_unit_rows=silver_contracting_unit_rows,
+                    supplier_rows=silver_supplier_rows,
+                    category_ref_rows=silver_category_ref_rows,
+                    notice_rows=silver_notice_rows,
+                    notice_line_rows=silver_notice_line_rows,
+                    bid_submission_rows=silver_bid_submission_rows,
+                    award_outcome_rows=silver_award_outcome_rows,
+                    supplier_participation_rows=silver_supplier_participation_rows,
+                    notice_text_ann_rows=silver_notice_text_ann_rows,
+                    notice_line_text_ann_rows=silver_notice_line_text_ann_rows,
+                )
+                silver_buying_org_deduplicated += remaining_silver_buying_org_checkpoint
+                silver_contracting_unit_deduplicated += remaining_silver_contracting_unit_checkpoint
+                silver_supplier_deduplicated += remaining_silver_supplier_checkpoint
+                silver_category_ref_deduplicated += remaining_silver_category_ref_checkpoint
+                silver_notice_deduplicated += remaining_silver_notice_checkpoint
+                silver_notice_line_deduplicated += remaining_silver_notice_line_checkpoint
+                silver_bid_submission_deduplicated += remaining_silver_bid_submission_checkpoint
+                silver_award_outcome_deduplicated += remaining_silver_award_outcome_checkpoint
+                silver_supplier_participation_deduplicated += (
+                    remaining_silver_supplier_participation_checkpoint
+                )
+                silver_notice_text_ann_deduplicated += remaining_silver_notice_text_ann_checkpoint
+                silver_notice_line_text_ann_deduplicated += (
+                    remaining_silver_notice_line_text_ann_checkpoint
+                )
+
             session.commit()
+            pages_committed = next_page_number
+            if checkpoint_due:
+                on_checkpoint(last_id, processed)
+            if quality_checkpoint_due:
+                on_quality_checkpoint(
+                    last_id,
+                    processed,
+                    {
+                        "licitaciones": {
+                            "processed_rows": licitaciones_accepted + licitaciones_rejected,
+                            "accepted_rows": licitaciones_accepted,
+                            "rejected_rows": licitaciones_rejected,
+                        },
+                        "licitacion_items": {
+                            "processed_rows": licitacion_items_accepted + licitacion_items_rejected,
+                            "accepted_rows": licitacion_items_accepted,
+                            "rejected_rows": licitacion_items_rejected,
+                        },
+                        "ofertas": {
+                            "processed_rows": ofertas_accepted + ofertas_rejected,
+                            "accepted_rows": ofertas_accepted,
+                            "rejected_rows": ofertas_rejected,
+                        },
+                        "suppliers": {
+                            "processed_rows": suppliers_accepted + suppliers_rejected,
+                            "accepted_rows": suppliers_accepted,
+                            "rejected_rows": suppliers_rejected,
+                            "identity_field": QUALITY_GATE_DOMAIN_IDENTITY_FIELDS["suppliers"],
+                            "rejection_reason": "missing_identity",
+                        },
+                        "silver_notice_text_ann": {
+                            "processed_rows": silver_notice_text_ann_accepted + silver_notice_text_ann_rejected,
+                            "accepted_rows": silver_notice_text_ann_accepted,
+                            "rejected_rows": silver_notice_text_ann_rejected,
+                        },
+                        "silver_notice_line_text_ann": {
+                            "processed_rows": silver_notice_line_text_ann_accepted
+                            + silver_notice_line_text_ann_rejected,
+                            "accepted_rows": silver_notice_line_text_ann_accepted,
+                            "rejected_rows": silver_notice_line_text_ann_rejected,
+                        },
+                    },
+                )
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -1941,9 +2344,6 @@ def process_licitaciones(
                 )
                 next_debug_checkpoint += debug_checkpoint_every
 
-            if on_checkpoint is not None and (processed >= next_state_checkpoint):
-                on_checkpoint(last_id, processed)
-                next_state_checkpoint += state_checkpoint_every
     finally:
         if row_bar is not None:
             row_bar.close()
@@ -2218,7 +2618,10 @@ def process_ordenes_compra(
     show_progress: bool,
     start_after_id: int = 0,
     debug_telemetry: bool = False,
+    state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
+    on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
+    quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
 ) -> dict[str, Any]:
     ordenes_before = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_before = table_row_count(session, NormalizedOrdenCompraItem)
@@ -2321,10 +2724,10 @@ def process_ordenes_compra(
     )
     checkpoint_every = max(10_000, fetch_size)
     next_checkpoint = checkpoint_every
-    state_checkpoint_every = max(50_000, fetch_size * 5)
-    next_state_checkpoint = state_checkpoint_every
     debug_checkpoint_every = checkpoint_every
     next_debug_checkpoint = debug_checkpoint_every
+    pages_committed = 0
+    quality_checkpoint_every_pages = max(1, quality_gate_checkpoint_every_pages)
     try:
         while True:
             if limit_rows > 0 and processed >= limit_rows:
@@ -2517,6 +2920,7 @@ def process_ordenes_compra(
                     chunk_silver_purchase_order_line,
                     chunk_silver_notice_purchase_order_link,
                     chunk_silver_purchase_order_line_text_ann,
+                    chunk_silver_notice_purchase_order_link_rejected,
                 ) = flush_silver_ordenes_chunk_buffers(
                     session=session,
                     chunk_size=chunk_size,
@@ -2538,11 +2942,145 @@ def process_ordenes_compra(
                 silver_notice_purchase_order_link_deduplicated += (
                     chunk_silver_notice_purchase_order_link
                 )
+                silver_notice_purchase_order_link_rejected += (
+                    chunk_silver_notice_purchase_order_link_rejected
+                )
                 silver_purchase_order_line_text_ann_deduplicated += (
                     chunk_silver_purchase_order_line_text_ann
                 )
 
+            next_page_number = pages_committed + 1
+            checkpoint_due = (
+                on_checkpoint is not None
+                and next_page_number % state_checkpoint_every_pages == 0
+            )
+            quality_checkpoint_due = (
+                on_quality_checkpoint is not None
+                and next_page_number % quality_checkpoint_every_pages == 0
+            )
+            if checkpoint_due:
+                (
+                    remaining_buyers_checkpoint,
+                    remaining_suppliers_checkpoint,
+                    remaining_categories_checkpoint,
+                    remaining_ordenes_checkpoint,
+                    remaining_ordenes_items_checkpoint,
+                ) = flush_ordenes_remaining_buffers(
+                    session=session,
+                    buyers_rows=buyers_rows,
+                    suppliers_rows=suppliers_rows,
+                    categories_rows=categories_rows,
+                    ordenes_rows=ordenes_rows,
+                    ordenes_items_rows=ordenes_items_rows,
+                )
+                buyers_deduplicated += remaining_buyers_checkpoint
+                suppliers_deduplicated += remaining_suppliers_checkpoint
+                categories_deduplicated += remaining_categories_checkpoint
+                ordenes_deduplicated += remaining_ordenes_checkpoint
+                ordenes_items_deduplicated += remaining_ordenes_items_checkpoint
+
+                (
+                    remaining_silver_buying_org_checkpoint,
+                    remaining_silver_contracting_unit_checkpoint,
+                    remaining_silver_supplier_checkpoint,
+                    remaining_silver_category_ref_checkpoint,
+                    remaining_silver_purchase_order_checkpoint,
+                    remaining_silver_purchase_order_line_checkpoint,
+                    remaining_silver_notice_purchase_order_link_checkpoint,
+                    remaining_silver_purchase_order_line_text_ann_checkpoint,
+                    remaining_silver_notice_purchase_order_link_rejected_checkpoint,
+                ) = flush_silver_ordenes_remaining_buffers(
+                    session=session,
+                    buying_org_rows=silver_buying_org_rows,
+                    contracting_unit_rows=silver_contracting_unit_rows,
+                    supplier_rows=silver_supplier_rows,
+                    category_ref_rows=silver_category_ref_rows,
+                    purchase_order_rows=silver_purchase_order_rows,
+                    purchase_order_line_rows=silver_purchase_order_line_rows,
+                    notice_purchase_order_link_rows=silver_notice_purchase_order_link_rows,
+                    purchase_order_line_text_ann_rows=silver_purchase_order_line_text_ann_rows,
+                )
+                silver_buying_org_deduplicated += remaining_silver_buying_org_checkpoint
+                silver_contracting_unit_deduplicated += remaining_silver_contracting_unit_checkpoint
+                silver_supplier_deduplicated += remaining_silver_supplier_checkpoint
+                silver_category_ref_deduplicated += remaining_silver_category_ref_checkpoint
+                silver_purchase_order_deduplicated += remaining_silver_purchase_order_checkpoint
+                silver_purchase_order_line_deduplicated += remaining_silver_purchase_order_line_checkpoint
+                silver_notice_purchase_order_link_deduplicated += (
+                    remaining_silver_notice_purchase_order_link_checkpoint
+                )
+                silver_purchase_order_line_text_ann_deduplicated += (
+                    remaining_silver_purchase_order_line_text_ann_checkpoint
+                )
+                silver_notice_purchase_order_link_rejected += (
+                    remaining_silver_notice_purchase_order_link_rejected_checkpoint
+                )
+
             session.commit()
+            pages_committed = next_page_number
+            if checkpoint_due:
+                on_checkpoint(last_id, processed)
+            if quality_checkpoint_due:
+                on_quality_checkpoint(
+                    last_id,
+                    processed,
+                    {
+                        "ordenes_compra": {
+                            "processed_rows": ordenes_accepted + ordenes_rejected,
+                            "accepted_rows": ordenes_accepted,
+                            "rejected_rows": ordenes_rejected,
+                        },
+                        "ordenes_compra_items": {
+                            "processed_rows": ordenes_items_accepted + ordenes_items_rejected,
+                            "accepted_rows": ordenes_items_accepted,
+                            "rejected_rows": ordenes_items_rejected,
+                        },
+                        "buyers": {
+                            "processed_rows": buyers_accepted + buyers_rejected,
+                            "accepted_rows": buyers_accepted,
+                            "rejected_rows": buyers_rejected,
+                            "identity_field": QUALITY_GATE_DOMAIN_IDENTITY_FIELDS["buyers"],
+                            "rejection_reason": "missing_identity",
+                        },
+                        "suppliers": {
+                            "processed_rows": suppliers_accepted + suppliers_rejected,
+                            "accepted_rows": suppliers_accepted,
+                            "rejected_rows": suppliers_rejected,
+                            "identity_field": QUALITY_GATE_DOMAIN_IDENTITY_FIELDS["suppliers"],
+                            "rejection_reason": "missing_identity",
+                        },
+                        "categories": {
+                            "processed_rows": categories_accepted + categories_rejected,
+                            "accepted_rows": categories_accepted,
+                            "rejected_rows": categories_rejected,
+                            "identity_field": QUALITY_GATE_DOMAIN_IDENTITY_FIELDS["categories"],
+                            "rejection_reason": "missing_identity",
+                        },
+                        "silver_purchase_order": {
+                            "processed_rows": silver_purchase_order_accepted + silver_purchase_order_rejected,
+                            "accepted_rows": silver_purchase_order_accepted,
+                            "rejected_rows": silver_purchase_order_rejected,
+                        },
+                        "silver_purchase_order_line": {
+                            "processed_rows": silver_purchase_order_line_accepted
+                            + silver_purchase_order_line_rejected,
+                            "accepted_rows": silver_purchase_order_line_accepted,
+                            "rejected_rows": silver_purchase_order_line_rejected,
+                        },
+                        "silver_notice_purchase_order_link": {
+                            "processed_rows": silver_notice_purchase_order_link_accepted
+                            + silver_notice_purchase_order_link_rejected,
+                            "accepted_rows": silver_notice_purchase_order_link_accepted,
+                            "rejected_rows": silver_notice_purchase_order_link_rejected,
+                        },
+                        "silver_purchase_order_line_text_ann": {
+                            "processed_rows": silver_purchase_order_line_text_ann_accepted
+                            + silver_purchase_order_line_text_ann_rejected,
+                            "accepted_rows": silver_purchase_order_line_text_ann_accepted,
+                            "rejected_rows": silver_purchase_order_line_text_ann_rejected,
+                        },
+                    },
+                )
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -2562,9 +3100,6 @@ def process_ordenes_compra(
                 )
                 next_debug_checkpoint += debug_checkpoint_every
 
-            if on_checkpoint is not None and (processed >= next_state_checkpoint):
-                on_checkpoint(last_id, processed)
-                next_state_checkpoint += state_checkpoint_every
     finally:
         if row_bar is not None:
             row_bar.close()
@@ -2598,6 +3133,7 @@ def process_ordenes_compra(
         remaining_silver_purchase_order_line,
         remaining_silver_notice_purchase_order_link,
         remaining_silver_purchase_order_line_text_ann,
+        remaining_silver_notice_purchase_order_link_rejected,
     ) = flush_silver_ordenes_remaining_buffers(
         session=session,
         buying_org_rows=silver_buying_org_rows,
@@ -2617,6 +3153,7 @@ def process_ordenes_compra(
     silver_purchase_order_line_deduplicated += remaining_silver_purchase_order_line
     silver_notice_purchase_order_link_deduplicated += remaining_silver_notice_purchase_order_link
     silver_purchase_order_line_text_ann_deduplicated += remaining_silver_purchase_order_line_text_ann
+    silver_notice_purchase_order_link_rejected += remaining_silver_notice_purchase_order_link_rejected
 
     reconciled_notice_purchase_order_links = reconcile_silver_notice_purchase_order_links(session)
     silver_notice_purchase_order_link_accepted += reconciled_notice_purchase_order_links
@@ -2867,6 +3404,57 @@ def main() -> int:
         default=False,
         help="Emit additional checkpoint telemetry details (default: false)",
     )
+    parser.add_argument(
+        "--state-checkpoint-every-pages",
+        type=int,
+        default=1,
+        help=(
+            "Persist resumable state every N committed fetch pages "
+            "(default: 1, checkpoint after every commit)"
+        ),
+    )
+    parser.add_argument(
+        "--quality-preflight",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a dataset preflight quality audit before processing (default: true)",
+    )
+    parser.add_argument(
+        "--quality-preflight-fail-fast",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Fail before processing when preflight max issue rate exceeds threshold "
+            "(default: false)"
+        ),
+    )
+    parser.add_argument(
+        "--quality-gate-checkpoint-every-pages",
+        type=int,
+        default=QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+        help=(
+            "Evaluate quality gate every N committed pages during processing "
+            f"(default: {QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT})"
+        ),
+    )
+    parser.add_argument(
+        "--quality-gate-fail-fast",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Fail early during processing when checkpoint quality gate fails "
+            "(default: true)"
+        ),
+    )
+    parser.add_argument(
+        "--quality-gate-min-rows-before-fail-fast",
+        type=int,
+        default=QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT,
+        help=(
+            "Minimum processed raw rows before quality checkpoint fail-fast is enforced "
+            f"(default: {QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT})"
+        ),
+    )
     args = parser.parse_args()
     if args.fetch_size <= 0:
         raise ValueError("--fetch-size must be > 0")
@@ -2874,6 +3462,12 @@ def main() -> int:
         raise ValueError("--chunk-size must be > 0")
     if args.limit_rows < 0:
         raise ValueError("--limit-rows must be >= 0")
+    if args.state_checkpoint_every_pages <= 0:
+        raise ValueError("--state-checkpoint-every-pages must be > 0")
+    if args.quality_gate_checkpoint_every_pages <= 0:
+        raise ValueError("--quality-gate-checkpoint-every-pages must be > 0")
+    if args.quality_gate_min_rows_before_fail_fast < 0:
+        raise ValueError("--quality-gate-min-rows-before-fail-fast must be >= 0")
     if args.chunk_size > 5000:
         progress_write(
             "[normalized] warning: large chunk-size may increase statement failures; consider <= 1000",
@@ -2914,6 +3508,26 @@ def main() -> int:
                 f"[normalized] dataset={dataset} mode={mode_label} start_after_id={start_after_id:,}",
                 enabled=args.progress,
             )
+            if args.quality_preflight:
+                preflight_audit = run_dataset_preflight_quality_audit(
+                    session,
+                    dataset=dataset,
+                    start_after_id=start_after_id,
+                    limit_rows=args.limit_rows,
+                )
+                progress_write(
+                    format_preflight_quality_audit(preflight_audit),
+                    enabled=args.progress,
+                )
+                if (
+                    args.quality_preflight_fail_fast
+                    and float(preflight_audit.get("max_rate") or 0.0) > QUALITY_GATE_MAX_ERROR_RATE
+                ):
+                    progress_write(
+                        "[normalized] preflight fail-fast: max issue rate exceeds quality threshold",
+                        enabled=args.progress,
+                    )
+                    return 1
 
             state[dataset] = {
                 "status": "running",
@@ -2939,7 +3553,49 @@ def main() -> int:
                 current["processed_rows_current_run"] = processed_rows
                 save_state(state_path, state)
 
+            def evaluate_quality_checkpoint(
+                last_raw_id: int,
+                processed_rows: int,
+                entity_metrics: dict[str, dict[str, Any]],
+            ) -> None:
+                quality_issues = collect_normalized_quality_issues(
+                    cast(dict[str, dict[str, int]], entity_metrics)
+                )
+                quality_gate = evaluate_normalized_quality_gate(
+                    cast(dict[str, dict[str, int]], entity_metrics),
+                    quality_issues,
+                )
+                decision = str(quality_gate.get("decision"))
+                dataset_error_rate = float(
+                    quality_gate.get("dataset_metrics", {}).get("error_rate") or 0.0
+                )
+                if args.debug_telemetry:
+                    progress_write(
+                        "[normalized][debug] quality checkpoint: "
+                        f"dataset={dataset} raw_id={last_raw_id:,} processed={processed_rows:,} "
+                        f"decision={decision} error_rate={dataset_error_rate:.4%}",
+                        enabled=args.progress,
+                    )
+                if not args.quality_gate_fail_fast:
+                    return
+                if processed_rows < args.quality_gate_min_rows_before_fail_fast:
+                    return
+                if decision != "failed":
+                    return
+                reason = str(quality_gate.get("decision_reason") or "unknown_reason")
+                raise RuntimeError(
+                    "normalized quality checkpoint failed early: "
+                    f"{reason} (dataset={dataset}, raw_id={last_raw_id}, "
+                    f"processed_rows={processed_rows}, error_rate={dataset_error_rate:.4%})"
+                )
+
             try:
+                stale_runs_closed = close_stale_running_runs(session, dataset=dataset)
+                if stale_runs_closed > 0:
+                    progress_write(
+                        f"[normalized] closed stale running runs: dataset={dataset} count={stale_runs_closed}",
+                        enabled=args.progress,
+                    )
                 run, step = create_normalized_run(session, dataset, mode_label)
                 session.commit()
                 with timed_step(f"normalized dataset={dataset}", enabled=args.progress):
@@ -2952,7 +3608,10 @@ def main() -> int:
                             show_progress=args.progress,
                             start_after_id=start_after_id,
                             debug_telemetry=args.debug_telemetry,
+                            state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,
+                            on_quality_checkpoint=evaluate_quality_checkpoint,
+                            quality_gate_checkpoint_every_pages=args.quality_gate_checkpoint_every_pages,
                         )
                     else:
                         metrics = process_ordenes_compra(
@@ -2963,7 +3622,10 @@ def main() -> int:
                             show_progress=args.progress,
                             start_after_id=start_after_id,
                             debug_telemetry=args.debug_telemetry,
+                            state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,
+                            on_quality_checkpoint=evaluate_quality_checkpoint,
+                            quality_gate_checkpoint_every_pages=args.quality_gate_checkpoint_every_pages,
                         )
 
                 last_processed_raw_id = max(

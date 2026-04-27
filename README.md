@@ -116,6 +116,20 @@ flowchart TD
 
 ## Getting Started
 
+### Docker Desktop (No Local Python/PostgreSQL Required)
+
+Use this path for reproducible local runtime:
+
+```bash
+just docker-start
+```
+
+Open:
+
+- API docs: `http://localhost:8000/docs`
+
+Docker runbook: [`docs/runbooks/docker-local.md`](docs/runbooks/docker-local.md)
+
 ### Prerequisites
 
 - Python 3.11+
@@ -132,6 +146,7 @@ brew install just
 
 ```bash
 cp .env.example .env
+just docker-start
 just setup
 just db-bootstrap
 ```
@@ -150,12 +165,10 @@ LOG_LEVEL=INFO
 DATASET_ROOT=/absolute/path/to/dataset-mercado-publico
 ```
 
-### Run Pipelines and API
+### Run Pipelines and Backend
 
 ```bash
-just pipeline-raw
-just pipeline-normalized
-just api
+just docker-pipeline-full
 ```
 
 - API base: `http://localhost:8000`
@@ -179,6 +192,8 @@ Targeted workflows:
 
 ## Unified CLI (`just`) Overview
 
+- Setup: `just uv-sync` (containerized; no host `uv` required)
+- Docker runtime: `docker-start`, `docker-build`, `docker-bootstrap`, `docker-pipeline-full`, `docker-smoke`
 - Setup: `setup`, `codex-sync`
 - Database: `db-bootstrap`, `db-create`, `db-migrate`, `db-revision`
 - Raw: `raw-profile`, `raw-ingest`, `pipeline-raw`

@@ -27,16 +27,15 @@ just ci
 
 This runs:
 1. `just ci-fast`
-2. `just black-check`
-3. `just type-strict`
-4. `just security`
-5. `just test-integration`
+2. `just type-strict`
+3. `just security`
+4. `just test-integration`
 
 ## Individual Commands
 
 - `just lint` -> Ruff lint checks
 - `just type` -> MyPy checks (`backend/`, `scripts/`)
-- `just black-check` -> Black formatting gate
+- `just black` -> Black formatting command
 - `just type-strict` -> Pyright + ty
 - `just security` -> Bandit scan on `backend/`
 - `just quality` -> alias to `just ci-fast`

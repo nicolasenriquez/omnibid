@@ -86,6 +86,8 @@ def test_identity_helpers_extract_expected_keys_with_typed_supplier_precedence()
     assert resolve_supplier_identity_key({"CodigoProveedor": "", "RutProveedor": ""}) is None
 
     assert resolve_category_identity_key({"codigoCategoria": " CAT-1 "}) == "CAT-1"
+    assert resolve_category_identity_key({"codigoCategoria": "", "codigoProductoONU": " 10101504 "}) == "onu:10101504"
+    assert resolve_category_identity_key({"codigoCategoria": "", "CodigoProductoONU": " 10101505 "}) == "onu:10101505"
     assert resolve_category_identity_key({"codigoCategoria": ""}) is None
 
 
@@ -184,6 +186,34 @@ def test_category_domain_payload_is_gated_by_accepted_item_and_sets_fk() -> None
         orden_item_payload=None,
     )
     assert skipped_category is None
+
+
+def test_category_domain_payload_uses_onu_fallback_identity_when_category_code_missing() -> None:
+    build_category_domain_from_orden_item_transaction = _require_callable(
+        "build_category_domain_from_orden_item_transaction"
+    )
+    raw = {
+        "Codigo": "OC-2",
+        "IDItem": "2",
+        "codigoCategoria": "",
+        "codigoProductoONU": "10101504",
+    }
+    orden_item_payload = build_orden_compra_item_payload(
+        raw,
+        source_file_id=uuid4(),
+        row_hash_sha256="h" * 64,
+    )
+    assert orden_item_payload is not None
+
+    category = build_category_domain_from_orden_item_transaction(
+        raw=raw,
+        source_file_id=uuid4(),
+        orden_item_payload=orden_item_payload,
+    )
+    assert category is not None
+    assert orden_item_payload["category_key"] == "onu:10101504"
+    assert category["category_key"] == "onu:10101504"
+    assert category["codigo_categoria"] == "onu:10101504"
 
 
 def test_domain_entity_metrics_use_domain_eligibility_processed_rows() -> None:
@@ -668,6 +698,86 @@ def test_silver_ordenes_flush_chunk_forces_dimension_flush_when_facts_reach_chun
     assert forced_by_model["SilverContractingUnit"] is True
     assert forced_by_model["SilverSupplier"] is True
     assert forced_by_model["SilverCategoryRef"] is True
+    assert forced_by_model["SilverPurchaseOrder"] is True
+    assert forced_by_model["SilverPurchaseOrderLine"] is False
+
+
+def test_silver_ordenes_flush_chunk_forces_purchase_order_parent_when_links_reach_chunk(
+    monkeypatch: Any,
+) -> None:
+    flush_silver_ordenes_chunk_buffers = _require_callable("flush_silver_ordenes_chunk_buffers")
+    forced_by_model: dict[str, bool] = {}
+
+    def fake_flush_if_needed(
+        _session: Any,
+        model: Any,
+        _buffer_rows: list[dict[str, Any]],
+        _conflict_fields: list[str],
+        _chunk_size: int,
+        *,
+        force: bool = False,
+    ) -> int:
+        forced_by_model[model.__name__] = force
+        return 0
+
+    monkeypatch.setattr(MODULE, "flush_if_needed", fake_flush_if_needed)
+    flush_silver_ordenes_chunk_buffers(
+        session=_DummySession(),
+        chunk_size=2,
+        buying_org_rows=[],
+        contracting_unit_rows=[],
+        supplier_rows=[],
+        category_ref_rows=[],
+        purchase_order_rows=[{"purchase_order_id": "OC-1"}],
+        purchase_order_line_rows=[],
+        notice_purchase_order_link_rows=[
+            {"notice_id": "N-1", "purchase_order_id": "OC-1", "link_type": "explicit_code_match"},
+            {"notice_id": "N-2", "purchase_order_id": "OC-1", "link_type": "explicit_code_match"},
+        ],
+        purchase_order_line_text_ann_rows=[],
+    )
+
+    assert forced_by_model["SilverPurchaseOrder"] is True
+    assert forced_by_model["SilverPurchaseOrderLine"] is False
+
+
+def test_silver_ordenes_flush_chunk_forces_purchase_order_line_parent_for_text_ann(
+    monkeypatch: Any,
+) -> None:
+    flush_silver_ordenes_chunk_buffers = _require_callable("flush_silver_ordenes_chunk_buffers")
+    forced_by_model: dict[str, bool] = {}
+
+    def fake_flush_if_needed(
+        _session: Any,
+        model: Any,
+        _buffer_rows: list[dict[str, Any]],
+        _conflict_fields: list[str],
+        _chunk_size: int,
+        *,
+        force: bool = False,
+    ) -> int:
+        forced_by_model[model.__name__] = force
+        return 0
+
+    monkeypatch.setattr(MODULE, "flush_if_needed", fake_flush_if_needed)
+    flush_silver_ordenes_chunk_buffers(
+        session=_DummySession(),
+        chunk_size=2,
+        buying_org_rows=[],
+        contracting_unit_rows=[],
+        supplier_rows=[],
+        category_ref_rows=[],
+        purchase_order_rows=[{"purchase_order_id": "OC-1"}],
+        purchase_order_line_rows=[{"purchase_order_id": "OC-1", "line_item_id": "1"}],
+        notice_purchase_order_link_rows=[],
+        purchase_order_line_text_ann_rows=[
+            {"purchase_order_id": "OC-1", "line_item_id": "1", "nlp_version": "silver_nlp_v1"},
+            {"purchase_order_id": "OC-1", "line_item_id": "2", "nlp_version": "silver_nlp_v1"},
+        ],
+    )
+
+    assert forced_by_model["SilverPurchaseOrder"] is True
+    assert forced_by_model["SilverPurchaseOrderLine"] is True
 
 
 def test_ordenes_flush_remaining_orders_dimensions_before_facts(monkeypatch: Any) -> None:

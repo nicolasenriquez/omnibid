@@ -183,7 +183,7 @@ Apply migrations in order:
 
 Operational notes:
 - revision IDs must remain within `alembic_version.version_num` (`VARCHAR(32)`)
-- run `just db-bootstrap` after migration changes
+- run `just docker-start` after migration changes
 - run controlled validation slices:
   1. `--dataset licitacion --limit-rows 50`
   2. `--dataset orden_compra --limit-rows 50`
