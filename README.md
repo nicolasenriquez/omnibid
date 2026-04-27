@@ -147,6 +147,8 @@ brew install just
 ```bash
 cp .env.example .env
 just docker-start
+just setup
+just db-bootstrap
 ```
 
 ### Configure Environment
@@ -192,6 +194,12 @@ Targeted workflows:
 
 - Setup: `just uv-sync` (containerized; no host `uv` required)
 - Docker runtime: `docker-start`, `docker-build`, `docker-bootstrap`, `docker-pipeline-full`, `docker-smoke`
+- Setup: `setup`, `codex-sync`
+- Database: `db-bootstrap`, `db-create`, `db-migrate`, `db-revision`
+- Raw: `raw-profile`, `raw-ingest`, `pipeline-raw`
+- Normalized/Silver build: `normalized-build`, `normalized-lic`, `normalized-oc`, `pipeline-normalized`
+- End-to-end: `pipeline-full`, `pipeline-full-fast`
+- API runtime: `api`
 - Quality and CI: `quality`, `ci-fast`, `ci`, plus lint/type/test/security recipes
 
 ## API Surface (Current)
