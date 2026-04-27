@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from backend.normalized.transform import (
+    build_category_domain_payload,
     build_licitacion_item_payload,
     build_licitacion_payload,
     build_orden_compra_item_payload,
@@ -10,6 +11,7 @@ from backend.normalized.transform import (
     parse_bool,
     parse_datetime,
     parse_decimal,
+    resolve_category_identity_key,
 )
 
 
@@ -163,3 +165,24 @@ def test_build_orden_compra_item_payload_maps_line() -> None:
     assert str(payload["precio_neto"]) == "600"
     assert str(payload["total_impuestos"]) == "114"
     assert str(payload["total_linea_neto"]) == "1200"
+
+
+def test_resolve_category_identity_key_falls_back_to_onu_when_category_missing() -> None:
+    assert resolve_category_identity_key({"codigoCategoria": "CAT-1", "codigoProductoONU": "10101504"}) == "CAT-1"
+    assert resolve_category_identity_key({"codigoCategoria": "", "codigoProductoONU": "10101504"}) == "onu:10101504"
+    assert resolve_category_identity_key({"codigoCategoria": "", "CodigoProductoONU": "10101505"}) == "onu:10101505"
+
+
+def test_build_category_domain_payload_uses_onu_fallback_key() -> None:
+    payload = build_category_domain_payload(
+        {
+            "codigoCategoria": "",
+            "codigoProductoONU": "10101504",
+            "Categoria": "insumos",
+        },
+        source_file_id=uuid4(),
+    )
+    assert payload is not None
+    assert payload["category_key"] == "onu:10101504"
+    assert payload["codigo_categoria"] == "onu:10101504"
+    assert payload["categoria"] == "insumos"

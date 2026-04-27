@@ -450,7 +450,15 @@ def resolve_supplier_identity_key(raw: dict[str, Any]) -> str | None:
 
 
 def resolve_category_identity_key(raw: dict[str, Any]) -> str | None:
-    return pick(raw, "codigoCategoria")
+    category_code = pick(raw, "codigoCategoria")
+    if category_code is not None:
+        return category_code
+
+    onu_code = pick(raw, "codigoProductoONU", "CodigoProductoONU")
+    if onu_code is not None:
+        # Prefix ONU fallback keys to avoid collisions with native category codes.
+        return f"onu:{onu_code}"
+    return None
 
 
 def build_buyer_domain_payload(

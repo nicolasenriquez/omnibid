@@ -8,6 +8,7 @@ This directory contains the operating and architecture knowledge for `app-chilec
   - system, data architecture, and data model references
 - [`runbooks/`](runbooks)
   - local development, operations, CI, and implementation runbooks
+  - Docker local runtime: [`runbooks/docker-local.md`](runbooks/docker-local.md)
 - [`product/`](product)
   - product vision and stage-gated delivery priorities
 - [`standards/`](standards)

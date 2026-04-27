@@ -25,6 +25,7 @@ upsert_rows = MODULE.upsert_rows
 calculate_max_rows_per_upsert = MODULE.calculate_max_rows_per_upsert
 resolve_start_after_id = MODULE.resolve_start_after_id
 build_entity_metrics = MODULE.build_entity_metrics
+prune_orphan_notice_purchase_order_links = MODULE.prune_orphan_notice_purchase_order_links
 
 
 class _DummyResult:
@@ -52,6 +53,32 @@ class _ThresholdSession:
         if params_count > self.max_params:
             raise sa.exc.OperationalError("too many bind params", params=None, orig=Exception("bind limit"))
         return _DummyResult(1)
+
+
+class _DummyScalarResult:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    def all(self) -> list[str]:
+        return list(self._values)
+
+
+class _DummyLookupResult:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    def scalars(self) -> _DummyScalarResult:
+        return _DummyScalarResult(self._values)
+
+
+class _PurchaseOrderLookupSession:
+    def __init__(self, existing_purchase_order_ids: list[str]) -> None:
+        self._existing_purchase_order_ids = existing_purchase_order_ids
+        self.execute_calls = 0
+
+    def execute(self, _stmt: object) -> _DummyLookupResult:
+        self.execute_calls += 1
+        return _DummyLookupResult(self._existing_purchase_order_ids)
 
 
 def test_dedupe_rows_keeps_latest_payload_for_same_business_key() -> None:
@@ -190,3 +217,35 @@ def test_build_entity_metrics_fails_when_inserted_delta_exceeds_deduplicated() -
             before_scope_rows=1_000,
             after_scope_rows=1_060,
         )
+
+
+def test_prune_orphan_notice_purchase_order_links_drops_missing_parents() -> None:
+    rows = [
+        {"notice_id": "N-1", "purchase_order_id": "PO-1", "link_type": "explicit_code_match"},
+        {"notice_id": "N-2", "purchase_order_id": "PO-2", "link_type": "explicit_code_match"},
+        {"notice_id": "N-3", "purchase_order_id": "PO-3", "link_type": "explicit_code_match"},
+    ]
+    session = _PurchaseOrderLookupSession(existing_purchase_order_ids=["PO-1", "PO-3"])
+
+    dropped = prune_orphan_notice_purchase_order_links(session, rows)
+
+    assert dropped == 1
+    assert rows == [
+        {"notice_id": "N-1", "purchase_order_id": "PO-1", "link_type": "explicit_code_match"},
+        {"notice_id": "N-3", "purchase_order_id": "PO-3", "link_type": "explicit_code_match"},
+    ]
+    assert session.execute_calls == 1
+
+
+def test_prune_orphan_notice_purchase_order_links_clears_rows_when_no_valid_ids() -> None:
+    rows = [
+        {"notice_id": "N-1", "purchase_order_id": "", "link_type": "explicit_code_match"},
+        {"notice_id": "N-2", "purchase_order_id": None, "link_type": "explicit_code_match"},
+    ]
+    session = _PurchaseOrderLookupSession(existing_purchase_order_ids=["PO-1"])
+
+    dropped = prune_orphan_notice_purchase_order_links(session, rows)
+
+    assert dropped == 2
+    assert rows == []
+    assert session.execute_calls == 0

@@ -4,12 +4,12 @@
     "source_total_rows": 2102234,
     "source_max_id": 2102234,
     "mode": "incremental",
-    "start_after_id": 2000,
-    "processed_rows_last_run": 2100234,
-    "processed_rows_current_run": 2100234,
-    "processed_rows_total": 2102234,
-    "last_processed_raw_id": 2102234,
-    "last_raw_id": 2102234,
+    "start_after_id": 5,
+    "processed_rows_last_run": 1000,
+    "processed_rows_current_run": 1000,
+    "processed_rows_total": 1005,
+    "last_processed_raw_id": 1005,
+    "last_raw_id": 1005,
     "quality_gate": {
       "policy_version": "quality_gate_policy_v1",
       "thresholds": {
@@ -25,7 +25,7 @@
         "warning": 0
       },
       "dataset_metrics": {
-        "processed_rows": 31503510,
+        "processed_rows": 15000,
         "rejected_rows": 0,
         "error_rate": 0.0
       },
@@ -38,12 +38,12 @@
     "source_total_rows": 6603629,
     "source_max_id": 6603629,
     "mode": "incremental",
-    "start_after_id": 3487001,
-    "processed_rows_last_run": 2000,
-    "processed_rows_current_run": 2000,
-    "processed_rows_total": 12000,
-    "last_processed_raw_id": 3489001,
-    "last_raw_id": 3489001,
+    "start_after_id": 0,
+    "processed_rows_last_run": 1000,
+    "processed_rows_current_run": 1000,
+    "processed_rows_total": 1000,
+    "last_processed_raw_id": 1000,
+    "last_raw_id": 1000,
     "quality_gate": {
       "policy_version": "quality_gate_policy_v1",
       "thresholds": {
@@ -59,7 +59,7 @@
         "warning": 0
       },
       "dataset_metrics": {
-        "processed_rows": 24201,
+        "processed_rows": 12000,
         "rejected_rows": 0,
         "error_rate": 0.0
       },

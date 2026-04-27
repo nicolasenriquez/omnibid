@@ -217,8 +217,8 @@ Each dataset execution prints:
 ## Operator Validation Steps
 
 1. Run controlled sample pipelines:
-   - `DATASET_ROOT=<sample-root> LIMIT_FILES=2 UV_NO_SYNC=1 just pipeline-raw`
-   - `NORMALIZED_DATASET=all NORMALIZED_STATE_PATH=<state-path> UV_NO_SYNC=1 just pipeline-normalized`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync python scripts/ingest_raw.py --dataset-root /datasets/mercado-publico/dataset-mercado-publico --limit-files 2`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync python scripts/build_normalized.py --dataset all --state-path <state-path>`
 2. Validate raw persisted telemetry:
    - `ingestion_batches.total_rows == processed_rows`
    - `ingestion_batches.loaded_rows == inserted_delta_rows`

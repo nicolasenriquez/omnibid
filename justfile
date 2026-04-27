@@ -1,298 +1,147 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set windows-shell := ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
+set export
+
+UV_CACHE_DIR := env_var_or_default("UV_CACHE_DIR", ".uv-cache")
+CHUNK_SIZE := env_var_or_default("CHUNK_SIZE", "5000")
+NORMALIZED_DATASET := env_var_or_default("NORMALIZED_DATASET", "all")
+NORMALIZED_FETCH_SIZE := env_var_or_default("NORMALIZED_FETCH_SIZE", "10000")
+NORMALIZED_CHUNK_SIZE := env_var_or_default("NORMALIZED_CHUNK_SIZE", "500")
+NORMALIZED_LIMIT_ROWS := env_var_or_default("NORMALIZED_LIMIT_ROWS", "0")
+NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runtime/normalized_build_state.json")
+NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
+LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
+SPINNER_RUNNER := "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/run_with_spinner.ps1"
 
 # ============================================================
-# Canonical Commands (grouped + documented)
+# Canonical Commands (Docker-first)
 # ============================================================
 
-[group('00 Base')]
-[doc('List available commands grouped by area')]
-default:
-    @just --list
+[group('01 Setup')]
+[doc('Containerized dependency bootstrap (no host uv required)')]
+uv-sync: docker-build
 
 [group('01 Setup')]
-[doc('Install and sync project dependencies with uv')]
-setup:
-    command -v uv >/dev/null 2>&1 || (echo "uv is required. Install: https://docs.astral.sh/uv/" && exit 1)
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv sync --extra dev
+[doc('Optional host dependency sync (requires uv in PATH)')]
+uv-sync-host:
+    uv --version
+    uv sync --extra dev
 
-[group('01 Setup')]
-[doc('Sync local Codex workspace files')]
-codex-sync:
-    ./scripts/sync_codex_dir.sh
-
-[group('02 Runtime')]
-[doc('Run FastAPI in local dev mode (guarded against test DB)')]
-api: db-runtime-guard
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Format code with Ruff')]
 fmt:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ruff format backend tests scripts
+    uv run ruff format backend tests scripts
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run Ruff lint checks')]
 lint:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ruff check backend tests scripts
+    uv run ruff check backend tests scripts
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run MyPy type checks')]
 type:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run mypy backend scripts
+    uv run mypy backend scripts
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Format code with Black')]
 black:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run black backend tests scripts
+    uv run black backend tests scripts
 
-[group('03 Quality')]
-[doc('Check Black formatting without modifying files')]
-black-check:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run black backend tests scripts --check --diff --workers 1
-
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty)')]
 type-strict:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pyright backend scripts
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run ty check backend
+    uv run pyright backend scripts
+    uv run ty check backend
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run high-confidence/high-severity security checks')]
 security:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
+    uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run default test suite (unit tests)')]
 test: test-unit
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run unit tests only')]
 test-unit:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pytest -q -m "not integration"
+    uv run pytest -q -m "not integration"
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Run unit tests using local .venv (fallback when uv is restricted)')]
 test-unit-local:
-    ./.venv/bin/pytest -q -m "not integration"
+    {{LOCAL_VENV_PYTHON}} -m pytest -q -m "not integration"
 
-[group('03 Quality')]
+[group('02 Quality')]
+[private]
+[doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL')]
+test-db-check:
+    uv run python scripts/test_db_guard.py check
+
+[group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL')]
 test-integration: test-db-check
-    #!/usr/bin/env bash
-    test_url="${TEST_DATABASE_URL:-}"
-    if [[ -z "$test_url" ]] && [[ -f .env ]]; then
-      test_url="$(grep -E '^[[:space:]]*TEST_DATABASE_URL=' .env | tail -n 1 | cut -d '=' -f2- || true)"
-      test_url="${test_url%\"}"
-      test_url="${test_url#\"}"
-      test_url="${test_url%\'}"
-      test_url="${test_url#\'}"
-    fi
-    DATABASE_URL="$test_url" UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run pytest -q -m "integration"
+    uv run python scripts/test_db_guard.py run-integration
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Fast local quality gate: lint + type + unit tests')]
 quality: ci-fast
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Fast CI gate: lint + type + unit tests')]
 ci-fast: lint type test-unit
 
-[group('03 Quality')]
+[group('02 Quality')]
 [doc('Full CI gate: fast gate + strict type + security + integration')]
-ci: ci-fast black-check type-strict security test-integration
+ci: ci-fast type-strict security test-integration
 
-[group('04 Database')]
-[doc('Fail if DATABASE_URL is missing or points to a *_test DB')]
-db-runtime-guard:
-    #!/usr/bin/env bash
-    raw_url="${DATABASE_URL:-}"
-    if [[ -z "$raw_url" ]] && [[ -f .env ]]; then
-      raw_url="$(grep -E '^[[:space:]]*DATABASE_URL=' .env | tail -n 1 | cut -d '=' -f2- || true)"
-      raw_url="${raw_url%\"}"
-      raw_url="${raw_url#\"}"
-      raw_url="${raw_url%\'}"
-      raw_url="${raw_url#\'}"
-    fi
+[group('03 Docker')]
+[private]
+[doc('Build Docker images for local backend stack')]
+docker-build:
+    @{{SPINNER_RUNNER}} -Message "Docker: building backend image" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml build"
 
-    if [[ -z "$raw_url" ]]; then
-      echo "DATABASE_URL is not set."
-      exit 1
-    fi
+[group('03 Docker')]
+[private]
+[doc('Start Docker PostgreSQL service only')]
+docker-db-up:
+    @{{SPINNER_RUNNER}} -Message "Docker: starting db service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d db"
 
-    db_name="${raw_url##*/}"
-    db_name="${db_name%%\?*}"
-    if [[ "$db_name" == *_test ]]; then
-      echo "Refusing runtime against test DB: ${db_name}"
-      exit 1
-    fi
+[group('03 Docker')]
+[private]
+[doc('Apply Alembic migrations in Docker backend container')]
+docker-migrate: docker-db-up
+    @{{SPINNER_RUNNER}} -Message "Docker: applying migrations" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head"
 
-    echo "Runtime DB guard passed: ${db_name}"
+[group('03 Docker')]
+[private]
+[doc('Bootstrap Docker PostgreSQL + migrations')]
+docker-bootstrap: docker-db-up docker-migrate
 
-[group('04 Database')]
-[doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL')]
-test-db-check:
-    #!/usr/bin/env bash
-    test_url="${TEST_DATABASE_URL:-}"
-    if [[ -z "$test_url" ]] && [[ -f .env ]]; then
-      test_url="$(grep -E '^[[:space:]]*TEST_DATABASE_URL=' .env | tail -n 1 | cut -d '=' -f2- || true)"
-      test_url="${test_url%\"}"
-      test_url="${test_url#\"}"
-      test_url="${test_url%\'}"
-      test_url="${test_url#\'}"
-    fi
+[group('03 Docker')]
+[doc('One-command startup: build image, bootstrap DB, and start backend in background')]
+docker-start: docker-build docker-bootstrap
+    @{{SPINNER_RUNNER}} -Message "Docker: starting backend service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d backend"
 
-    if [[ -z "$test_url" ]]; then
-      echo "TEST_DATABASE_URL is not set."
-      exit 1
-    fi
+[group('04 Docker Ops')]
+[private]
+[doc('Run raw profile + ingest pipeline in Docker backend container')]
+docker-pipeline-raw: docker-db-up
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/profile_raw.py
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/ingest_raw.py --chunk-size "{{CHUNK_SIZE}}"
 
-    runtime_url="${DATABASE_URL:-}"
-    if [[ -z "$runtime_url" ]] && [[ -f .env ]]; then
-      runtime_url="$(grep -E '^[[:space:]]*DATABASE_URL=' .env | tail -n 1 | cut -d '=' -f2- || true)"
-      runtime_url="${runtime_url%\"}"
-      runtime_url="${runtime_url#\"}"
-      runtime_url="${runtime_url%\'}"
-      runtime_url="${runtime_url#\'}"
-    fi
+[group('04 Docker Ops')]
+[private]
+[doc('Run normalized pipeline in Docker backend container')]
+docker-pipeline-normalized: docker-db-up
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/build_normalized.py --dataset "{{NORMALIZED_DATASET}}" --fetch-size "{{NORMALIZED_FETCH_SIZE}}" --chunk-size "{{NORMALIZED_CHUNK_SIZE}}" --limit-rows "{{NORMALIZED_LIMIT_ROWS}}" --state-path "{{NORMALIZED_STATE_PATH}}" --state-checkpoint-every-pages "{{NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES}}"
 
-    if [[ -n "$runtime_url" ]] && [[ "$runtime_url" == "$test_url" ]]; then
-      echo "TEST_DATABASE_URL must differ from DATABASE_URL"
-      exit 1
-    fi
+[group('04 Docker Ops')]
+[doc('Run full Docker pipeline: raw then normalized')]
+docker-pipeline-full: docker-pipeline-raw docker-pipeline-normalized
 
-    echo "Test DB check passed"
-
-[group('04 Database')]
-[doc('Create a new Alembic migration revision')]
-db-revision name:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    slug="$(printf '%s' "{{name}}" | tr '[:upper:]' '[:lower:]' | tr ' /' '__' | tr -cd 'a-z0-9_' | cut -c1-17)"
-    rev_id="$(date +%Y%m%d%H%M%S)_${slug}"
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic revision --rev-id "$rev_id" -m "{{name}}"
-
-[group('04 Database')]
-[doc('Create runtime database if missing')]
-db-create:
-    #!/usr/bin/env bash
-    raw_url="${DATABASE_URL:-postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra}"
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" DATABASE_URL="$raw_url" uv run python - <<'PY'
-    import os
-    import sys
-    from sqlalchemy import text
-    from sqlalchemy.engine import make_url
-    from sqlalchemy.ext.asyncio import create_async_engine
-    import asyncio
-
-    def escape_identifier(value: str) -> str:
-        return value.replace('"', '""')
-
-    async def main() -> int:
-        raw_url = os.environ["DATABASE_URL"]
-        target = make_url(raw_url)
-        target_db = target.database
-        if not target_db:
-            print("DATABASE_URL must include a database name.", file=sys.stderr)
-            return 1
-
-        admin_db = os.environ.get("DATABASE_ADMIN_DB", "postgres")
-        admin_url = target.set(database=admin_db)
-        engine = create_async_engine(str(admin_url), isolation_level="AUTOCOMMIT")
-        try:
-            async with engine.connect() as conn:
-                exists = (
-                    await conn.execute(
-                        text("SELECT 1 FROM pg_database WHERE datname = :db"),
-                        {"db": target_db},
-                    )
-                ).scalar_one_or_none()
-
-                if exists is None:
-                    await conn.execute(text(f'CREATE DATABASE "{escape_identifier(target_db)}"'))
-                    print(f"Created database: {target_db}")
-                else:
-                    print(f"Database already exists: {target_db}")
-        finally:
-            await engine.dispose()
-
-        return 0
-
-    raise SystemExit(asyncio.run(main()))
-    PY
-
-[group('04 Database')]
-[doc('Apply Alembic migrations to head')]
-db-migrate:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run alembic upgrade head
-
-[group('04 Database')]
-[doc('Create DB and apply migrations')]
-db-bootstrap: db-create db-migrate
-
-[group('05 Raw')]
-[doc('Profile source CSV files from DATASET_ROOT')]
-raw-profile:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/profile_raw.py --dataset-root "${DATASET_ROOT:-}"
-
-[group('05 Raw')]
-[doc('Ingest raw source files into raw tables')]
-raw-ingest:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/ingest_raw.py --dataset-root "${DATASET_ROOT:-}" --chunk-size "${CHUNK_SIZE:-5000}" --limit-files "${LIMIT_FILES:-0}"
-
-[group('05 Raw')]
-[doc('Fast raw ingest (skip progress bars and pre-count)')]
-raw-ingest-fast:
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/ingest_raw.py --dataset-root "${DATASET_ROOT:-}" --chunk-size "${CHUNK_SIZE:-5000}" --limit-files "${LIMIT_FILES:-0}" --no-progress --no-precount
-
-[group('06 Normalized')]
-[doc('Build normalized layer incrementally from raw data (default mode)')]
-normalized-build:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}"
-
-[group('06 Normalized')]
-[doc('Build normalized layer with full refresh semantics (no incremental, no resume)')]
-normalized-full:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}" --no-incremental --no-resume
-
-[group('06 Normalized')]
-[doc('Reset normalized state checkpoint file before the next run')]
-normalized-reset:
-    time UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run python scripts/build_normalized.py --dataset "${NORMALIZED_DATASET:-all}" --fetch-size "${NORMALIZED_FETCH_SIZE:-10000}" --chunk-size "${NORMALIZED_CHUNK_SIZE:-500}" --limit-rows "${NORMALIZED_LIMIT_ROWS:-0}" --state-path "${NORMALIZED_STATE_PATH:-data/runtime/normalized_build_state.json}" --reset-state
-
-[group('06 Normalized')]
-[doc('Build normalized layer only for licitaciones dataset')]
-normalized-lic:
-    NORMALIZED_DATASET=licitacion just normalized-build
-
-[group('06 Normalized')]
-[doc('Build normalized layer only for ordenes_compra dataset')]
-normalized-oc:
-    NORMALIZED_DATASET=orden_compra just normalized-build
-
-[group('07 Pipelines')]
-[doc('Raw pipeline: db-bootstrap -> raw-profile -> raw-ingest')]
-pipeline-raw: db-bootstrap raw-profile raw-ingest
-
-[group('07 Pipelines')]
-[doc('Raw fast pipeline: db-bootstrap -> raw-ingest')]
-pipeline-raw-fast: db-bootstrap raw-ingest
-
-[group('07 Pipelines')]
-[doc('Normalized pipeline from existing raw data: db-migrate -> normalized-build')]
-pipeline-normalized: db-migrate normalized-build
-
-[group('07 Pipelines')]
-[doc('Full pipeline: pipeline-raw -> pipeline-normalized')]
-pipeline-full: pipeline-raw pipeline-normalized
-
-[group('07 Pipelines')]
-[doc('Full fast pipeline: pipeline-raw-fast -> pipeline-normalized')]
-pipeline-full-fast: pipeline-raw-fast pipeline-normalized
-
-[group('08 Future')]
-[doc('Placeholder for future Gold build')]
-pipeline-gold:
-    echo "TODO: implement gold build"
-
-# ============================================================
-# Legacy command names intentionally removed to keep the interface clean.
+[group('04 Docker Ops')]
+[doc('Smoke check Docker backend health and running services')]
+docker-smoke:
+    docker compose --env-file .env.docker -f docker-compose.yml ps
+    docker compose --env-file .env.docker -f docker-compose.yml exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read().decode())"

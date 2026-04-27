@@ -47,18 +47,26 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 
 ## Required Commands
 
-- Setup: `just setup`
-- DB bootstrap: `just db-bootstrap`
-- Raw profile/load: `just pipeline-raw`
-- Normalized build from existing Raw: `just pipeline-normalized`
-- End-to-end Raw -> Normalized: `just pipeline-full`
-- API: `just api`
+- Setup: `just uv-sync`
+- Docker start (one command): `just docker-start`
+- Docker build: `just docker-build`
+- Docker bootstrap: `just docker-bootstrap`
+- Docker full pipeline: `just docker-pipeline-full`
 
 ## Quality Gates
 
 - Default local gate: `just quality`
 - Extended CI-fast: `just ci-fast`
 - Extended CI: `just ci`
+
+## Docker Local Runtime Policy
+
+- Canonical Docker runtime uses `docker-compose.yml` + `.env.docker`.
+- Container-internal PostgreSQL host must be service DNS (`db` / `db_test`), never `localhost`.
+- Keep dataset bind mount read-only at `/datasets/mercado-publico`.
+- Keep published ports localhost-bound (`127.0.0.1`) for local development.
+- Do not commit real secrets in Compose/env files; use local overrides when needed.
+- Keep API container non-root and preserve hardening defaults (`no-new-privileges`, read-only root fs, health checks).
 
 ## Testing Policy
 
@@ -83,7 +91,7 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Alembic is schema source of truth.
 - Do not introduce schema drift outside migrations.
 - Keep SQL changes explicit and reviewable.
-- Keep Alembic `revision` ids compact enough for `alembic_version.version_num` (`VARCHAR(32)`); use `just db-revision` to generate timestamped short ids.
+- Keep Alembic `revision` ids compact enough for `alembic_version.version_num` (`VARCHAR(32)`); generate timestamped short ids with `uv run alembic revision --rev-id <id> -m "<name>"`.
 
 ## Documentation Discipline
 
