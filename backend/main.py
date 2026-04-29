@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.routers.health import router as health_router
-from backend.api.routers.investigations import router as investigations_router
 from backend.api.routers.operations import router as operations_router
 from backend.api.routers.opportunities import router as opportunities_router
 from backend.core.config import get_settings
@@ -41,5 +40,4 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(operations_router)
-app.include_router(investigations_router)
 app.include_router(opportunities_router)

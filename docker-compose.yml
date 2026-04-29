@@ -93,6 +93,33 @@ services:
       - --port
       - "8000"
 
+  client:
+    image: node:24-alpine
+    working_dir: /app
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "127.0.0.1:${CLIENT_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ./client
+        target: /app
+      - type: volume
+        source: omnibid_client_node_modules
+        target: /app/node_modules
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - sh
+      - -c
+      - npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000
+
 volumes:
   omnibid_pgdata:
   omnibid_pgdata_test:
+  omnibid_client_node_modules:

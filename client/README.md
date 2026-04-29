@@ -11,23 +11,25 @@ Next.js frontend for the read-only ChileCompra Opportunity Workspace.
 
 ## Local Run
 
-From repo root, start backend first:
+From repo root, start the full Docker dev stack:
 
 ```bash
-just docker-start
+just dev
 ```
 
-From `client/`:
+Open:
+
+- `http://127.0.0.1:3000/licitaciones`
+
+This starts PostgreSQL, applies backend migrations, starts FastAPI, then starts Next.js. The Docker client service installs npm dependencies inside a Docker volume and exposes Next.js on localhost only.
+
+Host-local fallback from `client/`:
 
 ```bash
 npm install
 copy .env.example .env.local
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
-
-Open:
-
-- `http://127.0.0.1:3000/licitaciones`
 
 Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `.env.local`.
 

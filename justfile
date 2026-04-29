@@ -17,6 +17,11 @@ SPINNER_RUNNER := "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy By
 # Canonical Commands (Docker-first)
 # ============================================================
 
+[group('00 Dev')]
+[doc('Start the full local app: Docker DB, backend, and frontend')]
+dev: docker-start docker-client
+    @echo "Omnibid dev stack ready: http://127.0.0.1:3000"
+
 [group('01 Setup')]
 [doc('Containerized dependency bootstrap (no host uv required)')]
 uv-sync: docker-build
@@ -122,6 +127,11 @@ docker-bootstrap: docker-db-up docker-migrate
 [doc('One-command startup: build image, bootstrap DB, and start backend in background')]
 docker-start: docker-build docker-bootstrap
     @{{SPINNER_RUNNER}} -Message "Docker: starting backend service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d backend"
+
+[group('03 Docker')]
+[doc('Start Next.js frontend in Docker with container-managed npm dependencies')]
+docker-client:
+    @{{SPINNER_RUNNER}} -Message "Docker: starting frontend client" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d client"
 
 [group('04 Docker Ops')]
 [private]
