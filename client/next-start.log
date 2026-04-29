@@ -1,0 +1,11 @@
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+✓ Ready in 525ms
+
+ GET /licitaciones 200 in 414ms (next.js: 203ms, application-code: 212ms)
+ GET /licitaciones 200 in 70ms (next.js: 5ms, application-code: 65ms)
+ GET /licitaciones 200 in 55ms (next.js: 6ms, application-code: 49ms)
+ GET /licitaciones?selected=2788-1-LE25 200 in 24ms (next.js: 4ms, application-code: 20ms)
+ GET /licitaciones?tab=radar 200 in 23ms (next.js: 4ms, application-code: 19ms)
