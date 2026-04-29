@@ -59,6 +59,19 @@ You can also use official OpenSpec skills directly when better fit:
 - `$openspec-archive-change`
 - `$openspec-explore`
 
+## Repository Routing Rules
+
+Current repo paths:
+
+- Backend/API: `backend/`, especially `backend/api/routers/`
+- Data pipeline: `backend/ingestion/`, `backend/normalized/`, `scripts/`
+- Database schema: `backend/models/` plus `alembic/versions/`
+- Frontend: `client/`, especially `client/app/licitaciones/` and `client/src/features/opportunity-workspace/`
+- Runtime: Docker-first via `just docker-start`, `just docker-pipeline-full`, `just docker-smoke`
+- Documentation: `README.md`, `docs/README.md`, `docs/architecture/`, `docs/runbooks/`
+
+Do not route new work to legacy `app/` or `docs/product/prd.md` paths; those are not current repo structure.
+
 ## OpenSpec Artifact Standard
 
 When repo-local commands create, review, or refine OpenSpec artifacts, they should enforce these conventions:

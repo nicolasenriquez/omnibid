@@ -64,7 +64,9 @@ Always read:
 
 - `AGENTS.md`
 - `README.md`
-- `docs/guides/validation-baseline.md`
+- `docs/README.md`
+- `docs/runbooks/docker-local.md`
+- `docs/runbooks/local_development.md`
 
 If validating an OpenSpec change, also read:
 
@@ -75,20 +77,24 @@ If validating an OpenSpec change, also read:
 Core baseline (preferred):
 
 ```bash
-just backend-ci
-just frontend-ci
+just ci-fast
+```
+
+Frontend baseline when `client/` is in scope:
+
+```bash
+cd client
+npm run lint
+npm run typecheck
+npm run build
 ```
 
 Equivalent explicit backend gate (if `just` is unavailable):
 
 ```bash
-uv run ruff check .
-uv run black . --check --diff
-uv run bandit -c pyproject.toml -r app --severity-level high --confidence-level high
-uv run pyright app/
-uv run mypy app/
-uv run ty check app
-uv run pytest -v -m "not integration"
+uv run ruff check backend tests scripts
+uv run mypy backend scripts
+uv run pytest -q -m "not integration"
 ```
 
 ### 4. Run environment-dependent checks when relevant
@@ -96,21 +102,15 @@ uv run pytest -v -m "not integration"
 If the work or tests depend on the database, Docker, or server runtime, run the relevant checks too:
 
 ```bash
-docker-compose up -d db
-uv run alembic upgrade head
+just docker-start
 just test-integration
 ```
 
 For application runtime checks:
 
 ```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8123 &
-curl -s http://localhost:8123/ | python3 -m json.tool
-curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:8123/docs
-curl -s http://localhost:8123/health
-curl -s http://localhost:8123/health/db
-curl -s http://localhost:8123/health/ready
-lsof -ti:8123 | xargs kill -9 2>/dev/null || true
+just docker-start
+just docker-smoke
 ```
 
 Only run the checks that are justified by the current scope and environment.

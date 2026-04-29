@@ -4,9 +4,12 @@ Use this runbook when running `app-chilecompra` with Docker Desktop on Windows/L
 
 ## Scope
 
-- Backend only (`backend` + `db`, optional `db_test` profile).
+- Backend runtime (`backend` + `db`, optional `db_test` profile).
+- Frontend runs separately from `client/` with npm and talks to the Docker backend.
 - No local Python or local PostgreSQL required on the host.
 - Dataset mounted read-only into `/datasets/mercado-publico`.
+
+For agents, this runbook is the first execution plan for backend, database, migration, pipeline, smoke, and quality work. Host-local `.venv` or `uv run` commands are fallback paths only when Docker/Compose is unavailable, blocked, or not relevant to the task.
 
 ## Prerequisites
 
@@ -48,6 +51,29 @@ Equivalent direct Compose commands:
   - `just docker-pipeline-full`
 - Smoke check:
   - `just docker-smoke`
+
+When issuing commands as an agent and `rtk` is available, prefix workflow commands:
+
+- `rtk just docker-start`
+- `rtk just docker-pipeline-full`
+- `rtk just docker-smoke`
+
+If a container-backed command cannot be used, state the reason before using the closest host-local fallback. Do not promote the fallback command to the canonical workflow.
+
+## Frontend Pairing
+
+Run the frontend from `client/` after the Docker backend is healthy:
+
+```bash
+npm install
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Use `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `client/.env.local`.
+
+Open:
+
+- `http://127.0.0.1:3000/licitaciones`
 
 ## Security Defaults
 

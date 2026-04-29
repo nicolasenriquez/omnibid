@@ -497,11 +497,14 @@ Run `scripts/setup` to check requirements (curl, jq, ~/.axiom.toml).
 
 Config in `~/.axiom.toml` (shared with axiom-sre):
 ```toml
+# Local machine only. Never commit this file.
 [deployments.prod]
 url = "https://api.axiom.co"
-token = "xaat-your-token"
+token = "<AXIOM_API_TOKEN>"
 org_id = "your-org-id"
 ```
+
+Treat `~/.axiom.toml` as secret material and keep file permissions user-only.
 
 ---
 

@@ -53,11 +53,28 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Docker bootstrap: `just docker-bootstrap`
 - Docker full pipeline: `just docker-pipeline-full`
 
+## Execution Order Policy
+
+- Agents MUST plan backend, database, migration, pipeline, and quality-gate execution through the container runtime first.
+- The canonical path is `rtk just docker-start`, `rtk just docker-pipeline-full`, `rtk just docker-smoke`, and container-backed `just` recipes.
+- Use host-local `uv`, `.venv`, or direct Python commands only as an explicit fallback when the container path is unavailable, blocked by sandbox permissions, or the task is clearly frontend-only.
+- When falling back to host-local execution, say why the container path was not used and keep the fallback command as close as possible to the equivalent container/`just` recipe.
+- Do not make local venv behavior the documented default for future agents.
+
+## Agent Shell Command Policy
+
+- Agent-issued shell commands must be prefixed with `rtk` when `rtk` is available in the active shell.
+- Apply the prefix to local workflow commands such as `just`, `uv`, `docker`, `git`, and test/lint/type commands.
+- Invoke project workflows as `rtk just <recipe>` rather than rewriting `justfile` recipe bodies to call `rtk` internally.
+- Keep repository scripts and `justfile` recipes portable; do not make human/local development depend on RTK unless explicitly requested.
+- If `rtk` is unavailable, report that clearly before running required local commands without the prefix.
+
 ## Quality Gates
 
-- Default local gate: `just quality`
+- Default gate: run the container-first recipe path for the relevant scope, then `just quality` when appropriate.
 - Extended CI-fast: `just ci-fast`
 - Extended CI: `just ci`
+- Host `.venv`/`uv run` test, lint, type, or migration commands are fallback validation only, not the first plan.
 
 ## Docker Local Runtime Policy
 

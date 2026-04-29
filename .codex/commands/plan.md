@@ -120,8 +120,11 @@ Read:
 - `AGENTS.md`
 - `README.md`
 - `openspec/config.yaml`
-- `docs/guides/validation-baseline.md`
-- relevant domain docs (`docs/product/prd.md`, `docs/product/decisions.md`) when needed
+- `docs/README.md`
+- `docs/runbooks/docker-local.md`
+- `docs/runbooks/local_development.md`
+- `docs/runbooks/operations.md`
+- relevant domain docs (`docs/product/product_vision.md`, `docs/architecture/*.md`) when needed
 
 ### 4) Review Design Open Questions
 
@@ -187,17 +190,18 @@ Typical commands:
 - OpenSpec/docs:
   - `openspec validate --specs --all`
 - App code:
-  - `uv run ruff check .`
-  - `uv run black . --check --diff`
-  - `uv run bandit -c pyproject.toml -r app --severity-level high --confidence-level high`
-  - `uv run pyright app/`
-  - `uv run mypy app/`
-  - `uv run ty check app`
-  - targeted `uv run pytest -v <path-or-node>`
+  - `just lint`
+  - `just type`
+  - `just test-unit`
+  - `just security`
+  - targeted `uv run pytest -q <path-or-node>`
+- Frontend code:
+  - from `client/`: `npm run lint`
+  - from `client/`: `npm run typecheck`
+  - from `client/`: `npm run build`
 - Integration/db only when needed:
-  - `docker-compose up -d db`
-  - `uv run alembic upgrade head`
-  - `uv run pytest -v -m integration`
+  - `just docker-start`
+  - `just test-integration`
 
 ### 9) Build the Phased Plan
 

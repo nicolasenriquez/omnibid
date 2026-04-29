@@ -21,6 +21,7 @@ dependencies = [
   "pydantic-settings>=2.4.0",
   "python-dotenv>=1.0.1",
   "tqdm>=4.66.0",
+  "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]

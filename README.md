@@ -7,7 +7,7 @@
 ![Alembic](https://img.shields.io/badge/Alembic-Migrations-222222)
 
 Deterministic procurement data platform for ChileCompra workflows:
-Raw ingestion + canonical normalization + Silver procurement-cycle modeling + deterministic enrichments + versioned NLP annotations + operational APIs.
+Raw ingestion + canonical normalization + Silver procurement-cycle modeling + deterministic enrichments + versioned NLP annotations + read-only investigation/opportunity APIs + a Next.js Opportunity Workspace.
 
 ## Overview
 
@@ -24,15 +24,16 @@ Current product direction:
 
 | Area | Current Status |
 |---|---|
-| Phase | Silver procurement-cycle foundation implemented; Gold deferred |
+| Phase | Silver procurement-cycle foundation implemented; read-only Gold-facing investigation/opportunity workspace in progress |
 | Backend | FastAPI + SQLAlchemy + Alembic |
+| Frontend | Next.js app in `client/` with `/licitaciones` workspace |
 | Database | PostgreSQL |
 | Data Layers | Raw + Normalized + Silver canonical entities |
-| API Surface | 6 operational routes (`health`, `runs`, `files`, dataset summary) |
-| Local CLI | 38 `just` recipes |
-| OpenSpec Runtime | Latest change complete (`all_done`) and ready to archive |
+| API Surface | Health, operations, investigation, and opportunity read routes |
+| Local CLI | `just` recipes; Docker-first runtime |
+| OpenSpec Runtime | Active changes live under `openspec/changes/`; use `/prime` before routing work |
 | Version | `0.1.0` |
-| Last Verified | 2026-04-23 |
+| Last Verified | 2026-04-29 |
 
 ## Main Capabilities
 
@@ -59,6 +60,13 @@ Current product direction:
 - strict Silver guardrails:
   - forbid predictive business fields (`*_score`, `*_probability`, `future_*`, forecast/recommendation fields)
   - enforce TF-IDF reference-only persistence (`tfidf_artifact_ref`)
+- read-only workspace APIs:
+  - opportunity list/summary/detail under `/opportunities`
+  - procurement line investigations under `/investigations/procurement-lines`
+- frontend Opportunity Workspace:
+  - Next.js app under `client/`
+  - primary route: `/licitaciones`
+  - Spanish read-only UI over API-backed opportunity data
 
 ## Architecture At a Glance
 
@@ -72,7 +80,9 @@ flowchart LR
   E --> G[(PostgreSQL)]
   F --> G
   G --> H[Operations API<br/>health, runs, files, datasets summary]
-  G --> I[Future Gold Layer<br/>scores/forecasting/anomalies]
+  G --> I[Read APIs<br/>opportunities + investigations]
+  I --> J[Next.js Opportunity Workspace<br/>/licitaciones]
+  G --> K[Future Gold Layer<br/>scores/forecasting/anomalies]
 ```
 
 ## Core Workflow
@@ -93,7 +103,7 @@ flowchart TD
 ```text
 .
 ├── backend/
-│   ├── api/                      # FastAPI routers (health, operations)
+│   ├── api/                      # FastAPI routers (health, operations, opportunities, investigations)
 │   ├── core/                     # config and runtime settings
 │   ├── db/                       # DB base/session wiring
 │   ├── ingestion/                # ingestion contracts and source registration
@@ -101,6 +111,9 @@ flowchart TD
 │   ├── normalized/               # deterministic transform builders
 │   ├── observability/            # structured logging utilities
 │   └── main.py
+├── client/                       # Next.js Opportunity Workspace frontend
+│   ├── app/licitaciones/         # primary workspace route
+│   └── src/                      # UI, API clients, feature modules
 ├── scripts/                      # pipeline/operator entrypoints
 │   ├── profile_raw.py
 │   ├── ingest_raw.py
@@ -114,9 +127,23 @@ flowchart TD
 └── README.md
 ```
 
+## Agent Path Guide
+
+Use this routing before making changes:
+
+- Backend/API: `backend/api/routers/`, `backend/core/`, `backend/db/`, `backend/models/`
+- Data transforms/pipeline: `backend/ingestion/`, `backend/normalized/`, `scripts/`
+- Migrations/schema: `alembic/versions/` plus `backend/models/`; Alembic is source of truth
+- Frontend workspace: `client/app/licitaciones/`, `client/src/features/opportunity-workspace/`, `client/src/lib/api/`
+- Runtime docs: `docs/runbooks/docker-local.md` first, then `docs/runbooks/local_development.md`
+- Architecture/data docs: `docs/architecture/`
+- Change planning: `openspec/changes/<change>/`; run `/prime` before choosing `/plan`, `/execute`, `/validate`, or archive work
+
+This repo is Docker-first. Agents should plan to execute backend, database, migration, pipeline, and quality checks through the container runtime before considering host-local commands. Prefer `rtk just docker-start`, `rtk just docker-pipeline-full`, and `rtk just docker-smoke` when `rtk` is available. Host `uv` / `.venv` workflows are fallback paths only when the container route is unavailable, blocked, or the task is frontend-only.
+
 ## Getting Started
 
-### Docker Desktop (No Local Python/PostgreSQL Required)
+### Docker Desktop (Canonical Path)
 
 Use this path for reproducible local runtime:
 
@@ -132,24 +159,10 @@ Docker runbook: [`docs/runbooks/docker-local.md`](docs/runbooks/docker-local.md)
 
 ### Prerequisites
 
-- Python 3.11+
-- PostgreSQL reachable from `DATABASE_URL`
-- `just` (recommended workflow runner)
-
-Install `just` on macOS:
-
-```bash
-brew install just
-```
-
-### Install and Bootstrap
-
-```bash
-cp .env.example .env
-just docker-start
-just setup
-just db-bootstrap
-```
+- Docker Desktop
+- `just`
+- `rtk` for agent-issued local workflow commands when available
+- Node.js/npm only when running the frontend in `client/`
 
 ### Configure Environment
 
@@ -159,11 +172,13 @@ Minimum expected variables in `.env`:
 APP_ENV=local
 APP_NAME=app-chilecompra
 APP_PORT=8000
-DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra
-TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra_test
+DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/chilecompra
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
 LOG_LEVEL=INFO
 DATASET_ROOT=/absolute/path/to/dataset-mercado-publico
 ```
+
+For Docker, edit `.env.docker` and mount the host dataset read-only through `DATASET_HOST_PATH`. Container-internal PostgreSQL hosts must be service DNS names (`db`, `db_test`), not `localhost`.
 
 ### Run Pipelines and Backend
 
@@ -175,7 +190,23 @@ just docker-pipeline-full
 - API docs: `http://localhost:8000/docs`
 - OpenAPI: `http://localhost:8000/openapi.json`
 
+### Run Frontend
+
+```bash
+cd client
+npm install
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Open:
+
+- Workspace: `http://127.0.0.1:3000/licitaciones`
+
+Keep backend running with `just docker-start` and set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `client/.env.local`.
+
 ## Local Quality Gates
+
+Use the container-first path before host-local validation. For agents, the first plan should be Docker/Compose-backed `just` recipes; direct `uv run`, `.venv`, or local Python commands are fallbacks that should be explained when used.
 
 ```bash
 just quality
@@ -194,12 +225,6 @@ Targeted workflows:
 
 - Setup: `just uv-sync` (containerized; no host `uv` required)
 - Docker runtime: `docker-start`, `docker-build`, `docker-bootstrap`, `docker-pipeline-full`, `docker-smoke`
-- Setup: `setup`, `codex-sync`
-- Database: `db-bootstrap`, `db-create`, `db-migrate`, `db-revision`
-- Raw: `raw-profile`, `raw-ingest`, `pipeline-raw`
-- Normalized/Silver build: `normalized-build`, `normalized-lic`, `normalized-oc`, `pipeline-normalized`
-- End-to-end: `pipeline-full`, `pipeline-full-fast`
-- API runtime: `api`
 - Quality and CI: `quality`, `ci-fast`, `ci`, plus lint/type/test/security recipes
 
 ## API Surface (Current)
@@ -212,6 +237,13 @@ Targeted workflows:
   - `GET /files`
   - `GET /files/{source_file_id}`
   - `GET /datasets/summary`
+- Opportunities:
+  - `GET /opportunities`
+  - `GET /opportunities/summary`
+  - `GET /opportunities/{notice_id}`
+- Investigations:
+  - `GET /investigations/procurement-lines`
+  - `GET /investigations/procurement-lines/{notice_id}/{item_code}`
 
 ## Documentation Index
 

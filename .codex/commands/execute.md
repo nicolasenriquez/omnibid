@@ -104,17 +104,18 @@ When target `tasks.md` has no remaining `- [ ]`, run final checks for touched sc
 - specs/docs changed:
   - `openspec validate --specs --all`
 - app code touched:
-  - `uv run ruff check .`
-  - `uv run black . --check --diff`
-  - `uv run bandit -c pyproject.toml -r app --severity-level high --confidence-level high`
-  - `uv run pyright app/`
-  - `uv run mypy app/`
-  - `uv run ty check app`
-  - targeted or broader `uv run pytest -v`
+  - `just lint`
+  - `just type`
+  - `just test-unit`
+  - `just security`
+  - targeted or broader `uv run pytest -q`
+- frontend code touched:
+  - from `client/`: `npm run lint`
+  - from `client/`: `npm run typecheck`
+  - from `client/`: `npm run build`
 - db/integration touched:
-  - `docker-compose up -d db`
-  - `uv run alembic upgrade head`
-  - `uv run pytest -v -m integration`
+  - `just docker-start`
+  - `just test-integration`
 
 If tasks remain pending:
 - report broad validations as deferred
@@ -144,7 +145,8 @@ Then read:
 - `AGENTS.md`
 - `README.md`
 - `openspec/config.yaml`
-- `docs/guides/validation-baseline.md`
+- `docs/README.md`
+- `docs/runbooks/docker-local.md`
 - change `proposal.md`, `design.md`, `tasks.md`, and delta specs from `contextFiles`
 
 If `preflight=off`, report `Preflight: skipped (flag)`.

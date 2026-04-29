@@ -26,6 +26,7 @@ calculate_max_rows_per_upsert = MODULE.calculate_max_rows_per_upsert
 resolve_start_after_id = MODULE.resolve_start_after_id
 build_entity_metrics = MODULE.build_entity_metrics
 prune_orphan_notice_purchase_order_links = MODULE.prune_orphan_notice_purchase_order_links
+flush_silver_licitaciones_chunk_buffers = MODULE.flush_silver_licitaciones_chunk_buffers
 
 
 class _DummyResult:
@@ -249,3 +250,59 @@ def test_prune_orphan_notice_purchase_order_links_clears_rows_when_no_valid_ids(
     assert dropped == 2
     assert rows == []
     assert session.execute_calls == 0
+
+
+def test_silver_licitaciones_flush_forces_parent_facts_before_supplier_participation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, bool, int]] = []
+
+    def fake_flush_if_needed(
+        _session: object,
+        model: object,
+        buffer_rows: list[dict[str, object]],
+        _conflict_fields: list[str],
+        _chunk_size: int,
+        *,
+        force: bool = False,
+    ) -> int:
+        calls.append((model.__tablename__, force, len(buffer_rows)))
+        if force or len(buffer_rows) >= _chunk_size:
+            upserted = len(buffer_rows)
+            buffer_rows.clear()
+            return upserted
+        return 0
+
+    monkeypatch.setattr(MODULE, "flush_if_needed", fake_flush_if_needed)
+
+    bid_submission_rows = [{"bid_submission_id": "B-1"}]
+    award_outcome_rows = [{"award_outcome_id": "A-1"}]
+    supplier_participation_rows = [
+        {"supplier_id": "S-1", "notice_id": "N-1", "award_outcome_id": "A-1"},
+        {"supplier_id": "S-2", "notice_id": "N-1", "award_outcome_id": "A-2"},
+    ]
+
+    flush_silver_licitaciones_chunk_buffers(
+        session=object(),
+        chunk_size=2,
+        buying_org_rows=[],
+        contracting_unit_rows=[],
+        supplier_rows=[],
+        category_ref_rows=[],
+        notice_rows=[],
+        notice_line_rows=[],
+        bid_submission_rows=bid_submission_rows,
+        award_outcome_rows=award_outcome_rows,
+        supplier_participation_rows=supplier_participation_rows,
+        notice_text_ann_rows=[],
+        notice_line_text_ann_rows=[],
+    )
+
+    force_by_table = {table_name: force for table_name, force, _ in calls}
+    assert force_by_table["silver_notice"] is True
+    assert force_by_table["silver_notice_line"] is True
+    assert force_by_table["silver_bid_submission"] is True
+    assert force_by_table["silver_award_outcome"] is True
+    assert force_by_table["silver_supplier_participation"] is False
+    assert bid_submission_rows == []
+    assert award_outcome_rows == []
