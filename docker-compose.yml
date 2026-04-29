@@ -50,8 +50,8 @@ services:
       APP_NAME: ${APP_NAME:-app-chilecompra}
       APP_PORT: ${APP_PORT:-8000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/chilecompra}
-      TEST_DATABASE_URL: ${TEST_DATABASE_URL:-postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test}
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chilecompra
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
       DATASET_ROOT: ${DATASET_ROOT:-/datasets/mercado-publico}
       CHUNK_SIZE: ${CHUNK_SIZE:-5000}
     depends_on:
