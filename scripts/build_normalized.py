@@ -1277,6 +1277,7 @@ def flush_silver_licitaciones_chunk_buffers(
         notice_rows,
         SILVER_NOTICE_CONFLICT_FIELDS,
         chunk_size,
+        force=facts_chunk_triggered,
     )
     notice_line = flush_if_needed(
         session,
@@ -1284,6 +1285,7 @@ def flush_silver_licitaciones_chunk_buffers(
         notice_line_rows,
         SILVER_NOTICE_LINE_CONFLICT_FIELDS,
         chunk_size,
+        force=facts_chunk_triggered,
     )
     bid_submission = flush_if_needed(
         session,
@@ -1291,6 +1293,7 @@ def flush_silver_licitaciones_chunk_buffers(
         bid_submission_rows,
         SILVER_BID_SUBMISSION_CONFLICT_FIELDS,
         chunk_size,
+        force=facts_chunk_triggered,
     )
     award_outcome = flush_if_needed(
         session,
@@ -1298,6 +1301,7 @@ def flush_silver_licitaciones_chunk_buffers(
         award_outcome_rows,
         SILVER_AWARD_OUTCOME_CONFLICT_FIELDS,
         chunk_size,
+        force=facts_chunk_triggered,
     )
     supplier_participation = flush_if_needed(
         session,

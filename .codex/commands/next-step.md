@@ -46,12 +46,15 @@ Read:
 
 - `AGENTS.md`
 - `README.md`
-- `docs/product/prd.md`
-- `docs/product/decisions.md`
-- `docs/product/backlog-sprints.md`
-- `docs/product/roadmap.md`
-- `docs/references/references.md`
-- `docs/guides/validation-baseline.md`
+- `docs/README.md`
+- `docs/product/product_vision.md`
+- `docs/architecture/system_architecture.md`
+- `docs/architecture/data_architecture.md`
+- `docs/architecture/data_model.md`
+- `docs/runbooks/docker-local.md`
+- `docs/runbooks/local_development.md`
+- `docs/runbooks/operations.md`
+- `docs/references/sdd-official-sources-registry.md`
 - `openspec/config.yaml`
 - `openspec/project.md` if it exists
 
@@ -61,10 +64,13 @@ If `@ARGUMENTS` is focused on a subsystem, also read the most relevant reference
 
 Read the core implementation files that define the current system shape:
 
-- `app/main.py`
-- `app/core/config.py`
-- `app/core/database.py`
-- `app/core/logging.py`
+- `backend/main.py`
+- `backend/core/config.py`
+- `backend/db/session.py`
+- `backend/observability/logging.py`
+- `backend/api/routers/`
+- `client/package.json`
+- `client/app/licitaciones/page.tsx`
 
 If needed, inspect tests or feature-adjacent files to judge whether a candidate step is truly localized.
 

@@ -55,16 +55,28 @@ Always read:
 
 Read based on scope:
 - `scope=app|all`:
-  - `app/main.py`
-  - `app/core/config.py`
-  - `app/core/database.py`
-  - `app/core/logging.py`
+  - `backend/main.py`
+  - `backend/core/config.py`
+  - `backend/db/session.py`
+  - `backend/db/base.py`
+  - `backend/observability/logging.py`
+  - `backend/api/routers/health.py`
+  - `backend/api/routers/operations.py`
+  - `backend/api/routers/opportunities.py`
+  - `backend/api/routers/investigations.py`
+  - `client/package.json`
+  - `client/app/licitaciones/page.tsx`
 - `scope=docs|all`:
-  - `docs/product/prd.md`
-  - `docs/product/decisions.md`
-  - `docs/guides/validation-baseline.md`
-  - `docs/product/roadmap.md`
-  - `docs/product/backlog-sprints.md`
+  - `docs/README.md`
+  - `docs/product/product_vision.md`
+  - `docs/architecture/system_architecture.md`
+  - `docs/architecture/data_architecture.md`
+  - `docs/architecture/data_model.md`
+  - `docs/runbooks/docker-local.md`
+  - `docs/runbooks/local_development.md`
+  - `docs/runbooks/operations.md`
+  - `docs/runbooks/opportunity_workspace_frontend_mvp_plan.md`
+  - `docs/runbooks/procurement_investigation_workspace_plan.md`
 - `scope=openspec|all`:
   - current change artifacts selected in Step 2
 
@@ -176,6 +188,8 @@ Classify issues as:
 This command is complete when:
 - no files were changed
 - governance and OpenSpec runtime were analyzed from repository truth
+- Docker-first runtime was treated as canonical unless task scope is frontend-only
+- path routing used current repo paths (`backend/`, `client/`, `scripts/`, `alembic/`, `openspec/`)
 - routing used `openspec instructions apply` for implementation readiness
 - one clear next command was recommended
 - confidence and blockers were stated explicitly

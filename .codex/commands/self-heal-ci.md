@@ -32,13 +32,13 @@ By default this command is diagnose-first and conservative. It can apply non-sem
 ## Target + Scope Semantics (`using`/`scope`)
 
 `target=fast`:
-- `using=back` (`scope=back`) -> `just backend-ci-fast`
-- `using=front` (`scope=front`) -> `just frontend-ci`
+- `using=back` (`scope=back`) -> `just ci-fast`
+- `using=front` (`scope=front`) -> `npm run lint`, `npm run typecheck`, `npm run build` from `client/`
 - `using=all` (`scope=all`) -> `just ci-fast`
 
 `target=full`:
-- `using=back` (`scope=back`) -> `just backend-ci`
-- `using=front` (`scope=front`) -> `just frontend-ci`
+- `using=back` (`scope=back`) -> `just ci`
+- `using=front` (`scope=front`) -> frontend commands above
 - `using=all` (`scope=all`) -> `just ci`
 
 Why conservative defaults:
@@ -61,7 +61,7 @@ Why conservative defaults:
   - `alembic/**`
   - `docker-compose.yml`, `Dockerfile`
   - `pyproject.toml`, `justfile`, `.pre-commit-config.yaml`
-  - `app/core/config.py`, `app/core/database.py`
+  - `backend/core/config.py`, `backend/db/session.py`, `backend/db/base.py`
 - If a required fix touches protected paths and `confirm=high-risk` is not present, stop and return `BLOCKED` with a human approval request.
 - Classify known environment-only blocker signatures explicitly:
   - `PermissionError: [Errno 1] Operation not permitted` from Python multiprocessing `SyncManager` (sandbox/runtime socket bind limitation)
@@ -106,23 +106,23 @@ Backend gates:
 just lint
 just type
 just security
-just test
+just test-unit
 just test-integration
 ```
 
 Frontend gates:
 
 ```bash
-just frontend-lint
-just frontend-type
-just frontend-test
-just frontend-build
+cd client
+npm run lint
+npm run typecheck
+npm run build
 ```
 
 Pre-push hooks (when target includes full `ci`):
 
 ```bash
-just precommit-run-prepush
+just ci
 ```
 
 4. Apply smallest safe fix for the first failing gate:
@@ -136,13 +136,13 @@ just precommit-run-prepush
 5. Rerun only the previously failing gate first, then rerun pipeline phase.
 
 Fallback map when `just` is unavailable:
-- backend lint: `uv run ruff check .` + `uv run black . --check --diff`
+- backend lint: `uv run ruff check backend tests scripts`
 - backend lint fallback if black multiprocessing fails: `uv run black . --check --diff --workers 1`
-- backend format: `uv run ruff check . --fix` + `uv run black .`
-- backend type: `uv run mypy app/ && uv run pyright app/ && uv run ty check app`
-- backend security: `uv run bandit -c pyproject.toml -r app --severity-level high --confidence-level high` + `uv run pip-audit --progress-spinner=off --ignore-vuln CVE-2026-4539`
-- backend tests: `uv run pytest -v -m "not integration"` and integration with `uv run pytest -v -m "integration and not market_scope_heavy"`
-- frontend lint/type/test/build: `cd frontend && npm run <script>`
+- backend format: `uv run ruff check backend tests scripts --fix` + `uv run black backend tests scripts`
+- backend type: `uv run mypy backend scripts`
+- backend security: `uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high`
+- backend tests: `uv run pytest -q -m "not integration"` and integration through `just test-integration`
+- frontend lint/type/build: `cd client && npm run <script>`
 
 When `pip-audit` fails with DNS/network-only errors:
 - classify as environment blocker (`failure_type=network`)

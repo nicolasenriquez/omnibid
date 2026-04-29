@@ -60,11 +60,40 @@ Annotation contract highlights:
 - `tfidf_artifact_ref` reference strings only (`tfidf://...`)
 - no serialized vectors and no business prediction scores in Silver
 
-## Next Target (Post-Silver)
+## Current Read Models
 
-- Gold aggregates and feature-serving outputs (outside Silver scope)
-- predictive scoring and model outputs in downstream layers only
+Implemented read-only API models sit on top of Silver and documented Normalized display joins:
+
+- opportunity list/summary/detail contracts under `/opportunities`
+- procurement line investigation list/detail contracts under `/investigations/procurement-lines`
+- frontend view models under `client/src/features/opportunity-workspace/`
+
+These are read contracts, not canonical persisted business facts. Keep canonical facts in Raw/Normalized/Silver tables and add persisted Gold tables only when evidence shows the read contract needs materialization.
+
+## Gold Investigation Read Models
+
+Initial Gold investigation contracts:
+- `gold_procurement_line_investigation`: one row per `notice_id + item_code`
+- `gold_procurement_line_offer_evidence`: one row per line offer evidence item
+- `gold_procurement_line_purchase_evidence`: one row per plausible purchase-order-line relationship
+- `gold_procurement_line_context`: bounded JSON context for detail and agent handoff
+
+Current implementation starts as a read-only API/query contract. Persisted Gold tables or views should be introduced only after join cardinality and performance evidence justify persistence.
+
+Certainty contract:
+- `high`: reserved for direct consistent evidence beyond ONU-only matching
+- `medium`: limited ambiguity with compatible notice and product evidence
+- `low`: indirect or broad ambiguous evidence, including many ONU-based candidates
+- `none`: no purchase-order-line evidence
 
 For detailed scope, constraints, implementation status, and milestones:
 - `openspec/changes/expand-silver-procurement-cycle-and-feature-foundation-2026-04-22/`
 - `docs/runbooks/silver_procurement_cycle_implementation_plan.md`
+- `openspec/changes/gold-procurement-investigation-workspace/`
+- `docs/runbooks/procurement_investigation_workspace_plan.md`
+
+## Next Target
+
+- stabilize Opportunity Workspace read API/frontend behavior
+- add persisted Gold aggregates or feature-serving outputs only after a new OpenSpec change and validation evidence
+- keep predictive scoring and model outputs in downstream layers only

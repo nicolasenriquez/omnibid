@@ -136,7 +136,7 @@ app.use(helmet.contentSecurityPolicy({
   directives: {
     defaultSrc: ["'self'"],
     scriptSrc: ["'self'"],
-    styleSrc: ["'self'", "'unsafe-inline'"],  // Tighten if possible
+    styleSrc: ["'self'"],  // Prefer nonce/hash for required inline styles
     imgSrc: ["'self'", 'data:', 'https:'],
     connectSrc: ["'self'"],
   },

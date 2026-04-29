@@ -97,61 +97,6 @@ Debug verbosity is opt-in for controlled runs only. The default operational mode
 
 ## Historical Telemetry Caveat (pre-reconciliation runs)
 
-## Canonical Telemetry Contract (Raw + Normalized)
-
-The pipeline uses the same metric taxonomy across raw and normalized stages:
-
-- `processed_rows`: input records iterated inside the run scope.
-- `rejected_rows`: records rejected by contract/transform and not sent to storage.
-- `accepted_rows`: `processed_rows - rejected_rows`.
-- `deduplicated_rows`: payload rows after business-key dedupe for storage write.
-- `inserted_delta_rows`: target-table row-count delta (`count_after - count_before`) in the scoped reconciliation query.
-
-Required invariants:
-
-- `inserted_delta_rows <= deduplicated_rows <= accepted_rows <= processed_rows`
-- `existing_or_updated_rows = deduplicated_rows - inserted_delta_rows`
-- Any contract failure that prevents deterministic metrics is fail-fast and marks the run as failed.
-
-Raw-stage formulas:
-
-- `processed_rows`: CSV rows read from file.
-- `rejected_rows`: `0` for valid files (invalid files fail fast; they are not partially accepted).
-- `accepted_rows`: `processed_rows`.
-- `deduplicated_rows`: `accepted_rows` (raw ingest has no transform-level key collapse).
-- `inserted_delta_rows`: delta count in raw target table scoped by `source_file_id`.
-
-Normalized-stage formulas (per entity):
-
-- `processed_rows`: raw rows scanned for the dataset.
-- `rejected_rows`: builder returned `None` for the entity.
-- `accepted_rows`: rows that produced entity payloads.
-- `deduplicated_rows`: accepted payloads after conflict-key dedupe before upsert.
-- `inserted_delta_rows`: row-count delta in target normalized table.
-
-Compatibility mapping (existing operational columns):
-
-- `ingestion_batches.total_rows <- processed_rows`
-- `ingestion_batches.loaded_rows <- inserted_delta_rows`
-- `ingestion_batches.rejected_rows <- deduplicated_rows - inserted_delta_rows`
-- `pipeline_run_steps.rows_in <- processed_rows`
-- `pipeline_run_steps.rows_out <- inserted_delta_rows`
-- `pipeline_run_steps.rows_rejected <- deduplicated_rows - inserted_delta_rows`
-
-## Telemetry Logging Efficiency Policy
-
-Default mode is bounded and checkpoint-based:
-
-- No row-level/per-record logs.
-- Raw progress checkpoints: `max(50_000, chunk_size * 10)`.
-- Normalized progress checkpoints: `max(10_000, fetch_size)`.
-- Normalized state persistence checkpoints: `max(50_000, fetch_size * 5)`.
-- Completion summary includes canonical metrics only.
-
-Debug verbosity is opt-in for controlled runs only. The default operational mode must remain bounded for multi-million-row processing.
-
-## Historical Telemetry Caveat (pre-reconciliation runs)
-
 - Before reconciliation hardening (runs prior to 2026-04-21), `rowcount`-derived counters may be inaccurate (`loaded_rows < 0`, inflated derived rejects, negative `upserted` in normalized logs).
 - These caveats apply to historical run evidence only.
 - For historical audits, use reconciliation queries from `source_file_id`/table scope instead of trusting legacy `rowcount`-based fields.
@@ -247,3 +192,46 @@ Each dataset execution prints:
 1. evaluate cross-source buyer identity unification strategy when `CodigoUnidadCompra` is unavailable
 2. add operational read endpoints for domain entities and domain-quality issues
 3. define Gold-layer contract slices on top of canonical buyers/suppliers/categories
+
+## Procurement Investigation Workspace
+
+The first Gold investigation slice exposes read-only procurement line investigations:
+
+- `GET /investigations/procurement-lines`
+- `GET /investigations/procurement-lines/{notice_id}/{item_code}`
+
+Operator guidance:
+
+- Use the list endpoint for bounded workspace/table/board views.
+- Use the detail endpoint for one line's summary, offer evidence, purchase evidence, open questions, and context export.
+- Treat `purchase_order_line_match_certainty=low` as ambiguous evidence requiring review.
+- Do not treat ONU-only line-to-purchase-order-line matches as conclusive.
+- Do not persist agent-generated narrative as canonical business data.
+
+Reference:
+
+- `docs/runbooks/procurement_investigation_workspace_plan.md`
+- `docs/evidence/procurement_investigation_workspace_join_profile_2026-04-28.md`
+
+## Opportunity Workspace Operations
+
+The Opportunity Workspace exposes read-only opportunity endpoints over Silver-first data:
+
+- `GET /opportunities`
+- `GET /opportunities/summary`
+- `GET /opportunities/{notice_id}`
+
+Operator guidance:
+
+- Start backend with `just docker-start` (`rtk just docker-start` for agent-issued commands when available).
+- Run `just docker-smoke` before frontend browser checks.
+- For agents, run backend/API checks through the container-backed `just` path first; use host-local `.venv` or `uv run` only as a fallback with the reason recorded.
+- Keep `/opportunities` at notice grain; do not join child rows into the list in a way that duplicates parent notices.
+- Use detail endpoint evidence for lines, offers, and purchase orders.
+- Keep frontend API base in `client/.env.local` as `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
+- Validate frontend from `client/` with `npm run lint`, `npm run typecheck`, and `npm run build`.
+
+Reference:
+
+- `docs/runbooks/opportunity_workspace_frontend_mvp_plan.md`
+- `docs/evidence/opportunity_workspace_frontend_scaffold_validation_2026-04-28.md`

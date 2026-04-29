@@ -21,13 +21,13 @@ if str(ROOT) not in sys.path:
 
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.ingestion.contracts import assert_required_columns  # noqa: E402
-from backend.models.raw import RawLicitacion, RawOrdenCompra  # noqa: E402
 from backend.models.operational import (  # noqa: E402
     IngestionBatch,
     PipelineRun,
     PipelineRunStep,
     SourceFile,
 )
+from backend.models.raw import RawLicitacion, RawOrdenCompra  # noqa: E402
 from backend.observability.cli_ui import (  # noqa: E402
     create_progress,
     progress_write,
@@ -331,6 +331,12 @@ def flush_chunk(session: Session, dataset_type: str, chunk: list[dict[str, Any]]
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load raw CSV files into raw tables")
     parser.add_argument("--dataset-root", default=None, help="Path to dataset-mercado-publico")
+    parser.add_argument(
+        "--dataset",
+        choices=["licitacion", "orden_compra", "all"],
+        default="all",
+        help="Which dataset to ingest (default: all — both licitacion and orden_compra)",
+    )
     parser.add_argument("--chunk-size", type=int, default=5000)
     parser.add_argument("--limit-files", type=int, default=0)
     parser.add_argument("--force", action="store_true", help="Reprocess files even if hash exists")
@@ -353,6 +359,8 @@ def main() -> int:
         raise SystemExit(f"Dataset root not found: {dataset_root}")
 
     files = discover_files(dataset_root)
+    if args.dataset != "all":
+        files = [(dt, p) for dt, p in files if dt == args.dataset]
     if args.limit_files > 0:
         files = files[: args.limit_files]
 
