@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+import tempfile
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,14 @@ class Settings(BaseSettings):
     )
 
     dataset_root: Path | None = Field(default=None, alias="DATASET_ROOT")
+    manual_upload_root: Path = Field(
+        default_factory=lambda: Path(tempfile.gettempdir()) / "omnibid-manual-uploads",
+        alias="MANUAL_UPLOAD_ROOT",
+    )
+    manual_upload_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        alias="MANUAL_UPLOAD_MAX_BYTES",
+    )
 
 
 @lru_cache(maxsize=1)

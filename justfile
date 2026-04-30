@@ -11,7 +11,6 @@ NORMALIZED_LIMIT_ROWS := env_var_or_default("NORMALIZED_LIMIT_ROWS", "0")
 NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runtime/normalized_build_state.json")
 NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
 LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
-SPINNER_RUNNER := "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/run_with_spinner.ps1"
 
 # ============================================================
 # Canonical Commands (Docker-first)
@@ -104,19 +103,19 @@ ci: ci-fast type-strict security test-integration
 [private]
 [doc('Build Docker images for local backend stack')]
 docker-build:
-    @{{SPINNER_RUNNER}} -Message "Docker: building backend image" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml build"
+    docker compose --env-file .env.docker -f docker-compose.yml build
 
 [group('03 Docker')]
 [private]
 [doc('Start Docker PostgreSQL service only')]
 docker-db-up:
-    @{{SPINNER_RUNNER}} -Message "Docker: starting db service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d db"
+    docker compose --env-file .env.docker -f docker-compose.yml up -d db
 
 [group('03 Docker')]
 [private]
 [doc('Apply Alembic migrations in Docker backend container')]
 docker-migrate: docker-db-up
-    @{{SPINNER_RUNNER}} -Message "Docker: applying migrations" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head"
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head
 
 [group('03 Docker')]
 [private]
@@ -126,12 +125,12 @@ docker-bootstrap: docker-db-up docker-migrate
 [group('03 Docker')]
 [doc('One-command startup: build image, bootstrap DB, and start backend in background')]
 docker-start: docker-build docker-bootstrap
-    @{{SPINNER_RUNNER}} -Message "Docker: starting backend service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d backend"
+    docker compose --env-file .env.docker -f docker-compose.yml up -d backend
 
 [group('03 Docker')]
 [doc('Start Next.js frontend in Docker with container-managed npm dependencies')]
 docker-client:
-    @{{SPINNER_RUNNER}} -Message "Docker: starting frontend client" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d client"
+    docker compose --env-file .env.docker -f docker-compose.yml up -d client
 
 [group('04 Docker Ops')]
 [private]

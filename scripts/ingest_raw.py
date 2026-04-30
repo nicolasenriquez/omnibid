@@ -328,6 +328,73 @@ def flush_chunk(session: Session, dataset_type: str, chunk: list[dict[str, Any]]
     session.flush()
 
 
+def process_registered_file(
+    session: Session,
+    *,
+    dataset_type: str,
+    path: Path,
+    source_file: SourceFile,
+    batch: IngestionBatch,
+    run: PipelineRun,
+    step: PipelineRunStep,
+    chunk_size: int,
+    show_progress: bool,
+    precount: bool,
+) -> dict[str, int]:
+    expected_rows = count_csv_rows(path) if precount else None
+    before_scope_rows = count_raw_rows_for_source_file(session, dataset_type, source_file.id)
+    with timed_step(f"ingest {path.name}", enabled=show_progress):
+        processed_rows = ingest_file(
+            session=session,
+            dataset_type=dataset_type,
+            path=path,
+            source_file=source_file,
+            batch=batch,
+            chunk_size=chunk_size,
+            show_progress=show_progress,
+            expected_rows=expected_rows,
+        )
+    after_scope_rows = count_raw_rows_for_source_file(session, dataset_type, source_file.id)
+    metrics = build_raw_ingest_metrics(
+        processed_rows=processed_rows,
+        before_scope_rows=before_scope_rows,
+        after_scope_rows=after_scope_rows,
+    )
+
+    batch_any = cast(Any, batch)
+    source_file_any = cast(Any, source_file)
+    step_any = cast(Any, step)
+    run_any = cast(Any, run)
+
+    batch_any.total_rows = metrics["processed_rows"]
+    batch_any.loaded_rows = metrics["inserted_delta_rows"]
+    batch_any.rejected_rows = metrics["existing_or_updated_rows"]
+    batch_any.status = "completed"
+    batch_any.finished_at = datetime.now(UTC)
+
+    source_file_any.status = "loaded"
+    source_file_any.source_meta = {
+        **(source_file.source_meta or {}),
+        "raw_ingest_metrics": metrics,
+    }
+
+    step_any.status = "completed"
+    step_any.finished_at = datetime.now(UTC)
+    step_any.rows_in = metrics["processed_rows"]
+    step_any.rows_out = metrics["inserted_delta_rows"]
+    step_any.rows_rejected = metrics["existing_or_updated_rows"]
+
+    run_any.config = {
+        **(run.config or {}),
+        "raw_ingest_metrics": metrics,
+    }
+    run_any.status = "completed"
+    run_any.finished_at = datetime.now(UTC)
+
+    session.commit()
+    return metrics
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load raw CSV files into raw tables")
     parser.add_argument("--dataset-root", default=None, help="Path to dataset-mercado-publico")
@@ -395,61 +462,18 @@ def main() -> int:
                 session.commit()
 
                 try:
-                    expected_rows = count_csv_rows(path) if args.precount else None
-                    before_scope_rows = count_raw_rows_for_source_file(
-                        session, dataset_type, source_file.id
+                    metrics = process_registered_file(
+                        session=session,
+                        dataset_type=dataset_type,
+                        path=path,
+                        source_file=source_file,
+                        batch=batch,
+                        run=run,
+                        step=step,
+                        chunk_size=args.chunk_size,
+                        show_progress=args.progress,
+                        precount=args.precount,
                     )
-                    with timed_step(f"ingest {path.name}", enabled=args.progress):
-                        processed_rows = ingest_file(
-                            session=session,
-                            dataset_type=dataset_type,
-                            path=path,
-                            source_file=source_file,
-                            batch=batch,
-                            chunk_size=args.chunk_size,
-                            show_progress=args.progress,
-                            expected_rows=expected_rows,
-                        )
-                    after_scope_rows = count_raw_rows_for_source_file(
-                        session, dataset_type, source_file.id
-                    )
-                    metrics = build_raw_ingest_metrics(
-                        processed_rows=processed_rows,
-                        before_scope_rows=before_scope_rows,
-                        after_scope_rows=after_scope_rows,
-                    )
-
-                    batch_any = cast(Any, batch)
-                    source_file_any = cast(Any, source_file)
-                    step_any = cast(Any, step)
-                    run_any = cast(Any, run)
-
-                    batch_any.total_rows = metrics["processed_rows"]
-                    batch_any.loaded_rows = metrics["inserted_delta_rows"]
-                    batch_any.rejected_rows = metrics["existing_or_updated_rows"]
-                    batch_any.status = "completed"
-                    batch_any.finished_at = datetime.now(UTC)
-
-                    source_file_any.status = "loaded"
-                    source_file_any.source_meta = {
-                        **(source_file.source_meta or {}),
-                        "raw_ingest_metrics": metrics,
-                    }
-
-                    step_any.status = "completed"
-                    step_any.finished_at = datetime.now(UTC)
-                    step_any.rows_in = metrics["processed_rows"]
-                    step_any.rows_out = metrics["inserted_delta_rows"]
-                    step_any.rows_rejected = metrics["existing_or_updated_rows"]
-
-                    run_any.config = {
-                        **(run.config or {}),
-                        "raw_ingest_metrics": metrics,
-                    }
-                    run_any.status = "completed"
-                    run_any.finished_at = datetime.now(UTC)
-
-                    session.commit()
                     log_line(
                         (
                             f"OK {path.name}: "

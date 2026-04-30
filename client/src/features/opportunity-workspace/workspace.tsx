@@ -12,7 +12,7 @@ import {
   Copy,
   ExternalLink,
   FilterX,
-  ListPlus,
+  Eye,
   RefreshCw,
   Search,
   ServerCrash,
@@ -225,6 +225,27 @@ function formatMetricValue(metric: OpportunitySummaryMetric): string {
     return formatMoney(metric.value, "CLP");
   }
   return formatCount(metric.value);
+}
+
+function formatCompactMetricValue(metric: OpportunitySummaryMetric): string {
+  if (!metric.key.includes("amount")) {
+    return formatMetricValue(metric);
+  }
+  if (metric.value === null) {
+    return formatUnavailable(null);
+  }
+  const absValue = Math.abs(metric.value);
+  if (absValue >= 1_000_000_000_000) {
+    return `CLP ${(metric.value / 1_000_000_000_000).toLocaleString("es-CL", {
+      maximumFractionDigits: 1,
+    })}T`;
+  }
+  if (absValue >= 1_000_000_000) {
+    return `CLP ${(metric.value / 1_000_000_000).toLocaleString("es-CL", {
+      maximumFractionDigits: 1,
+    })}B`;
+  }
+  return formatMoney(metric.value, "CLP");
 }
 
 function buildChileCompraNoticeUrl(externalNoticeCode: string | null): string | null {
@@ -533,7 +554,7 @@ export function OpportunityWorkspace() {
           <header className="workspace-header">
             <div className="workspace-header__content">
               <div className="workspace-header__eyebrow-row">
-                <span className="workspace-kicker">Workspace de licitaciones</span>
+                <span className="workspace-kicker">Proceso reciente cargado</span>
                 <Badge>Solo lectura</Badge>
               </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
@@ -548,26 +569,28 @@ export function OpportunityWorkspace() {
               </div>
             </div>
             <div className="workspace-mode" aria-label="Modo del espacio">
-              <span className="workspace-mode__label">Snapshot general</span>
-              <div className="workspace-status-grid" aria-label="Resumen operativo">
-                <span>
-                  <strong>{queryState.tab === "radar" ? "Radar" : "Explorador"}</strong>
-                  <small>Vista activa</small>
-                </span>
-                <span>
+              <div className="workspace-mode__topline">
+                <span className="workspace-mode__label">Engagement snapshot</span>
+                <span>{`${activeFilters ? activeFilterLabels.length : 0} filtros`}</span>
+              </div>
+              <div className="workspace-mode__hero" aria-label="Resumen operativo">
+                <div>
+                  <small>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</small>
                   <strong>{resultStatusLabel}</strong>
-                  <small>Resultado actual</small>
-                </span>
-                <span>
-                  <strong>{activeFilters ? activeFilterLabels.length : 0}</strong>
-                  <small>Filtros activos</small>
-                </span>
+                </div>
+                <Badge>{apiStatusLabel}</Badge>
               </div>
               <div className="workspace-header-kpis" aria-label="KPIs del proceso">
                 {headerMetrics.map((metric) => (
-                  <span key={metric.key}>
+                  <span
+                    key={metric.key}
+                    className={
+                      metric.key.includes("amount") ? "workspace-header-kpi--money" : undefined
+                    }
+                    title={metric.key.includes("amount") ? formatMetricValue(metric) : undefined}
+                  >
                     <small>{metric.label}</small>
-                    <strong>{formatMetricValue(metric)}</strong>
+                    <strong>{formatCompactMetricValue(metric)}</strong>
                   </span>
                 ))}
               </div>
@@ -1142,9 +1165,9 @@ export function OpportunityWorkspace() {
                             <div className="table-action-cell">
                               <span>{formatCount(item.purchaseOrderCount)}</span>
                               <IconButton
-                                icon={<ListPlus size={14} aria-hidden="true" />}
-                                label="Agregar al radar"
-                                onClick={() => openDetail("radar", item.noticeId)}
+                                icon={<Eye size={14} aria-hidden="true" />}
+                                label="Ver detalle"
+                                onClick={() => openDetail("explorer", item.noticeId)}
                               />
                             </div>
                           </td>

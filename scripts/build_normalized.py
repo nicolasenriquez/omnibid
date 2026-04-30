@@ -485,13 +485,18 @@ def persist_failed_dataset_state(
     save_state(state_path, state)
 
 
-def raw_snapshot(session: Session, dataset: str) -> dict[str, int]:
+def raw_snapshot(session: Session, dataset: str, source_file_id: Any | None = None) -> dict[str, int]:
     if dataset == "licitacion":
         model: Any = RawLicitacion
     else:
         model = RawOrdenCompra
-    total_rows = session.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
-    max_id = session.execute(sa.select(sa.func.max(model.id))).scalar_one()
+    filters = []
+    if source_file_id is not None:
+        filters.append(model.source_file_id == source_file_id)
+    total_rows = session.execute(
+        sa.select(sa.func.count()).select_from(model).where(*filters)
+    ).scalar_one()
+    max_id = session.execute(sa.select(sa.func.max(model.id)).where(*filters)).scalar_one()
     return {"total_rows": int(total_rows or 0), "max_id": int(max_id or 0)}
 
 
@@ -551,15 +556,28 @@ def _raw_subset_subquery(
     start_after_id: int,
     limit_rows: int,
     name: str,
+    source_file_id: Any | None = None,
 ) -> Any:
     stmt = (
         sa.select(model.id.label("id"), model.raw_json.label("raw_json"))
-        .where(model.id > start_after_id)
+        .where(*_raw_scope_filters(model, start_after_id=start_after_id, source_file_id=source_file_id))
         .order_by(model.id.asc())
     )
     if limit_rows > 0:
         stmt = stmt.limit(limit_rows)
     return stmt.subquery(name)
+
+
+def _raw_scope_filters(
+    model: Any,
+    *,
+    start_after_id: int,
+    source_file_id: Any | None = None,
+) -> list[Any]:
+    filters = [model.id > start_after_id]
+    if source_file_id is not None:
+        filters.append(model.source_file_id == source_file_id)
+    return filters
 
 
 def run_dataset_preflight_quality_audit(
@@ -568,6 +586,7 @@ def run_dataset_preflight_quality_audit(
     dataset: str,
     start_after_id: int,
     limit_rows: int,
+    source_file_id: Any | None = None,
 ) -> dict[str, Any]:
     if dataset == "licitacion":
         subset = _raw_subset_subquery(
@@ -575,6 +594,7 @@ def run_dataset_preflight_quality_audit(
             start_after_id=start_after_id,
             limit_rows=limit_rows,
             name="raw_licitaciones_subset",
+            source_file_id=source_file_id,
         )
         raw_json = subset.c.raw_json
         has_codigo_externo = _json_first_non_empty_text(raw_json, "CodigoExterno").is_not(None)
@@ -629,6 +649,7 @@ def run_dataset_preflight_quality_audit(
             start_after_id=start_after_id,
             limit_rows=limit_rows,
             name="raw_ordenes_subset",
+            source_file_id=source_file_id,
         )
         raw_json = subset.c.raw_json
         has_codigo = _json_first_non_empty_text(raw_json, "Codigo").is_not(None)
@@ -1862,6 +1883,7 @@ def process_licitaciones(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    source_file_id: Any | None = None,
     debug_telemetry: bool = False,
     state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
@@ -1887,7 +1909,13 @@ def process_licitaciones(
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawLicitacion)
-        .where(RawLicitacion.id > start_after_id)
+        .where(
+            *_raw_scope_filters(
+                RawLicitacion,
+                start_after_id=start_after_id,
+                source_file_id=source_file_id,
+            )
+        )
     ).scalar_one()
     target_rows = min(total_rows, limit_rows) if limit_rows > 0 else total_rows
 
@@ -1991,7 +2019,13 @@ def process_licitaciones(
             batch = (
                 session.execute(
                     sa.select(RawLicitacion)
-                    .where(RawLicitacion.id > last_id)
+                    .where(
+                        *_raw_scope_filters(
+                            RawLicitacion,
+                            start_after_id=last_id,
+                            source_file_id=source_file_id,
+                        )
+                    )
                     .order_by(RawLicitacion.id.asc())
                     .limit(page_limit)
                 )
@@ -2621,6 +2655,7 @@ def process_ordenes_compra(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    source_file_id: Any | None = None,
     debug_telemetry: bool = False,
     state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
@@ -2650,7 +2685,13 @@ def process_ordenes_compra(
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawOrdenCompra)
-        .where(RawOrdenCompra.id > start_after_id)
+        .where(
+            *_raw_scope_filters(
+                RawOrdenCompra,
+                start_after_id=start_after_id,
+                source_file_id=source_file_id,
+            )
+        )
     ).scalar_one()
     target_rows = min(total_rows, limit_rows) if limit_rows > 0 else total_rows
 
@@ -2746,7 +2787,13 @@ def process_ordenes_compra(
             batch = (
                 session.execute(
                     sa.select(RawOrdenCompra)
-                    .where(RawOrdenCompra.id > last_id)
+                    .where(
+                        *_raw_scope_filters(
+                            RawOrdenCompra,
+                            start_after_id=last_id,
+                            source_file_id=source_file_id,
+                        )
+                    )
                     .order_by(RawOrdenCompra.id.asc())
                     .limit(page_limit)
                 )
@@ -3363,6 +3410,11 @@ def main() -> int:
         default="all",
         help="Dataset to process",
     )
+    parser.add_argument(
+        "--source-file-id",
+        default=None,
+        help="Optional source_file_id scope for bounded processing",
+    )
     parser.add_argument("--fetch-size", type=int, default=10_000, help="Rows fetched per page")
     parser.add_argument("--chunk-size", type=int, default=500, help="Rows per upsert chunk")
     parser.add_argument(
@@ -3494,7 +3546,7 @@ def main() -> int:
             dataset_state = state.get(dataset)
             if not isinstance(dataset_state, dict):
                 dataset_state = {}
-            snapshot = raw_snapshot(session, dataset)
+            snapshot = raw_snapshot(session, dataset, source_file_id=args.source_file_id)
             if args.resume and should_skip_dataset(state, dataset, snapshot):
                 progress_write(
                     f"[normalized] skip {dataset}: source snapshot unchanged and dataset already completed",
@@ -3508,6 +3560,8 @@ def main() -> int:
                 state_int(dataset_state.get("last_processed_raw_id"), 0),
             )
             mode_label = "incremental" if args.incremental else "full"
+            if args.source_file_id:
+                mode_label = f"{mode_label}_source_file_scope"
             progress_write(
                 f"[normalized] dataset={dataset} mode={mode_label} start_after_id={start_after_id:,}",
                 enabled=args.progress,
@@ -3518,6 +3572,7 @@ def main() -> int:
                     dataset=dataset,
                     start_after_id=start_after_id,
                     limit_rows=args.limit_rows,
+                    source_file_id=args.source_file_id,
                 )
                 progress_write(
                     format_preflight_quality_audit(preflight_audit),
@@ -3611,6 +3666,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            source_file_id=args.source_file_id,
                             debug_telemetry=args.debug_telemetry,
                             state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,
@@ -3625,6 +3681,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            source_file_id=args.source_file_id,
                             debug_telemetry=args.debug_telemetry,
                             state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,
