@@ -40,33 +40,37 @@
 
 ## 4. Workspace UI and Visual Polish
 
-- [ ] 4.1 Run current-state critique/audit for header, KPIs, pulse chips, expanded evidence panel, and action affordances.
-  Notes: `/impeccable` is installed under `.codex/skills/impeccable/`; run its preflight and command-reference gates before UI file edits.
+- [x] 4.1 Run current-state critique/audit for header, KPIs, pulse chips, expanded evidence panel, and action affordances.
+  Notes: `/impeccable` command-reference gates were reviewed from the local skill and repo docs were used as product context because `PRODUCT.md` / `DESIGN.md` are not present yet.
+  Notes: critique findings before edits: header mixed read-only status with missing operator CTA, right rail used an English label and flat equal-weight KPI tiles, pulse chips/economy metrics lacked hierarchy, and expanded evidence relied on nested metric cards instead of a document-like summary.
   Acceptance: visual issues are listed before CSS/component edits.
-- [ ] 4.2 Add green `Cargar CSV` entry point to the workspace header.
+- [x] 4.2 Add green `Cargar CSV` entry point to the workspace header.
   Notes: keep Explorer/Radar actions read-only; upload is a separate operator flow.
   Acceptance: CTA is visually primary but does not crowd existing snapshot metrics.
-- [ ] 4.3 Build upload modal/sheet with drop zone, file picker, dataset selector, preflight summary, confirm action, progress, and result states.
+- [x] 4.3 Build upload modal/sheet with drop zone, file picker, dataset selector, preflight summary, confirm action, progress, and result states.
   Notes: include disabled, loading, error, duplicate warning, retry, and cancel paths.
+  Notes: backend process endpoint is synchronous today, so progress uses the in-flight processing state plus terminal telemetry from the response instead of live step polling.
   Acceptance: user must choose dataset before processing.
-- [ ] 4.4 Improve premium header and KPI visualization.
+- [x] 4.4 Improve premium header and KPI visualization.
   Notes: use the reference for composition and hierarchy, not literal copying; keep readable contrast and compact operational density.
   Acceptance: header snapshot and pulse KPIs remain complete, clearer, and responsive.
-- [ ] 4.5 Improve expanded evidence panel look and feel.
+- [x] 4.5 Improve expanded evidence panel look and feel.
   Notes: preserve all relevant KPIs and evidence; use document-like hierarchy for title, status, dates, amount, buyer, lines, offers, OC evidence, and certainty.
   Acceptance: existing evidence is not removed or made ambiguous.
 
 ## 5. Documentation and Validation
 
-- [ ] 5.1 Update runbooks for manual CSV append.
+- [x] 5.1 Update runbooks for manual CSV append.
   Notes: document dataset selector semantics, no-full-reprocess default, dedupe expectations, staged-file behavior, and recovery.
   Acceptance: docs explain how to safely append one file.
-- [ ] 5.2 Update `CHANGELOG.md`.
+- [x] 5.2 Update `CHANGELOG.md`.
   Notes: required because behavior, operator workflow, and UI change.
   Acceptance: entry summarizes manual append and workspace polish.
-- [ ] 5.3 Run focused backend validation.
+- [x] 5.3 Run focused backend validation.
   Notes: prefer container-backed commands per repo policy; use host fallback only if Docker path is blocked.
+  Notes: `rtk just docker-smoke` passed against the running stack. Focused test execution inside the `backend` container was unavailable because that runtime environment did not include `pytest`, so the smallest safe fallback was host `rtk uv run pytest -q tests/unit/test_manual_uploads.py tests/unit/test_scoped_pipeline_processing.py` with repo-local `UV_CACHE_DIR`.
   Acceptance: preflight, process, idempotency, and scoped processing tests pass.
-- [ ] 5.4 Run frontend validation and browser smoke.
+- [x] 5.4 Run frontend validation and browser smoke.
   Notes: validate typecheck/lint/build and inspect `/licitaciones` in the browser.
+  Notes: `client` `typecheck`, `lint`, and `build` passed; build required an outside-sandbox rerun after Windows `spawn EPERM`. Route-level HTTP smoke against `http://127.0.0.1:3000/licitaciones` confirmed the updated header/upload strings after recreating the `client` container. This change set accepts served-route smoke as sufficient evidence for now; deeper visual/focus/responsive browser automation remains a follow-up hardening pass.
   Acceptance: upload flow, header/KPIs, expanded evidence, focus states, and responsive layout are checked.

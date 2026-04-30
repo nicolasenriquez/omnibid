@@ -51,6 +51,39 @@ The Opportunity Workspace frontend scaffold now exists under `client/`.
    - `npm run typecheck`
    - `npm run build`
 
+## Manual CSV append from workspace
+
+Use this flow when you need to append one late or corrected CSV through the UI instead of replaying the dataset folder.
+
+1. Ensure backend is healthy first:
+   - `just docker-start`
+   - `just docker-smoke`
+2. Open `http://127.0.0.1:3000/licitaciones`
+3. Click `Cargar CSV`
+4. Pick the dataset explicitly:
+   - `Licitaciones`
+   - `Ordenes de compra`
+5. Choose one CSV file and run preflight
+6. Confirm only after preflight reports:
+   - dataset
+   - row count
+   - canonical filename
+   - hash
+   - duplicate warning when applicable
+7. Review result telemetry after processing:
+   - raw accepted rows
+   - canonical inserted delta
+   - duplicates/existing rows
+   - normalized rows
+   - silver rows
+
+Important behavior:
+
+- Uploaded filename does not decide dataset semantics.
+- Manual append is single-file and bounded by default. It does not replace `just docker-pipeline-full`.
+- Duplicate business rows may still appear as new raw lineage under a different source file while canonical layers remain idempotent.
+- If the process request fails, query `GET /uploads/procurement-csv/jobs/{job_id}` or re-open the workspace and retry with a fresh preflight token.
+
 Backend CORS explicitly allows the local frontend origins used by this runbook (`http://localhost:3000` and `http://127.0.0.1:3000`). Keep origins explicit; do not rely on wildcard origins for MVP browser integration.
 
 ## Current Code Paths

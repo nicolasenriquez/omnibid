@@ -1,27 +1,36 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CalendarDays,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   CircleDollarSign,
   Copy,
   ExternalLink,
+  FileSpreadsheet,
   FilterX,
   Eye,
   RefreshCw,
   Search,
   ServerCrash,
+  ShieldCheck,
   SlidersHorizontal,
+  Upload,
   X,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { ApiClientError } from "@/src/lib/api/http";
+import {
+  preflightManualCsvUpload,
+  processManualCsvUpload,
+} from "@/src/lib/api/manual-uploads";
 import {
   fetchOpportunityDetail,
   fetchOpportunities,
@@ -45,6 +54,11 @@ import {
   patchWorkspaceQuery,
   toFilters,
 } from "@/src/lib/url-state/workspace";
+import type {
+  ManualUploadDatasetType,
+  ManualUploadJobResponse,
+  ManualUploadPreflightResponse,
+} from "@/src/types/manual-uploads";
 import type {
   OpportunityDetail,
   OpportunityListItem,
@@ -87,6 +101,23 @@ const STAGE_COLUMNS: OpportunityStage[] = [
 const TAB_OPTIONS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: "explorer", label: WORKSPACE_TAB_LABELS.explorer },
   { id: "radar", label: WORKSPACE_TAB_LABELS.radar },
+];
+
+const MANUAL_UPLOAD_DATASET_OPTIONS: Array<{
+  value: ManualUploadDatasetType;
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: "licitacion",
+    label: "Licitaciones",
+    helper: "Usa este flujo para avisos y sus lineas.",
+  },
+  {
+    value: "orden_compra",
+    label: "Ordenes de compra",
+    helper: "Usa este flujo para OC y sus items asociados.",
+  },
 ];
 
 const PRIMARY_METRIC_KEYS = new Set([
@@ -179,6 +210,66 @@ function stageClassName(stage: OpportunityStage): string {
     default:
       return "status-chip status-chip--unknown";
   }
+}
+
+function readApiErrorDetail(error: ApiClientError): string | null {
+  if (!error.body) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(error.body) as { detail?: unknown };
+    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail.trim();
+    }
+  } catch {
+    if (error.body.trim()) {
+      return error.body.trim();
+    }
+  }
+
+  return null;
+}
+
+function toManualUploadError(error: unknown): { message: string; statusCode: number | null } {
+  if (error instanceof ApiClientError) {
+    return {
+      message:
+        readApiErrorDetail(error) ??
+        "La validacion del CSV no pudo completarse. Revisa dataset, columnas o limite de carga.",
+      statusCode: error.status,
+    };
+  }
+
+  if (error instanceof Error) {
+    if (error.name === "AbortError") {
+      return {
+        message: "Carga cancelada en cliente. Si backend ya comenzo, revisa estado antes de reintentar.",
+        statusCode: null,
+      };
+    }
+    return { message: error.message, statusCode: null };
+  }
+
+  return { message: "Error inesperado en carga manual de CSV.", statusCode: null };
+}
+
+function formatDatasetTypeLabel(datasetType: ManualUploadDatasetType): string {
+  return datasetType === "licitacion" ? "Licitaciones" : "Ordenes de compra";
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toLocaleString("es-CL", {
+      maximumFractionDigits: 1,
+    })} MiB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toLocaleString("es-CL", {
+      maximumFractionDigits: 1,
+    })} KiB`;
+  }
+  return `${bytes.toLocaleString("es-CL")} B`;
 }
 
 function opportunityCardClassName(item: OpportunityListItem, selectedNoticeId: string | null): string {
@@ -378,6 +469,17 @@ export function OpportunityWorkspace() {
     queryState.selectedNoticeId ? { status: "loading" } : { status: "idle" },
   );
   const [expandedNoticeId, setExpandedNoticeId] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [isUploadSheetOpen, setIsUploadSheetOpen] = useState(false);
+  const [uploadDatasetType, setUploadDatasetType] = useState<ManualUploadDatasetType | "">("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploadDragActive, setIsUploadDragActive] = useState(false);
+  const [uploadPreflightState, setUploadPreflightState] =
+    useState<RemoteState<ManualUploadPreflightResponse>>({ status: "idle" });
+  const [uploadJobState, setUploadJobState] = useState<RemoteState<ManualUploadJobResponse>>({
+    status: "idle",
+  });
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
   const replaceQuery = useCallback(
     (patch: Partial<typeof queryState>) => {
@@ -435,7 +537,7 @@ export function OpportunityWorkspace() {
       });
 
     return () => controller.abort();
-  }, [filters]);
+  }, [filters, reloadNonce]);
 
   useEffect(() => {
     const noticeId = queryState.selectedNoticeId;
@@ -461,6 +563,10 @@ export function OpportunityWorkspace() {
 
     return () => controller.abort();
   }, [queryState.selectedNoticeId]);
+
+  useEffect(() => {
+    return () => uploadAbortRef.current?.abort();
+  }, []);
 
   const listItems = useMemo(
     () => (listState.status === "success" ? uniqueByNoticeId(listState.data.items) : []),
@@ -488,6 +594,11 @@ export function OpportunityWorkspace() {
 
   const noResults = listState.status === "success" && listItems.length === 0 && activeFilters;
   const emptyState = listState.status === "success" && listItems.length === 0 && !activeFilters;
+  const uploadCanValidate = Boolean(uploadDatasetType && uploadFile);
+  const uploadCanProcess =
+    uploadPreflightState.status === "success" &&
+    uploadJobState.status !== "loading" &&
+    uploadJobState.status !== "success";
   const apiStatusLabel =
     listState.status === "loading" || summaryState.status === "loading"
       ? "Consultando API"
@@ -514,7 +625,9 @@ export function OpportunityWorkspace() {
   };
 
   const handleRefreshCurrentFilters = () => {
-    refreshList({ page: queryState.page });
+    setListState({ status: "loading" });
+    setSummaryState({ status: "loading" });
+    setReloadNonce((current) => current + 1);
   };
 
   const handleResetFilters = () => {
@@ -547,6 +660,102 @@ export function OpportunityWorkspace() {
     await navigator.clipboard.writeText(externalNoticeCode);
   };
 
+  const abortActiveUpload = useCallback(() => {
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+  }, []);
+
+  const resetUploadProgress = useCallback(() => {
+    setUploadPreflightState({ status: "idle" });
+    setUploadJobState({ status: "idle" });
+  }, []);
+
+  const closeUploadSheet = useCallback(() => {
+    abortActiveUpload();
+    setIsUploadSheetOpen(false);
+    setUploadDatasetType("");
+    setUploadFile(null);
+    setIsUploadDragActive(false);
+    resetUploadProgress();
+  }, [abortActiveUpload, resetUploadProgress]);
+
+  const handleUploadFileSelected = useCallback(
+    (nextFile: File | null) => {
+      setUploadFile(nextFile);
+      resetUploadProgress();
+    },
+    [resetUploadProgress],
+  );
+
+  const handleStartPreflight = useCallback(async () => {
+    if (!uploadDatasetType || !uploadFile) {
+      return;
+    }
+
+    abortActiveUpload();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    setUploadPreflightState({ status: "loading" });
+    setUploadJobState({ status: "idle" });
+
+    try {
+      const data = await preflightManualCsvUpload(uploadFile, uploadDatasetType, controller.signal);
+      setUploadPreflightState({ status: "success", data });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setUploadPreflightState({ status: "idle" });
+        return;
+      }
+      const normalized = toManualUploadError(error);
+      setUploadPreflightState({
+        status: "error",
+        message: normalized.message,
+        statusCode: normalized.statusCode,
+      });
+    } finally {
+      if (uploadAbortRef.current === controller) {
+        uploadAbortRef.current = null;
+      }
+    }
+  }, [abortActiveUpload, uploadDatasetType, uploadFile]);
+
+  const handleStartProcessing = useCallback(async () => {
+    if (uploadPreflightState.status !== "success") {
+      return;
+    }
+
+    abortActiveUpload();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    setUploadJobState({ status: "loading" });
+
+    try {
+      const data = await processManualCsvUpload(
+        uploadPreflightState.data.file_token,
+        controller.signal,
+      );
+      setUploadJobState({ status: "success", data });
+      setListState({ status: "loading" });
+      setSummaryState({ status: "loading" });
+      setReloadNonce((current) => current + 1);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setUploadJobState({ status: "idle" });
+        return;
+      }
+      const normalized = toManualUploadError(error);
+      setUploadJobState({
+        status: "error",
+        message: normalized.message,
+        statusCode: normalized.statusCode,
+      });
+    } finally {
+      if (uploadAbortRef.current === controller) {
+        uploadAbortRef.current = null;
+      }
+    }
+  }, [abortActiveUpload, uploadPreflightState]);
+
   return (
     <main className="workspace-page">
       <div className="workspace-layout">
@@ -554,12 +763,13 @@ export function OpportunityWorkspace() {
           <header className="workspace-header">
             <div className="workspace-header__content">
               <div className="workspace-header__eyebrow-row">
-                <span className="workspace-kicker">Proceso reciente cargado</span>
-                <Badge>Solo lectura</Badge>
+                <span className="workspace-kicker">Control operativo</span>
+                <Badge>Explorer y Radar en solo lectura</Badge>
               </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
               <p className="workspace-subtitle">
-                Vista general para priorizar licitaciones por etapa, cierre, monto y evidencia.
+                Prioriza licitaciones por etapa, cierre, monto y evidencia. Carga manual queda
+                aislada en flujo aparte, sin mutar acciones de exploracion.
               </p>
               <div className="workspace-header__meta" aria-label="Estado del espacio">
                 <Badge>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</Badge>
@@ -568,32 +778,67 @@ export function OpportunityWorkspace() {
                 <span>{`Hoy ${formatToday()}`}</span>
               </div>
             </div>
-            <div className="workspace-mode" aria-label="Modo del espacio">
-              <div className="workspace-mode__topline">
-                <span className="workspace-mode__label">Engagement snapshot</span>
-                <span>{`${activeFilters ? activeFilterLabels.length : 0} filtros`}</span>
-              </div>
-              <div className="workspace-mode__hero" aria-label="Resumen operativo">
-                <div>
-                  <small>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</small>
-                  <strong>{resultStatusLabel}</strong>
+            <div className="workspace-header__aside">
+              <section className="workspace-operator-card" aria-label="Carga manual de CSV">
+                <div className="workspace-operator-card__topline">
+                  <span className="workspace-mode__label">Carga manual</span>
+                  <Badge>{uploadJobState.status === "success" ? "Ultima carga lista" : "Flujo separado"}</Badge>
                 </div>
-                <Badge>{apiStatusLabel}</Badge>
-              </div>
-              <div className="workspace-header-kpis" aria-label="KPIs del proceso">
-                {headerMetrics.map((metric) => (
-                  <span
-                    key={metric.key}
-                    className={
-                      metric.key.includes("amount") ? "workspace-header-kpi--money" : undefined
-                    }
-                    title={metric.key.includes("amount") ? formatMetricValue(metric) : undefined}
+                <div className="workspace-operator-card__body">
+                  <div>
+                    <strong>Cargar CSV</strong>
+                    <p>
+                      Valida columnas, hash y dataset antes de tocar Raw, Normalized o Silver.
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    className="workspace-upload-button"
+                    leadingIcon={<Upload size={15} aria-hidden="true" />}
+                    onClick={() => setIsUploadSheetOpen(true)}
                   >
-                    <small>{metric.label}</small>
-                    <strong>{formatCompactMetricValue(metric)}</strong>
+                    Cargar CSV
+                  </Button>
+                </div>
+                <div className="workspace-operator-card__facts">
+                  <span>
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    Dataset explicito
                   </span>
-                ))}
-              </div>
+                  <span>
+                    <FileSpreadsheet size={14} aria-hidden="true" />
+                    CSV con validacion previa
+                  </span>
+                </div>
+              </section>
+
+              <section className="workspace-mode" aria-label="Snapshot operativo">
+                <div className="workspace-mode__topline">
+                  <span className="workspace-mode__label">Snapshot operativo</span>
+                  <span>{`${activeFilters ? activeFilterLabels.length : 0} filtros`}</span>
+                </div>
+                <div className="workspace-mode__hero" aria-label="Resumen operativo">
+                  <div>
+                    <small>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</small>
+                    <strong>{resultStatusLabel}</strong>
+                  </div>
+                  <Badge>{apiStatusLabel}</Badge>
+                </div>
+                <div className="workspace-header-kpis" aria-label="KPIs del proceso">
+                  {headerMetrics.map((metric) => (
+                    <span
+                      key={metric.key}
+                      className={
+                        metric.key.includes("amount") ? "workspace-header-kpi--money" : undefined
+                      }
+                      title={metric.key.includes("amount") ? formatMetricValue(metric) : undefined}
+                    >
+                      <small>{metric.label}</small>
+                      <strong>{formatCompactMetricValue(metric)}</strong>
+                    </span>
+                  ))}
+                </div>
+              </section>
             </div>
           </header>
 
@@ -1176,16 +1421,40 @@ export function OpportunityWorkspace() {
                           <tr key={`${item.noticeId}-expanded`} className="ui-table-expanded-row">
                             <td colSpan={12}>
                               <div className="table-evidence-panel">
+                                <div className="table-evidence-panel__hero">
+                                  <div className="table-evidence-panel__hero-copy">
+                                    <span className="evidence-label">Ficha resumida</span>
+                                    <strong>{item.title}</strong>
+                                    <p>
+                                      {formatUnavailable(item.buyerName)} ·{" "}
+                                      {formatUnavailable(item.externalNoticeCode)}
+                                    </p>
+                                  </div>
+                                  <div className="table-evidence-panel__hero-badges">
+                                    <span className={stageClassName(item.derivedStage)}>
+                                      {formatStage(item.derivedStage)}
+                                    </span>
+                                    <span className="ui-chip">
+                                      {item.daysRemaining === null
+                                        ? "Cerrada o sin fecha"
+                                        : `${formatCount(item.daysRemaining)} dias`}
+                                    </span>
+                                  </div>
+                                </div>
                                 <div className="table-evidence-panel__summary">
-                                  <div>
+                                  <div className="table-evidence-panel__fact">
                                     <span className="evidence-label">Categoria</span>
                                     <strong>{formatUnavailable(item.primaryCategory)}</strong>
                                   </div>
-                                  <div>
+                                  <div className="table-evidence-panel__fact">
                                     <span className="evidence-label">Publicacion</span>
                                     <strong>{formatDate(item.publicationDate)}</strong>
                                   </div>
-                                  <div>
+                                  <div className="table-evidence-panel__fact">
+                                    <span className="evidence-label">Cierre</span>
+                                    <strong>{formatDate(item.closeDate)}</strong>
+                                  </div>
+                                  <div className="table-evidence-panel__fact">
                                     <span className="evidence-label">Dias restantes</span>
                                     <strong>
                                       {item.daysRemaining === null
@@ -1193,9 +1462,13 @@ export function OpportunityWorkspace() {
                                         : formatCount(item.daysRemaining)}
                                     </strong>
                                   </div>
-                                  <div>
+                                  <div className="table-evidence-panel__fact">
                                     <span className="evidence-label">Certeza relacion</span>
                                     <strong>{formatRelationshipCertainty("unconfirmed")}</strong>
+                                  </div>
+                                  <div className="table-evidence-panel__fact">
+                                    <span className="evidence-label">Monto estimado</span>
+                                    <strong>{formatMoney(item.estimatedAmount, item.currencyCode)}</strong>
                                   </div>
                                 </div>
                                 <div className="evidence-groups" aria-label="Evidencia hija disponible">
@@ -1216,7 +1489,10 @@ export function OpportunityWorkspace() {
                                   </article>
                                 </div>
                                 <div className="table-evidence-panel__actions">
-                                  <Button onClick={() => openDetail("explorer", item.noticeId)}>
+                                  <Button
+                                    variant="primary"
+                                    onClick={() => openDetail("explorer", item.noticeId)}
+                                  >
                                     Abrir detalle
                                   </Button>
                                 </div>
@@ -1232,6 +1508,304 @@ export function OpportunityWorkspace() {
             </TableWrap>
           ) : null}
         </section>
+
+        {isUploadSheetOpen ? (
+          <div className="upload-sheet-shell" role="dialog" aria-modal="true" aria-labelledby="upload-sheet-title">
+            <button
+              type="button"
+              className="upload-sheet-shell__backdrop"
+              aria-label="Cerrar carga manual"
+              onClick={closeUploadSheet}
+            />
+            <section className="upload-sheet">
+              <header className="upload-sheet__header">
+                <div>
+                  <span className="workspace-kicker">Carga manual</span>
+                  <h2 id="upload-sheet-title" className="section-title">
+                    Cargar CSV al pipeline correcto
+                  </h2>
+                  <p className="section-subtitle">
+                    Selecciona dataset, valida columnas y confirma procesamiento acotado.
+                  </p>
+                </div>
+                <IconButton
+                  icon={<X size={15} aria-hidden="true" />}
+                  label="Cerrar carga manual"
+                  onClick={closeUploadSheet}
+                />
+              </header>
+
+              <div className="upload-sheet__body">
+                <div className="upload-sheet__grid">
+                  <div className="upload-sheet__field">
+                    <label className="ui-label" htmlFor="manual-upload-dataset">
+                      Dataset destino
+                    </label>
+                    <Select
+                      id="manual-upload-dataset"
+                      value={uploadDatasetType}
+                      onChange={(event) => {
+                        setUploadDatasetType(event.target.value as ManualUploadDatasetType | "");
+                        resetUploadProgress();
+                      }}
+                      disabled={uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
+                    >
+                      <option value="">Selecciona dataset</option>
+                      {MANUAL_UPLOAD_DATASET_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <p className="upload-sheet__hint">
+                      {uploadDatasetType
+                        ? MANUAL_UPLOAD_DATASET_OPTIONS.find((option) => option.value === uploadDatasetType)?.helper
+                        : "Nombre de archivo no define dataset. Seleccion obligatoria."}
+                    </p>
+                  </div>
+
+                  <div className="upload-sheet__field upload-sheet__field--meta">
+                    <span className="workspace-mode__label">Guardrails</span>
+                    <ul className="upload-sheet__guardrails">
+                      <li>1 archivo CSV por corrida.</li>
+                      <li>Validacion previa antes de escribir.</li>
+                      <li>Procesamiento acotado al source file cargado.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <label
+                  className={
+                    isUploadDragActive ? "upload-dropzone upload-dropzone--active" : "upload-dropzone"
+                  }
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setIsUploadDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsUploadDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      return;
+                    }
+                    setIsUploadDragActive(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setIsUploadDragActive(false);
+                    handleUploadFileSelected(event.dataTransfer.files[0] ?? null);
+                  }}
+                >
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => handleUploadFileSelected(event.target.files?.[0] ?? null)}
+                  />
+                  <FileSpreadsheet size={20} aria-hidden="true" />
+                  <strong>{uploadFile ? uploadFile.name : "Arrastra CSV o haz click para elegir"}</strong>
+                  <span>
+                    CSV delimitado por <code>;</code>. El backend revisa columnas requeridas, hash y tamaño permitido.
+                  </span>
+                  {uploadFile ? (
+                    <small>{`${formatFileSize(uploadFile.size)} · ultimo cambio ${new Date(uploadFile.lastModified).toLocaleDateString("es-CL")}`}</small>
+                  ) : null}
+                </label>
+
+                {uploadPreflightState.status === "loading" ? (
+                  <div className="upload-progress" role="status">
+                    <RefreshCw size={16} aria-hidden="true" className="upload-progress__spinner" />
+                    <div>
+                      <strong>Validando archivo</strong>
+                      <span>Revisando delimitador, columnas requeridas, hash y resumen previo.</span>
+                    </div>
+                  </div>
+                ) : null}
+
+                {uploadPreflightState.status === "error" ? (
+                  <NoDataState
+                    title="Preflight rechazado"
+                    description={uploadPreflightState.message}
+                    isError
+                    statusCode={uploadPreflightState.statusCode}
+                    action={
+                      <Button
+                        leadingIcon={<RefreshCw size={15} aria-hidden="true" />}
+                        onClick={handleStartPreflight}
+                        disabled={!uploadCanValidate}
+                      >
+                        Reintentar validacion
+                      </Button>
+                    }
+                  />
+                ) : null}
+
+                {uploadPreflightState.status === "success" ? (
+                  <section className="upload-preview" aria-label="Resumen de preflight">
+                    <div className="upload-preview__header">
+                      <div>
+                        <span className="workspace-mode__label">Preflight listo</span>
+                        <strong>{uploadPreflightState.data.original_filename}</strong>
+                        <p>
+                          {formatDatasetTypeLabel(uploadPreflightState.data.dataset_type)} ·{" "}
+                          {formatCount(uploadPreflightState.data.row_count)} filas detectadas
+                        </p>
+                      </div>
+                      <Badge>{uploadPreflightState.data.upload_limits.max_size_label}</Badge>
+                    </div>
+
+                    {uploadPreflightState.data.duplicate_source_file ? (
+                      <div className="upload-banner upload-banner--warning" role="status">
+                        <CircleAlert size={15} aria-hidden="true" />
+                        <div>
+                          <strong>Hash ya visto en pipeline</strong>
+                          <span>
+                            Source file previo: {uploadPreflightState.data.duplicate_source_file.file_name}. Si confirmas, UI debe leer conteos canonicos y duplicados por separado.
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <dl className="upload-preview__facts">
+                      <div>
+                        <dt>Nombre canonico</dt>
+                        <dd>{uploadPreflightState.data.canonical_filename}</dd>
+                      </div>
+                      <div>
+                        <dt>Hash SHA-256</dt>
+                        <dd>{uploadPreflightState.data.file_hash_sha256.slice(0, 16)}...</dd>
+                      </div>
+                      <div>
+                        <dt>Tamano</dt>
+                        <dd>{formatFileSize(uploadPreflightState.data.file_size_bytes)}</dd>
+                      </div>
+                      <div>
+                        <dt>Staging</dt>
+                        <dd>{uploadPreflightState.data.status === "staged" ? "Listo para procesar" : "Ya consumido"}</dd>
+                      </div>
+                    </dl>
+                  </section>
+                ) : null}
+
+                {uploadJobState.status === "loading" ? (
+                  <div className="upload-progress upload-progress--processing" role="status">
+                    <RefreshCw size={16} aria-hidden="true" className="upload-progress__spinner" />
+                    <div>
+                      <strong>Procesando CSV</strong>
+                      <span>Backend registra Raw y construye deltas Normalized y Silver para dataset elegido.</span>
+                    </div>
+                    <Button variant="ghost" onClick={abortActiveUpload}>
+                      Cancelar espera
+                    </Button>
+                  </div>
+                ) : null}
+
+                {uploadJobState.status === "error" ? (
+                  <NoDataState
+                    title="Procesamiento fallido"
+                    description={uploadJobState.message}
+                    isError
+                    statusCode={uploadJobState.statusCode}
+                    action={
+                      <Button
+                        leadingIcon={<RefreshCw size={15} aria-hidden="true" />}
+                        onClick={handleStartProcessing}
+                        disabled={uploadPreflightState.status !== "success"}
+                      >
+                        Reintentar proceso
+                      </Button>
+                    }
+                  />
+                ) : null}
+
+                {uploadJobState.status === "success" ? (
+                  <section className="upload-result" aria-label="Resultado de carga manual">
+                    <div className="upload-result__header">
+                      <div>
+                        <span className="workspace-mode__label">Resultado final</span>
+                        <strong>Pipeline acotado completado</strong>
+                        <p>{uploadJobState.data.original_filename}</p>
+                      </div>
+                      <Badge>Job {uploadJobState.data.job_id.slice(0, 8)}</Badge>
+                    </div>
+                    <div className="upload-banner upload-banner--success" role="status">
+                      <CheckCircle2 size={16} aria-hidden="true" />
+                      <div>
+                        <strong>{uploadJobState.data.step.status === "completed" ? "Carga completada" : uploadJobState.data.step.status}</strong>
+                        <span>{uploadJobState.data.step.name}</span>
+                      </div>
+                    </div>
+                    <div className="upload-result__grid">
+                      <article>
+                        <span>Procesadas</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.processed_rows)}</strong>
+                      </article>
+                      <article>
+                        <span>Aceptadas Raw</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.accepted_rows)}</strong>
+                      </article>
+                      <article>
+                        <span>Delta canonico</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.inserted_delta_rows)}</strong>
+                      </article>
+                      <article>
+                        <span>Duplicadas o existentes</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.duplicate_existing_rows)}</strong>
+                      </article>
+                      <article>
+                        <span>Normalized</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.normalized_rows)}</strong>
+                      </article>
+                      <article>
+                        <span>Silver</span>
+                        <strong>{formatCount(uploadJobState.data.telemetry.silver_rows)}</strong>
+                      </article>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+
+              <footer className="upload-sheet__actions">
+                <Button
+                  variant="ghost"
+                  leadingIcon={<FilterX size={14} aria-hidden="true" />}
+                  onClick={() => {
+                    setUploadDatasetType("");
+                    setUploadFile(null);
+                    setIsUploadDragActive(false);
+                    resetUploadProgress();
+                  }}
+                  disabled={uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
+                >
+                  Limpiar
+                </Button>
+                <Button variant="ghost" onClick={closeUploadSheet}>
+                  Cerrar
+                </Button>
+                <Button
+                  leadingIcon={<ShieldCheck size={15} aria-hidden="true" />}
+                  onClick={handleStartPreflight}
+                  disabled={!uploadCanValidate || uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
+                  loading={uploadPreflightState.status === "loading"}
+                >
+                  Validar archivo
+                </Button>
+                <Button
+                  variant="primary"
+                  leadingIcon={<Upload size={15} aria-hidden="true" />}
+                  onClick={handleStartProcessing}
+                  disabled={!uploadCanProcess}
+                  loading={uploadJobState.status === "loading"}
+                >
+                  Confirmar y procesar
+                </Button>
+              </footer>
+            </section>
+          </div>
+        ) : null}
 
         {queryState.selectedNoticeId ? (
         <aside className="workspace-detail" aria-label="Detalle de licitación">

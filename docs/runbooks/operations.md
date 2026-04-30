@@ -220,6 +220,9 @@ The Opportunity Workspace exposes read-only opportunity endpoints over Silver-fi
 - `GET /opportunities`
 - `GET /opportunities/summary`
 - `GET /opportunities/{notice_id}`
+- `POST /uploads/procurement-csv/preflight`
+- `POST /uploads/procurement-csv/{file_token}/process`
+- `GET /uploads/procurement-csv/jobs/{job_id}`
 
 Operator guidance:
 
@@ -230,6 +233,62 @@ Operator guidance:
 - Use detail endpoint evidence for lines, offers, and purchase orders.
 - Keep frontend API base in `client/.env.local` as `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
 - Validate frontend from `client/` with `npm run lint`, `npm run typecheck`, and `npm run build`.
+
+### Manual CSV append
+
+Use this flow when an operator needs to append one ChileCompra CSV without replaying the full historical dataset.
+
+Contract:
+
+- Dataset selector is authoritative. Filename is metadata only.
+- Valid dataset values are `licitacion` and `orden_compra`.
+- Only one CSV is accepted per preflight/process cycle.
+- Preflight must succeed before any write occurs.
+- Default processing scope is bounded to the staged uploaded file and its downstream affected rows. Do not use this flow to trigger a full historical rebuild.
+
+Recommended operator sequence:
+
+1. Start backend with `just docker-start`.
+2. Open `/licitaciones`.
+3. Click `Cargar CSV`.
+4. Choose `Licitaciones` or `Ordenes de compra` explicitly.
+5. Select one semicolon-delimited CSV file.
+6. Review preflight summary:
+   - original filename
+   - canonical staged filename
+   - row count
+   - hash
+   - duplicate-file hint when the same hash was already registered
+7. Confirm processing only after preflight status is `staged`.
+8. Review final telemetry:
+   - `processed_rows`
+   - `accepted_rows`
+   - `inserted_delta_rows`
+   - `duplicate_existing_rows`
+   - `rejected_rows`
+   - `normalized_rows`
+   - `silver_rows`
+
+Dedupe expectations:
+
+- Raw lineage may retain a renamed file as a new `source_file`.
+- Canonical Normalized and Silver entities still dedupe by business keys.
+- Treat `accepted_rows` as raw accepted lineage, not as canonical inserted delta.
+- Treat `inserted_delta_rows` as the clearest indicator of newly inserted canonical rows.
+
+Staged-file behavior:
+
+- Preflight stores the upload under the app-controlled manual upload staging root with a canonical generated filename.
+- `file_token` is single-use for processing.
+- A consumed token must not be reused.
+- Status endpoint exposes metadata, job state, step telemetry, and safe errors only. It does not return raw file contents.
+
+Recovery:
+
+- If preflight fails, fix delimiter, required columns, dataset selection, file size, or filename shape, then retry with a new upload.
+- If processing fails after preflight, inspect `GET /uploads/procurement-csv/jobs/{job_id}` and the latest `pipeline_runs`, `pipeline_run_steps`, `ingestion_batches`, and `source_files` rows.
+- If the same file hash was already registered, expect duplicate/existing counts to rise while canonical inserted delta may stay `0`.
+- Use the existing full pipeline commands separately when a deliberate historical rebuild is required; do not repurpose manual append for that path.
 
 Reference:
 

@@ -35,18 +35,22 @@ function buildUrl(pathname: string, query?: QueryParams): string {
 export async function requestJson<T>(
   pathname: string,
   options: {
-    method?: "GET";
+    method?: "GET" | "POST";
     query?: QueryParams;
     signal?: AbortSignal;
+    headers?: HeadersInit;
+    body?: BodyInit | null;
   } = {},
 ): Promise<T> {
   const response = await fetch(buildUrl(pathname, options.query), {
     method: options.method ?? "GET",
     headers: {
       Accept: "application/json",
+      ...options.headers,
     },
     signal: options.signal,
     cache: "no-store",
+    body: options.body,
   });
 
   if (!response.ok) {
