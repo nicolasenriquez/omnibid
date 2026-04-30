@@ -1,4 +1,8 @@
 import type { OpportunityStage, RelationshipCertainty } from "@/src/types/opportunities";
+import {
+  OPPORTUNITY_STAGE_LABELS,
+  RELATIONSHIP_CERTAINTY_LABELS,
+} from "@/src/features/opportunity-workspace/display-contract";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("es-CL", {
   dateStyle: "medium",
@@ -38,35 +42,11 @@ export function formatCount(value: number | null | undefined): string {
 }
 
 export function formatStage(stage: OpportunityStage): string {
-  switch (stage) {
-    case "open":
-      return "Abierta";
-    case "closing_soon":
-      return "Cierra pronto";
-    case "closed":
-      return "Cerrada";
-    case "awarded":
-      return "Adjudicada";
-    case "revoked_or_suspended":
-      return "Revocada o suspendida";
-    default:
-      return "Sin clasificar";
-  }
+  return OPPORTUNITY_STAGE_LABELS[stage];
 }
 
 export function formatRelationshipCertainty(certainty: RelationshipCertainty): string {
-  switch (certainty) {
-    case "high":
-      return "Alta";
-    case "medium":
-      return "Media";
-    case "low":
-      return "Baja";
-    case "none":
-      return "Sin evidencia";
-    default:
-      return "No confirmada";
-  }
+  return RELATIONSHIP_CERTAINTY_LABELS[certainty];
 }
 
 export function formatUnavailable(value: string | null | undefined): string {

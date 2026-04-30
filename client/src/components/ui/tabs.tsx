@@ -18,19 +18,24 @@ type TabsProps<T extends string> = {
 export function Tabs<T extends string>({ label, value, options, onChange }: TabsProps<T>) {
   return (
     <div role="tablist" aria-label={label} className="ui-tabs">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          role="tab"
-          type="button"
-          aria-selected={value === option.id}
-          className={cn("ui-tab")}
-          onClick={() => onChange(option.id)}
-        >
-          <span>{option.label}</span>
-          {option.suffix}
-        </button>
-      ))}
+      {options.map((option) => {
+        const selected = value === option.id;
+
+        return (
+          <button
+            key={option.id}
+            role="tab"
+            type="button"
+            aria-current={selected ? "page" : undefined}
+            aria-selected={selected}
+            className={cn("ui-tab")}
+            onClick={() => onChange(option.id)}
+          >
+            <span>{option.label}</span>
+            {option.suffix}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
+  Copy,
+  ExternalLink,
   FilterX,
   RefreshCw,
   Search,
@@ -33,6 +35,10 @@ import {
   formatUnavailable,
 } from "@/src/lib/formatters/opportunities";
 import {
+  PROCUREMENT_TYPE_LABELS,
+  WORKSPACE_TAB_LABELS,
+} from "@/src/features/opportunity-workspace/display-contract";
+import {
   WORKSPACE_DEFAULTS,
   parseWorkspaceQueryState,
   patchWorkspaceQuery,
@@ -47,6 +53,7 @@ import type {
   OpportunitySummaryResponse,
   WorkspaceTab,
 } from "@/src/types/opportunities";
+import { OPPORTUNITY_STAGES } from "@/src/types/opportunities";
 import {
   Badge,
   Button,
@@ -77,8 +84,8 @@ const STAGE_COLUMNS: OpportunityStage[] = [
 ];
 
 const TAB_OPTIONS: Array<{ id: WorkspaceTab; label: string }> = [
-  { id: "explorer", label: "Explorador" },
-  { id: "radar", label: "Radar" },
+  { id: "explorer", label: WORKSPACE_TAB_LABELS.explorer },
+  { id: "radar", label: WORKSPACE_TAB_LABELS.radar },
 ];
 
 const PRIMARY_METRIC_KEYS = new Set([
@@ -89,6 +96,8 @@ const PRIMARY_METRIC_KEYS = new Set([
   "awarded",
   "revoked_or_suspended",
 ]);
+
+const CHILECOMPRA_NOTICE_URL = "https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx";
 
 function toReadableError(error: unknown): { message: string; statusCode: number | null } {
   if (error instanceof ApiClientError) {
@@ -164,27 +173,6 @@ function stageClassName(stage: OpportunityStage): string {
   }
 }
 
-function buildFallbackMetrics(items: OpportunityListItem[]): OpportunitySummaryMetric[] {
-  return [
-    { key: "total", label: "Total oportunidades", value: items.length },
-    {
-      key: "abiertas",
-      label: "Abiertas",
-      value: items.filter((item) => item.derivedStage === "open").length,
-    },
-    {
-      key: "cierra_pronto",
-      label: "Cierra pronto",
-      value: items.filter((item) => item.derivedStage === "closing_soon").length,
-    },
-    {
-      key: "adjudicadas",
-      label: "Adjudicadas",
-      value: items.filter((item) => item.derivedStage === "awarded").length,
-    },
-  ];
-}
-
 function metricClassName(key: string): string {
   switch (key) {
     case "open":
@@ -202,11 +190,36 @@ function metricClassName(key: string): string {
   }
 }
 
+function metricKeyToStage(key: string): OpportunityStage | "" {
+  return OPPORTUNITY_STAGES.includes(key as OpportunityStage) ? (key as OpportunityStage) : "";
+}
+
+function uniqueByNoticeId(items: OpportunityListItem[]): OpportunityListItem[] {
+  const byNoticeId = new Map<string, OpportunityListItem>();
+  for (const item of items) {
+    if (!byNoticeId.has(item.noticeId)) {
+      byNoticeId.set(item.noticeId, item);
+    }
+  }
+  return Array.from(byNoticeId.values());
+}
+
 function formatMetricValue(metric: OpportunitySummaryMetric): string {
   if (metric.key.includes("amount")) {
     return formatMoney(metric.value, "CLP");
   }
   return formatCount(metric.value);
+}
+
+function buildChileCompraNoticeUrl(externalNoticeCode: string | null): string | null {
+  if (!externalNoticeCode) {
+    return null;
+  }
+  const code = externalNoticeCode.trim();
+  if (!code) {
+    return null;
+  }
+  return `${CHILECOMPRA_NOTICE_URL}?idlicitacion=${encodeURIComponent(code)}`;
 }
 
 function getSortLabel(sortBy: string, sortOrder: string): string {
@@ -225,13 +238,7 @@ function getActiveFilterLabels(
   const labels: string[] = [];
   if (state.q.trim()) labels.push(`Busqueda: ${state.q.trim()}`);
   if (state.procurementType) {
-    labels.push(
-      state.procurementType === "public"
-        ? "Publica"
-        : state.procurementType === "private"
-          ? "Privada"
-          : "Servicios",
-    );
+    labels.push(PROCUREMENT_TYPE_LABELS[state.procurementType]);
   }
   if (state.officialStatus) labels.push(`Estado: ${state.officialStatus}`);
   if (state.stage) labels.push(`Etapa: ${formatStage(state.stage)}`);
@@ -271,7 +278,10 @@ function NoDataState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className={isError ? "state-block state-block--error" : "state-block"}>
+    <div
+      className={isError ? "state-block state-block--error" : "state-block"}
+      role={isError ? "alert" : "status"}
+    >
       <div className="state-block__header">
         {isError ? <ServerCrash size={18} aria-hidden="true" /> : null}
         <strong>{title}</strong>
@@ -292,7 +302,7 @@ function parseAmountInput(value: string): string {
 function LoadingShell() {
   return (
     <Panel>
-      <div className="loading-stack">
+      <div className="loading-stack" aria-busy="true" aria-label="Cargando oportunidades">
         <Skeleton height="1rem" className="loading-stack__title" />
         <Skeleton height="2.3rem" />
         <Skeleton height="2.3rem" />
@@ -408,13 +418,10 @@ export function OpportunityWorkspace() {
   }, [queryState.selectedNoticeId]);
 
   const listItems = useMemo(
-    () => (listState.status === "success" ? listState.data.items : []),
+    () => (listState.status === "success" ? uniqueByNoticeId(listState.data.items) : []),
     [listState],
   );
-  const metrics =
-    summaryState.status === "success"
-      ? summaryState.data.metrics
-      : buildFallbackMetrics(listItems);
+  const metrics = summaryState.status === "success" ? summaryState.data.metrics : [];
   const pulseMetrics = metrics.filter((metric) => PRIMARY_METRIC_KEYS.has(metric.key));
   const economyMetrics = metrics.filter((metric) => !PRIMARY_METRIC_KEYS.has(metric.key));
   const activeFilterLabels = getActiveFilterLabels(queryState);
@@ -437,9 +444,13 @@ export function OpportunityWorkspace() {
           ? `API ${listState.statusCode}`
           : "API sin respuesta"
         : "API conectada";
+  const resultStatusLabel =
+    listState.status === "success"
+      ? `${formatCount(listState.data.total)} licitaciones`
+      : "Resultados pendientes";
 
   const handleTabChange = (tab: WorkspaceTab) => {
-    refreshList({ tab, page: 1, selectedNoticeId: null });
+    refreshList({ tab, page: 1 });
   };
 
   const handleStagePulse = (stage: OpportunityStage | "") => {
@@ -477,13 +488,23 @@ export function OpportunityWorkspace() {
     });
   };
 
+  const handleCopyNoticeCode = async (externalNoticeCode: string | null) => {
+    if (!externalNoticeCode || !navigator.clipboard) {
+      return;
+    }
+    await navigator.clipboard.writeText(externalNoticeCode);
+  };
+
   return (
     <main className="workspace-page">
       <div className="workspace-layout">
         <section className="workspace-main" aria-label="Vista principal de oportunidades">
           <header className="workspace-header">
             <div className="workspace-header__content">
-              <span className="workspace-kicker">Workspace de licitaciones</span>
+              <div className="workspace-header__eyebrow-row">
+                <span className="workspace-kicker">Workspace de licitaciones</span>
+                <Badge>Solo lectura</Badge>
+              </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
               <p className="workspace-subtitle">
                 Radar y explorador de licitaciones en modo lectura, con filtros trazables
@@ -496,7 +517,20 @@ export function OpportunityWorkspace() {
               </div>
             </div>
             <div className="workspace-mode" aria-label="Modo del espacio">
-              <Badge>Solo lectura</Badge>
+              <div className="workspace-status-grid" aria-label="Resumen operativo">
+                <span>
+                  <strong>{queryState.tab === "radar" ? "Radar" : "Explorador"}</strong>
+                  <small>Vista activa</small>
+                </span>
+                <span>
+                  <strong>{resultStatusLabel}</strong>
+                  <small>Resultado actual</small>
+                </span>
+                <span>
+                  <strong>{activeFilters ? activeFilterLabels.length : 0}</strong>
+                  <small>Filtros activos</small>
+                </span>
+              </div>
               <span>Acciones operativas fuera de alcance en esta vista</span>
             </div>
           </header>
@@ -504,29 +538,52 @@ export function OpportunityWorkspace() {
           <section className="pulse-strip" aria-label="Pulso de oportunidades">
             <div className="pulse-strip__copy">
               <span className="workspace-kicker">Pulso de oportunidades</span>
-              <p>Lectura viva por etapa, monto y evidencia disponible.</p>
+              <p>
+                {summaryState.status === "success"
+                  ? "Lectura viva por etapa, monto y evidencia disponible."
+                  : "Resumen disponible cuando responde la API de oportunidades."}
+              </p>
             </div>
-            <div className="pulse-strip__chips">
-              {pulseMetrics.map((metric) => {
-                const stageKey =
-                  metric.key === "total_opportunities" ? "" : (metric.key as OpportunityStage);
-                return (
-                  <button
-                    key={metric.key}
-                    type="button"
-                    className={
-                      queryState.stage === stageKey
-                        ? `${metricClassName(metric.key)} pulse-chip--selected`
-                        : metricClassName(metric.key)
-                    }
-                    onClick={() => handleStagePulse(stageKey)}
-                  >
-                    <span>{metric.label}</span>
-                    <strong>{formatMetricValue(metric)}</strong>
-                  </button>
-                );
-              })}
-            </div>
+            {summaryState.status === "loading" ? (
+              <div className="pulse-strip__chips" aria-busy="true">
+                <Skeleton height="2rem" className="pulse-skeleton" />
+                <Skeleton height="2rem" className="pulse-skeleton" />
+                <Skeleton height="2rem" className="pulse-skeleton" />
+              </div>
+            ) : null}
+            {summaryState.status === "error" ? (
+              <div className="pulse-strip__unavailable" role="status">
+                Pulso no disponible. La tabla mantiene los resultados de la consulta principal si la API los entrega.
+              </div>
+            ) : null}
+            {summaryState.status === "success" && pulseMetrics.length === 0 ? (
+              <div className="pulse-strip__unavailable" role="status">
+                La API no entrego metricas de pulso para los filtros actuales.
+              </div>
+            ) : null}
+            {summaryState.status === "success" && pulseMetrics.length > 0 ? (
+              <div className="pulse-strip__chips">
+                {pulseMetrics.map((metric) => {
+                  const stageKey =
+                    metric.key === "total_opportunities" ? "" : metricKeyToStage(metric.key);
+                  return (
+                    <button
+                      key={metric.key}
+                      type="button"
+                      className={
+                        queryState.stage === stageKey
+                          ? `${metricClassName(metric.key)} pulse-chip--selected`
+                          : metricClassName(metric.key)
+                      }
+                      onClick={() => handleStagePulse(stageKey)}
+                    >
+                      <span>{metric.label}</span>
+                      <strong>{formatMetricValue(metric)}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             {economyMetrics.length > 0 ? (
               <div className="pulse-strip__economy" aria-label="Resumen economico">
                 {economyMetrics.slice(0, 2).map((metric) => (
@@ -649,7 +706,7 @@ export function OpportunityWorkspace() {
                 </Select>
               </div>
 
-              <div className="filter-field">
+              <div className="filter-field filter-field--compact">
                 <label className="ui-label" htmlFor="workspace-sort">
                   Orden
                 </label>
@@ -671,147 +728,155 @@ export function OpportunityWorkspace() {
                   <option value="estimated_amount:desc">Monto mayor</option>
                 </Select>
               </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-page-size">
-                  Tamano pagina
-                </label>
-                <Select
-                  id="workspace-page-size"
-                  value={String(queryState.pageSize)}
-                  onChange={(event) =>
-                    refreshList({
-                      pageSize: Number.parseInt(event.target.value, 10),
-                      page: 1,
-                    })
-                  }
-                >
-                  <option value="10">10</option>
-                  <option value="20">20</option>
-                  <option value="50">50</option>
-                </Select>
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-publication-from">
-                  Publicacion desde
-                </label>
-                <div className="input-with-icon">
-                  <CalendarDays size={15} aria-hidden="true" />
-                  <Input
-                    id="workspace-publication-from"
-                    type="date"
-                    value={queryState.publicationFrom}
-                    onChange={(event) =>
-                      refreshList({
-                        publicationFrom: event.target.value,
-                        page: 1,
-                        selectedNoticeId: null,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-publication-to">
-                  Publicacion hasta
-                </label>
-                <Input
-                  id="workspace-publication-to"
-                  type="date"
-                  value={queryState.publicationTo}
-                  onChange={(event) =>
-                    refreshList({
-                      publicationTo: event.target.value,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-close-from">
-                  Cierre desde
-                </label>
-                <Input
-                  id="workspace-close-from"
-                  type="date"
-                  value={queryState.closeFrom}
-                  onChange={(event) =>
-                    refreshList({
-                      closeFrom: event.target.value,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-close-to">
-                  Cierre hasta
-                </label>
-                <Input
-                  id="workspace-close-to"
-                  type="date"
-                  value={queryState.closeTo}
-                  onChange={(event) =>
-                    refreshList({
-                      closeTo: event.target.value,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-max-amount">
-                  Monto maximo
-                </label>
-                <div className="input-with-icon">
-                  <CircleDollarSign size={15} aria-hidden="true" />
-                  <Input
-                    id="workspace-max-amount"
-                    inputMode="decimal"
-                    value={queryState.maxAmount}
-                    placeholder="100"
-                    onChange={(event) =>
-                      refreshList({
-                        maxAmount: parseAmountInput(event.target.value),
-                        page: 1,
-                        selectedNoticeId: null,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <label
-                className={
-                  queryState.lessThan100Utm
-                    ? "filter-check filter-check--selected"
-                    : "filter-check"
-                }
-                htmlFor="workspace-less-than-100-utm"
-              >
-                <input
-                  id="workspace-less-than-100-utm"
-                  type="checkbox"
-                  checked={queryState.lessThan100Utm}
-                  onChange={(event) =>
-                    refreshList({
-                      lessThan100Utm: event.target.checked,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                />
-                <span>Menor a 100 UTM</span>
-              </label>
             </div>
+
+            <details className="advanced-filters">
+              <summary>
+                <span>Filtros avanzados</span>
+                <Chip>{activeFilterLabels.length > 0 ? "Revisar estado" : "Opcional"}</Chip>
+              </summary>
+              <div className="filter-grid filter-grid--advanced">
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-page-size">
+                    Tamano pagina
+                  </label>
+                  <Select
+                    id="workspace-page-size"
+                    value={String(queryState.pageSize)}
+                    onChange={(event) =>
+                      refreshList({
+                        pageSize: Number.parseInt(event.target.value, 10),
+                        page: 1,
+                      })
+                    }
+                  >
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                  </Select>
+                </div>
+
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-publication-from">
+                    Publicacion desde
+                  </label>
+                  <div className="input-with-icon">
+                    <CalendarDays size={15} aria-hidden="true" />
+                    <Input
+                      id="workspace-publication-from"
+                      type="date"
+                      value={queryState.publicationFrom}
+                      onChange={(event) =>
+                        refreshList({
+                          publicationFrom: event.target.value,
+                          page: 1,
+                          selectedNoticeId: null,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-publication-to">
+                    Publicacion hasta
+                  </label>
+                  <Input
+                    id="workspace-publication-to"
+                    type="date"
+                    value={queryState.publicationTo}
+                    onChange={(event) =>
+                      refreshList({
+                        publicationTo: event.target.value,
+                        page: 1,
+                        selectedNoticeId: null,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-close-from">
+                    Cierre desde
+                  </label>
+                  <Input
+                    id="workspace-close-from"
+                    type="date"
+                    value={queryState.closeFrom}
+                    onChange={(event) =>
+                      refreshList({
+                        closeFrom: event.target.value,
+                        page: 1,
+                        selectedNoticeId: null,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-close-to">
+                    Cierre hasta
+                  </label>
+                  <Input
+                    id="workspace-close-to"
+                    type="date"
+                    value={queryState.closeTo}
+                    onChange={(event) =>
+                      refreshList({
+                        closeTo: event.target.value,
+                        page: 1,
+                        selectedNoticeId: null,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-max-amount">
+                    Monto maximo
+                  </label>
+                  <div className="input-with-icon">
+                    <CircleDollarSign size={15} aria-hidden="true" />
+                    <Input
+                      id="workspace-max-amount"
+                      inputMode="decimal"
+                      value={queryState.maxAmount}
+                      placeholder="100"
+                      onChange={(event) =>
+                        refreshList({
+                          maxAmount: parseAmountInput(event.target.value),
+                          page: 1,
+                          selectedNoticeId: null,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <label
+                  className={
+                    queryState.lessThan100Utm
+                      ? "filter-check filter-check--selected"
+                      : "filter-check"
+                  }
+                  htmlFor="workspace-less-than-100-utm"
+                >
+                  <input
+                    id="workspace-less-than-100-utm"
+                    type="checkbox"
+                    checked={queryState.lessThan100Utm}
+                    onChange={(event) =>
+                      refreshList({
+                        lessThan100Utm: event.target.checked,
+                        page: 1,
+                        selectedNoticeId: null,
+                      })
+                    }
+                  />
+                  <span>Menor a 100 UTM</span>
+                </label>
+              </div>
+            </details>
 
             <div className="active-filter-row" aria-label="Filtros activos">
               {activeFilterLabels.length === 0 ? (
@@ -845,7 +910,7 @@ export function OpportunityWorkspace() {
               />
               <div className="workspace-toolbar__summary">
                 <strong>{queryState.tab === "explorer" ? "Tabla de licitaciones" : "Radar por etapa"}</strong>
-                <span>{listState.status === "success" ? `${formatCount(listState.data.total)} resultados` : "Resultados pendientes"}</span>
+                <span>{resultStatusLabel}</span>
                 <Chip>{getSortLabel(queryState.sortBy, queryState.sortOrder)}</Chip>
               </div>
               <div className="workspace-pagination">
@@ -910,7 +975,10 @@ export function OpportunityWorkspace() {
               {radarColumns.map((column) => (
                 <article key={column.stage} className="radar-column">
                   <header className="radar-column__header">
-                    <strong>{column.label}</strong>
+                    <div>
+                      <strong>{column.label}</strong>
+                      <span>Etapa derivada</span>
+                    </div>
                     <Chip>{formatCount(column.items.length)}</Chip>
                   </header>
                   <div className="radar-column__list">
@@ -932,15 +1000,21 @@ export function OpportunityWorkspace() {
                         onClick={() => openDetail("radar", item.noticeId)}
                       >
                         <h3 className="opportunity-card__title">
-                          {formatUnavailable(item.externalNoticeCode)} - {item.title}
+                          <span>{formatUnavailable(item.externalNoticeCode)}</span>
+                          {item.title}
                         </h3>
                         <div className="opportunity-card__meta">
                           <span className={stageClassName(item.derivedStage)}>
                             {formatStage(item.derivedStage)}
                           </span>
-                          <span>{`Comprador: ${formatUnavailable(item.buyerName)}`}</span>
-                          <span>{`Cierre: ${formatDate(item.closeDate)}`}</span>
-                          <span>{`Monto: ${formatMoney(item.estimatedAmount, item.currencyCode)}`}</span>
+                          <span>{formatUnavailable(item.buyerName)}</span>
+                          <span>{formatDate(item.closeDate)}</span>
+                          <span>{formatMoney(item.estimatedAmount, item.currencyCode)}</span>
+                        </div>
+                        <div className="opportunity-card__evidence">
+                          <span>{`${formatCount(item.lineCount)} lineas`}</span>
+                          <span>{`${formatCount(item.bidCount)} ofertas`}</span>
+                          <span>{`${formatCount(item.purchaseOrderCount)} OC`}</span>
                         </div>
                       </button>
                     ))}
@@ -994,6 +1068,7 @@ export function OpportunityWorkspace() {
                                 )
                               }
                               label={isExpanded ? "Contraer licitacion" : "Expandir licitacion"}
+                              aria-expanded={isExpanded}
                               onClick={() => handleToggleExpanded(item.noticeId)}
                             />
                           </td>
@@ -1034,25 +1109,50 @@ export function OpportunityWorkspace() {
                           <tr key={`${item.noticeId}-expanded`} className="ui-table-expanded-row">
                             <td colSpan={12}>
                               <div className="table-evidence-panel">
-                                <div>
-                                  <span className="evidence-label">Categoria</span>
-                                  <strong>{formatUnavailable(item.primaryCategory)}</strong>
+                                <div className="table-evidence-panel__summary">
+                                  <div>
+                                    <span className="evidence-label">Categoria</span>
+                                    <strong>{formatUnavailable(item.primaryCategory)}</strong>
+                                  </div>
+                                  <div>
+                                    <span className="evidence-label">Publicacion</span>
+                                    <strong>{formatDate(item.publicationDate)}</strong>
+                                  </div>
+                                  <div>
+                                    <span className="evidence-label">Dias restantes</span>
+                                    <strong>
+                                      {item.daysRemaining === null
+                                        ? "Cerrada o sin fecha"
+                                        : formatCount(item.daysRemaining)}
+                                    </strong>
+                                  </div>
+                                  <div>
+                                    <span className="evidence-label">Certeza relacion</span>
+                                    <strong>{formatRelationshipCertainty("unconfirmed")}</strong>
+                                  </div>
                                 </div>
-                                <div>
-                                  <span className="evidence-label">Publicacion</span>
-                                  <strong>{formatDate(item.publicationDate)}</strong>
+                                <div className="evidence-groups" aria-label="Evidencia hija disponible">
+                                  <article className="evidence-group">
+                                    <span className="evidence-label">Lineas o items</span>
+                                    <strong>{formatCount(item.lineCount)}</strong>
+                                    <small>Detalle disponible si la API entrega lineas.</small>
+                                  </article>
+                                  <article className="evidence-group">
+                                    <span className="evidence-label">Ofertas</span>
+                                    <strong>{formatCount(item.bidCount)}</strong>
+                                    <small>{`${formatCount(item.supplierCount)} proveedores asociados.`}</small>
+                                  </article>
+                                  <article className="evidence-group">
+                                    <span className="evidence-label">Ordenes de compra</span>
+                                    <strong>{formatCount(item.purchaseOrderCount)}</strong>
+                                    <small>Relaciones tratadas como evidencia, no como hecho confirmado.</small>
+                                  </article>
                                 </div>
-                                <div>
-                                  <span className="evidence-label">Dias restantes</span>
-                                  <strong>{item.daysRemaining === null ? "Cerrada o sin fecha" : formatCount(item.daysRemaining)}</strong>
+                                <div className="table-evidence-panel__actions">
+                                  <Button onClick={() => openDetail("explorer", item.noticeId)}>
+                                    Abrir detalle
+                                  </Button>
                                 </div>
-                                <div>
-                                  <span className="evidence-label">Evidencia</span>
-                                  <strong>{`${formatCount(item.bidCount)} ofertas · ${formatCount(item.supplierCount)} proveedores · ${formatCount(item.purchaseOrderCount)} OC`}</strong>
-                                </div>
-                                <Button onClick={() => openDetail("explorer", item.noticeId)}>
-                                  Abrir detalle
-                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -1067,9 +1167,12 @@ export function OpportunityWorkspace() {
         </section>
 
         {queryState.selectedNoticeId ? (
-        <aside className="workspace-detail" aria-label="Detalle de oportunidad">
+        <aside className="workspace-detail" aria-label="Detalle de licitación">
           <header className="workspace-detail__header">
-            <strong>Detalle</strong>
+            <div>
+              <strong>Detalle de licitación</strong>
+              <span>{queryState.tab === "radar" ? "Origen: Radar" : "Origen: Explorador"}</span>
+            </div>
             <IconButton
               icon={<X size={15} aria-hidden="true" />}
               label="Cerrar detalle"
@@ -1117,7 +1220,30 @@ export function OpportunityWorkspace() {
 
           {detailState.status === "success" ? (
             <>
-              <DetailSection title="Cabecera de decision">
+              <div className="workspace-detail__actions" aria-label="Acciones de solo lectura">
+                <Button
+                  leadingIcon={<Copy size={15} aria-hidden="true" />}
+                  onClick={() => handleCopyNoticeCode(detailState.data.externalNoticeCode)}
+                  disabled={!detailState.data.externalNoticeCode}
+                >
+                  Copiar codigo
+                </Button>
+                {buildChileCompraNoticeUrl(detailState.data.externalNoticeCode) ? (
+                  <Button
+                    leadingIcon={<ExternalLink size={15} aria-hidden="true" />}
+                    onClick={() => {
+                      const url = buildChileCompraNoticeUrl(detailState.data.externalNoticeCode);
+                      if (url) {
+                        window.open(url, "_blank", "noopener,noreferrer");
+                      }
+                    }}
+                  >
+                    Abrir licitacion
+                  </Button>
+                ) : null}
+              </div>
+
+              <DetailSection title="Resumen">
                 <strong>{formatUnavailable(detailState.data.externalNoticeCode)}</strong>
                 <span>{detailState.data.title}</span>
                 <span>{`Estado oficial: ${formatUnavailable(detailState.data.officialStatus)}`}</span>
@@ -1173,6 +1299,54 @@ export function OpportunityWorkspace() {
                     detailState.data.relationshipSummary,
                   )}`}
                 </span>
+              </DetailSection>
+
+              <DetailSection title="Ofertas">
+                {detailState.data.offers.length === 0 ? (
+                  <span>Sin ofertas disponibles en la API.</span>
+                ) : (
+                  detailState.data.offers.slice(0, 5).map((offer, index) => (
+                    <article
+                      key={`${offer.supplierCode ?? "proveedor"}-${index}`}
+                      className="detail-line-card"
+                    >
+                      <strong>{formatUnavailable(offer.supplierName)}</strong>
+                      <div>{`Estado: ${formatUnavailable(offer.offerStatus)}`}</div>
+                      <div>{`Monto: ${formatMoney(offer.offeredAmount, offer.currencyCode)}`}</div>
+                      <div>
+                        {`Seleccionada: ${
+                          offer.isSelected === null ? "No disponible" : offer.isSelected ? "Si" : "No"
+                        }`}
+                      </div>
+                    </article>
+                  ))
+                )}
+              </DetailSection>
+
+              <DetailSection title="Ordenes de compra">
+                {detailState.data.purchaseOrders.length === 0 ? (
+                  <span>Sin ordenes de compra disponibles en la API.</span>
+                ) : (
+                  detailState.data.purchaseOrders.slice(0, 5).map((order) => (
+                    <article key={order.purchaseOrderCode} className="detail-line-card">
+                      <strong>{order.purchaseOrderCode}</strong>
+                      <div>{`Estado: ${formatUnavailable(order.purchaseOrderStatus)}`}</div>
+                      <div>
+                        {`Monto: ${formatMoney(
+                          order.purchaseOrderAmount,
+                          order.currencyCode,
+                        )}`}
+                      </div>
+                      <div>{`Certeza: ${formatRelationshipCertainty(order.relationshipCertainty)}`}</div>
+                    </article>
+                  ))
+                )}
+              </DetailSection>
+
+              <DetailSection title="Metadatos">
+                <span>{`Identificador interno: ${detailState.data.noticeId}`}</span>
+                <span>{`Codigo externo: ${formatUnavailable(detailState.data.externalNoticeCode)}`}</span>
+                <span>Fuente: API de oportunidades en modo lectura.</span>
               </DetailSection>
             </>
           ) : null}
