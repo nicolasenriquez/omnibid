@@ -98,6 +98,13 @@ const PRIMARY_METRIC_KEYS = new Set([
   "revoked_or_suspended",
 ]);
 
+const HEADER_METRIC_FALLBACKS: OpportunitySummaryMetric[] = [
+  { key: "open", label: "Abiertas", value: null },
+  { key: "closing_soon", label: "Cierran pronto", value: null },
+  { key: "awarded", label: "Adjudicadas", value: null },
+  { key: "total_estimated_amount", label: "Monto total", value: null },
+];
+
 const CHILECOMPRA_NOTICE_URL = "https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx";
 
 function toReadableError(error: unknown): { message: string; statusCode: number | null } {
@@ -172,6 +179,14 @@ function stageClassName(stage: OpportunityStage): string {
     default:
       return "status-chip status-chip--unknown";
   }
+}
+
+function opportunityCardClassName(item: OpportunityListItem, selectedNoticeId: string | null): string {
+  const classes = ["opportunity-card", `opportunity-card--${item.derivedStage}`];
+  if (item.noticeId === selectedNoticeId) {
+    classes.push("opportunity-card--selected");
+  }
+  return classes.join(" ");
 }
 
 function metricClassName(key: string): string {
@@ -439,16 +454,7 @@ export function OpportunityWorkspace() {
   const activeFilterLabels = getActiveFilterLabels(queryState);
   const headerMetrics = useMemo(() => {
     const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
-    return [
-      byKey.get("open") ?? { key: "open", label: "Abiertas", value: null },
-      byKey.get("closing_soon") ?? { key: "closing_soon", label: "Cierran pronto", value: null },
-      byKey.get("awarded") ?? { key: "awarded", label: "Adjudicadas", value: null },
-      byKey.get("total_estimated_amount") ?? {
-        key: "total_estimated_amount",
-        label: "Monto total",
-        value: null,
-      },
-    ];
+    return HEADER_METRIC_FALLBACKS.map((fallback) => byKey.get(fallback.key) ?? fallback);
   }, [metrics]);
 
   const radarColumns = useMemo(() => {
@@ -567,6 +573,38 @@ export function OpportunityWorkspace() {
               </div>
             </div>
           </header>
+
+          <Panel dense className="workspace-toolbar">
+            <div className="workspace-toolbar__main">
+              <Tabs
+                label="Vista"
+                value={queryState.tab}
+                options={TAB_OPTIONS}
+                onChange={handleTabChange}
+              />
+              <div className="workspace-toolbar__summary">
+                <strong>{queryState.tab === "explorer" ? "Explorador" : "Radar"}</strong>
+                <span>{resultStatusLabel}</span>
+                <Chip>{getSortLabel(queryState.sortBy, queryState.sortOrder)}</Chip>
+              </div>
+              <div className="workspace-pagination">
+                <Badge>{`Pagina ${queryState.page}`}</Badge>
+                <IconButton
+                  icon={<ArrowLeft size={15} aria-hidden="true" />}
+                  label="Pagina anterior"
+                  onClick={() =>
+                    refreshList({ page: Math.max(1, queryState.page - 1) })
+                  }
+                  disabled={queryState.page <= 1}
+                />
+                <IconButton
+                  icon={<ArrowRight size={15} aria-hidden="true" />}
+                  label="Pagina siguiente"
+                  onClick={() => refreshList({ page: queryState.page + 1 })}
+                />
+              </div>
+            </div>
+          </Panel>
 
           <section className="pulse-strip" aria-label="Pulso de oportunidades">
             <div className="pulse-strip__copy">
@@ -933,38 +971,6 @@ export function OpportunityWorkspace() {
             </div>
           </Panel>
 
-          <Panel dense className="workspace-toolbar">
-            <div className="workspace-toolbar__main">
-              <Tabs
-                label="Vista"
-                value={queryState.tab}
-                options={TAB_OPTIONS}
-                onChange={handleTabChange}
-              />
-              <div className="workspace-toolbar__summary">
-                <strong>{queryState.tab === "explorer" ? "Tabla de licitaciones" : "Radar por etapa"}</strong>
-                <span>{resultStatusLabel}</span>
-                <Chip>{getSortLabel(queryState.sortBy, queryState.sortOrder)}</Chip>
-              </div>
-              <div className="workspace-pagination">
-                <Badge>{`Pagina ${queryState.page}`}</Badge>
-                <IconButton
-                  icon={<ArrowLeft size={15} aria-hidden="true" />}
-                  label="Pagina anterior"
-                  onClick={() =>
-                    refreshList({ page: Math.max(1, queryState.page - 1) })
-                  }
-                  disabled={queryState.page <= 1}
-                />
-                <IconButton
-                  icon={<ArrowRight size={15} aria-hidden="true" />}
-                  label="Pagina siguiente"
-                  onClick={() => refreshList({ page: queryState.page + 1 })}
-                />
-              </div>
-            </div>
-          </Panel>
-
           {listState.status === "loading" ? <LoadingShell /> : null}
 
           {listState.status === "error" ? (
@@ -1025,11 +1031,7 @@ export function OpportunityWorkspace() {
                       <button
                         key={item.noticeId}
                         type="button"
-                        className={
-                          item.noticeId === queryState.selectedNoticeId
-                            ? "opportunity-card opportunity-card--selected"
-                            : "opportunity-card"
-                        }
+                        className={opportunityCardClassName(item, queryState.selectedNoticeId)}
                         onClick={() => openDetail("radar", item.noticeId)}
                       >
                         <h3 className="opportunity-card__title">
