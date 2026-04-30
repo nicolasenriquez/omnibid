@@ -12,6 +12,7 @@ import {
   Copy,
   ExternalLink,
   FilterX,
+  ListPlus,
   RefreshCw,
   Search,
   ServerCrash,
@@ -232,6 +233,14 @@ function getSortLabel(sortBy: string, sortOrder: string): string {
   return sortOrder === "desc" ? "Cierre lejano" : "Cierre cercano";
 }
 
+function formatToday(): string {
+  return new Intl.DateTimeFormat("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date());
+}
+
 function getActiveFilterLabels(
   state: ReturnType<typeof parseWorkspaceQueryState>,
 ): string[] {
@@ -421,10 +430,26 @@ export function OpportunityWorkspace() {
     () => (listState.status === "success" ? uniqueByNoticeId(listState.data.items) : []),
     [listState],
   );
-  const metrics = summaryState.status === "success" ? summaryState.data.metrics : [];
+  const metrics = useMemo(
+    () => (summaryState.status === "success" ? summaryState.data.metrics : []),
+    [summaryState],
+  );
   const pulseMetrics = metrics.filter((metric) => PRIMARY_METRIC_KEYS.has(metric.key));
   const economyMetrics = metrics.filter((metric) => !PRIMARY_METRIC_KEYS.has(metric.key));
   const activeFilterLabels = getActiveFilterLabels(queryState);
+  const headerMetrics = useMemo(() => {
+    const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
+    return [
+      byKey.get("open") ?? { key: "open", label: "Abiertas", value: null },
+      byKey.get("closing_soon") ?? { key: "closing_soon", label: "Cierran pronto", value: null },
+      byKey.get("awarded") ?? { key: "awarded", label: "Adjudicadas", value: null },
+      byKey.get("total_estimated_amount") ?? {
+        key: "total_estimated_amount",
+        label: "Monto total",
+        value: null,
+      },
+    ];
+  }, [metrics]);
 
   const radarColumns = useMemo(() => {
     return STAGE_COLUMNS.map((stage) => ({
@@ -507,16 +532,17 @@ export function OpportunityWorkspace() {
               </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
               <p className="workspace-subtitle">
-                Radar y explorador de licitaciones en modo lectura, con filtros trazables
-                sobre datos Silver.
+                Vista general para priorizar licitaciones por etapa, cierre, monto y evidencia.
               </p>
               <div className="workspace-header__meta" aria-label="Estado del espacio">
                 <Badge>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</Badge>
                 <span>{activeFilters ? "Filtros aplicados" : "Vista base"}</span>
                 <span>{apiStatusLabel}</span>
+                <span>{`Hoy ${formatToday()}`}</span>
               </div>
             </div>
             <div className="workspace-mode" aria-label="Modo del espacio">
+              <span className="workspace-mode__label">Snapshot general</span>
               <div className="workspace-status-grid" aria-label="Resumen operativo">
                 <span>
                   <strong>{queryState.tab === "radar" ? "Radar" : "Explorador"}</strong>
@@ -531,7 +557,14 @@ export function OpportunityWorkspace() {
                   <small>Filtros activos</small>
                 </span>
               </div>
-              <span>Acciones operativas fuera de alcance en esta vista</span>
+              <div className="workspace-header-kpis" aria-label="KPIs del proceso">
+                {headerMetrics.map((metric) => (
+                  <span key={metric.key}>
+                    <small>{metric.label}</small>
+                    <strong>{formatMetricValue(metric)}</strong>
+                  </span>
+                ))}
+              </div>
             </div>
           </header>
 
@@ -1103,7 +1136,16 @@ export function OpportunityWorkspace() {
                           <td>{formatDate(item.closeDate)}</td>
                           <td className="ui-table-number">{formatCount(item.lineCount)}</td>
                           <td className="ui-table-number">{formatCount(item.bidCount)}</td>
-                          <td className="ui-table-number">{formatCount(item.purchaseOrderCount)}</td>
+                          <td className="ui-table-number">
+                            <div className="table-action-cell">
+                              <span>{formatCount(item.purchaseOrderCount)}</span>
+                              <IconButton
+                                icon={<ListPlus size={14} aria-hidden="true" />}
+                                label="Agregar al radar"
+                                onClick={() => openDetail("radar", item.noticeId)}
+                              />
+                            </div>
+                          </td>
                         </tr>
                         {isExpanded ? (
                           <tr key={`${item.noticeId}-expanded`} className="ui-table-expanded-row">
@@ -1308,16 +1350,43 @@ export function OpportunityWorkspace() {
                   detailState.data.offers.slice(0, 5).map((offer, index) => (
                     <article
                       key={`${offer.supplierCode ?? "proveedor"}-${index}`}
-                      className="detail-line-card"
+                      className={
+                        offer.isSelected
+                          ? "detail-offer-card detail-offer-card--selected"
+                          : "detail-offer-card"
+                      }
                     >
-                      <strong>{formatUnavailable(offer.supplierName)}</strong>
-                      <div>{`Estado: ${formatUnavailable(offer.offerStatus)}`}</div>
-                      <div>{`Monto: ${formatMoney(offer.offeredAmount, offer.currencyCode)}`}</div>
-                      <div>
-                        {`Seleccionada: ${
-                          offer.isSelected === null ? "No disponible" : offer.isSelected ? "Si" : "No"
-                        }`}
-                      </div>
+                      <header>
+                        <strong>{formatUnavailable(offer.supplierName)}</strong>
+                        <span>{offer.isSelected ? "Seleccionada" : "Oferta"}</span>
+                      </header>
+                      <div>{formatUnavailable(offer.offerName)}</div>
+                      <dl>
+                        <div>
+                          <dt>Monto</dt>
+                          <dd>{formatMoney(offer.offeredAmount, offer.currencyCode)}</dd>
+                        </div>
+                        <div>
+                          <dt>Unitario</dt>
+                          <dd>{formatMoney(offer.unitPrice, offer.currencyCode)}</dd>
+                        </div>
+                        <div>
+                          <dt>Cantidad</dt>
+                          <dd>{formatCount(offer.offeredQuantity)}</dd>
+                        </div>
+                        <div>
+                          <dt>Estado</dt>
+                          <dd>{formatUnavailable(offer.offerStatus)}</dd>
+                        </div>
+                        <div>
+                          <dt>Item</dt>
+                          <dd>{formatUnavailable(offer.itemCode)}</dd>
+                        </div>
+                        <div>
+                          <dt>Envio</dt>
+                          <dd>{formatDate(offer.submittedAt)}</dd>
+                        </div>
+                      </dl>
                     </article>
                   ))
                 )}

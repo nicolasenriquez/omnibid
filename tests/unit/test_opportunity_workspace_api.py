@@ -193,7 +193,23 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
                     }
                 ]
             ),
-            _MappingResult([]),
+            _MappingResult(
+                [
+                    {
+                        "supplier_code": "codigo:77",
+                        "supplier_name": "Proveedor Uno",
+                        "offer_name": "Oferta tecnica",
+                        "item_code": "ITEM-1",
+                        "offer_status": "Aceptada",
+                        "offered_amount": Decimal("40.00"),
+                        "unit_price": Decimal("20.00"),
+                        "offered_quantity": Decimal("2"),
+                        "currency_code": "CLP",
+                        "is_selected": True,
+                        "submitted_at": datetime(2026, 4, 2, tzinfo=UTC),
+                    }
+                ]
+            ),
             _MappingResult([]),
         ]
     )
@@ -205,6 +221,12 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
     assert payload["lines"][0]["selectedOfferCount"] == 1
     assert payload["lines"][0]["relatedPurchaseOrderItemCount"] == 1
     assert payload["lines"][0]["relationshipCertainty"] == "medium"
+    assert payload["timeline"][0]["date"] == "2026-04-01T00:00:00+00:00"
+    assert payload["timeline"][1]["date"] == "2026-04-30T00:00:00+00:00"
+    assert payload["offers"][0]["supplierName"] == "Proveedor Uno"
+    assert payload["offers"][0]["offerName"] == "Oferta tecnica"
+    assert payload["offers"][0]["unitPrice"] == 20.0
+    assert payload["offers"][0]["offeredQuantity"] == 2.0
 
 
 def test_opportunities_accepts_extended_filters() -> None:

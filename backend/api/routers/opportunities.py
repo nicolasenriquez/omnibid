@@ -244,7 +244,11 @@ DETAIL_SQL = sa.text(
             nl.nombre_unidad as buyer_name,
             nl.region_unidad as buyer_region,
             nl.codigo_unidad as contracting_unit_code,
-            nl.nombre_unidad as contracting_unit_name
+            nl.nombre_unidad as contracting_unit_name,
+            nl.fecha_publicacion as normalized_publication_date,
+            nl.fecha_cierre as normalized_close_date,
+            nl.fecha_adjudicacion as normalized_award_date,
+            nl.fecha_estimada_adjudicacion as normalized_estimated_award_date
         from normalized_licitaciones nl
     )
     select
@@ -254,10 +258,10 @@ DETAIL_SQL = sa.text(
         sn.notice_status_name as official_status,
         sn.estimated_amount,
         sn.currency_code,
-        sn.publication_date,
-        sn.close_date,
-        sn.award_date,
-        sn.estimated_award_date,
+        coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
+        coalesce(sn.close_date, bi.normalized_close_date) as close_date,
+        coalesce(sn.award_date, bi.normalized_award_date) as award_date,
+        coalesce(sn.estimated_award_date, bi.normalized_estimated_award_date) as estimated_award_date,
         sn.created_date,
         bi.buyer_name,
         bi.buyer_region,
@@ -267,9 +271,9 @@ DETAIL_SQL = sa.text(
             when lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%' then 'awarded'
             when lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
               or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%' then 'revoked_or_suspended'
-            when sn.close_date is null then 'unknown'
-            when sn.close_date < now() then 'closed'
-            when sn.close_date <= now() + interval '7 days' then 'closing_soon'
+            when coalesce(sn.close_date, bi.normalized_close_date) is null then 'unknown'
+            when coalesce(sn.close_date, bi.normalized_close_date) < now() then 'closed'
+            when coalesce(sn.close_date, bi.normalized_close_date) <= now() + interval '7 days' then 'closing_soon'
             else 'open'
         end as derived_stage
     from silver_notice sn
@@ -347,14 +351,28 @@ DETAIL_OFFERS_SQL = sa.text(
     """
     select
         bs.supplier_key as supplier_code,
-        bs.offer_status,
-        bs.total_price_offered as offered_amount,
-        bs.offer_currency_name as currency_code,
-        bs.selected_offer_flag as is_selected,
-        bs.offer_submission_date as submitted_at
+        coalesce(no.nombre_proveedor, ss.supplier_trade_name, ss.supplier_legal_name) as supplier_name,
+        coalesce(no.nombre_oferta, bs.bid_submission_id::text) as offer_name,
+        coalesce(no.codigo_item, bs.item_code) as item_code,
+        coalesce(no.estado_oferta, bs.offer_status) as offer_status,
+        coalesce(no.valor_total_ofertado, bs.total_price_offered) as offered_amount,
+        coalesce(no.monto_unitario_oferta, bs.unit_price_offered) as unit_price,
+        no.cantidad_ofertada as offered_quantity,
+        coalesce(bs.offer_currency_name, 'CLP') as currency_code,
+        coalesce(no.oferta_seleccionada, bs.selected_offer_flag) as is_selected,
+        coalesce(no.fecha_envio_oferta, bs.offer_submission_date) as submitted_at
     from silver_bid_submission bs
+    left join normalized_ofertas no
+      on no.codigo_externo = bs.notice_id
+     and no.supplier_key = bs.supplier_key
+     and (
+        no.codigo_item = bs.item_code
+        or (no.codigo_item is null and bs.item_code is null)
+     )
+    left join silver_supplier ss
+      on ss.supplier_id = bs.supplier_key
     where bs.notice_id = :notice_id
-    order by bs.offer_submission_date nulls last, bs.bid_submission_id
+    order by coalesce(no.fecha_envio_oferta, bs.offer_submission_date) nulls last, bs.bid_submission_id
     """
 )
 
@@ -601,17 +619,17 @@ def get_opportunity_detail(
         {
             "key": "publication",
             "label": "Publicacion",
-            "date": detail.get("publication_date"),
+            "date": detail.get("publicationDate"),
             "source": "official",
         },
-        {"key": "close", "label": "Cierre", "date": detail.get("close_date"), "source": "official"},
+        {"key": "close", "label": "Cierre", "date": detail.get("closeDate"), "source": "official"},
         {
             "key": "estimated_award",
             "label": "Adjudicacion estimada",
-            "date": detail.get("estimated_award_date"),
+            "date": detail.get("estimatedAwardDate"),
             "source": "official",
         },
-        {"key": "award", "label": "Adjudicacion", "date": detail.get("award_date"), "source": "official"},
+        {"key": "award", "label": "Adjudicacion", "date": detail.get("awardDate"), "source": "official"},
     ]
 
     return {

@@ -109,8 +109,12 @@ export type OpportunityLineEvidence = {
 export type OpportunityOfferEvidence = {
   supplierCode: string | null;
   supplierName: string | null;
+  offerName: string | null;
+  itemCode: string | null;
   offerStatus: string | null;
   offeredAmount: number | null;
+  unitPrice: number | null;
+  offeredQuantity: number | null;
   currencyCode: string | null;
   isSelected: boolean | null;
   submittedAt: string | null;
