@@ -37,10 +37,13 @@ Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `.env.local`.
 
 ## Validation
 
+From repo root:
+
 ```bash
-npm.cmd run lint
-npm.cmd run typecheck
-npm.cmd run build
+rtk just dev
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build
 ```
 
 ## Code Paths

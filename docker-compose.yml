@@ -93,6 +93,30 @@ services:
       - --port
       - "8000"
 
+  backend-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tools
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_NAME: ${APP_NAME:-app-chilecompra}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chilecompra
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
+      DATASET_ROOT: ${DATASET_ROOT:-/datasets/mercado-publico}
+      CHUNK_SIZE: ${CHUNK_SIZE:-5000}
+    init: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - tail
+      - -f
+      - /dev/null
+
   client:
     image: node:24-alpine
     working_dir: /app

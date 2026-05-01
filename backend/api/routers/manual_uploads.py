@@ -19,6 +19,7 @@ from backend.ingestion.manual_uploads import (
     ManualCsvPreflight,
     ManualUploadError,
     build_manual_csv_preflight,
+    format_manual_upload_size_limit,
     load_manual_upload_preflight,
     mark_manual_upload_preflight_consumed,
 )
@@ -36,8 +37,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.build_normalized import process_licitaciones, process_ordenes_compra
-from scripts.ingest_raw import process_registered_file
+from scripts.build_normalized import process_licitaciones, process_ordenes_compra  # noqa: E402
+from scripts.ingest_raw import process_registered_file  # noqa: E402
 
 router = APIRouter(prefix="/uploads/procurement-csv", tags=["manual_uploads"])
 
@@ -74,7 +75,7 @@ def _safe_manual_upload_token(file_token: str) -> str:
 def _manual_upload_response_limit(settings: Settings) -> dict[str, int | str]:
     return {
         "max_size_bytes": settings.manual_upload_max_bytes,
-        "max_size_label": f"{settings.manual_upload_max_bytes // (1024 * 1024)} MiB",
+        "max_size_label": format_manual_upload_size_limit(settings.manual_upload_max_bytes),
     }
 
 
@@ -520,6 +521,7 @@ def process_manual_csv(
         preflight=preflight,
         process_started_at=started_at,
     )
+    db.flush()
     run, step, batch = _create_job_skeleton(
         source_file=source_file,
         preflight=preflight,

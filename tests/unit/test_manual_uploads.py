@@ -70,6 +70,7 @@ class _DummySession:
         self._responses = responses
         self.execute_calls = 0
         self.add_calls = 0
+        self.flush_calls = 0
         self.commit_calls = 0
         self.rollback_calls = 0
 
@@ -84,6 +85,9 @@ class _DummySession:
 
     def add(self, _obj: object) -> None:
         self.add_calls += 1
+
+    def flush(self) -> None:
+        self.flush_calls += 1
 
     def commit(self) -> None:
         self.commit_calls += 1
@@ -223,6 +227,9 @@ def test_build_manual_csv_preflight_accepts_semicolon_csv(tmp_path: Path) -> Non
 def test_manual_upload_content_type_and_size_helpers() -> None:
     assert validate_manual_upload_dataset_type("  ORDEN_COMPRA  ") == "orden_compra"
     assert validate_manual_upload_content_type("text/csv; charset=utf-8") == "text/csv"
+    assert format_manual_upload_size_limit(800 * 1024) == "800 KiB"
+    assert format_manual_upload_size_limit(80 * 1024 * 1024) == "80 MiB"
+    assert format_manual_upload_size_limit(800 * 1024 * 1024) == "800 MiB"
     assert format_manual_upload_size_limit(5 * 1024 * 1024) == "5 MiB"
 
 
@@ -295,6 +302,7 @@ def test_preflight_endpoint_returns_summary_and_duplicate_hint(tmp_path: Path) -
     assert payload["duplicate_source_file"]["file_hash_sha256"] == duplicate_hash
     assert payload["dataset_summary"]["source_files_count"] == 7
     assert payload["upload_limits"]["max_size_bytes"] == 5 * 1024 * 1024
+    assert payload["upload_limits"]["max_size_label"] == "5 MiB"
     assert session.execute_calls == 9
     assert session.add_calls == 0
     assert session.commit_calls == 0
@@ -355,6 +363,7 @@ def test_process_and_status_endpoints_use_single_use_preflight_token(tmp_path: P
     assert process_payload["source_file"]["file_hash_sha256"] == preflight.file_hash_sha256
     assert process_session.execute_calls == 1
     assert process_session.add_calls == 4
+    assert process_session.flush_calls == 1
     assert process_session.commit_calls == 2
     assert process_session.rollback_calls == 0
 

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
         alias="MANUAL_UPLOAD_ROOT",
     )
     manual_upload_max_bytes: int = Field(
-        default=50 * 1024 * 1024,
+        default=800 * 1024 * 1024,
         alias="MANUAL_UPLOAD_MAX_BYTES",
     )
 

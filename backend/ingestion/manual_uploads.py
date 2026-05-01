@@ -132,6 +132,11 @@ def validate_manual_upload_content_type(content_type: str | None) -> str | None:
 def format_manual_upload_size_limit(max_bytes: int) -> str:
     if max_bytes < 0:
         raise ManualUploadError("manual upload max size must be non-negative")
+    if max_bytes < 1024 * 1024:
+        kibibytes = max_bytes / 1024 if max_bytes else 0
+        if kibibytes.is_integer():
+            return f"{int(kibibytes)} KiB"
+        return f"{kibibytes:.1f} KiB"
     mebibytes = max_bytes / (1024 * 1024) if max_bytes else 0
     if mebibytes.is_integer():
         return f"{int(mebibytes)} MiB"

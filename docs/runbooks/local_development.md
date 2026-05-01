@@ -32,24 +32,18 @@ Host-local equivalents such as `uv run pytest`, `.venv/bin/pytest`, or direct `p
 
 ## Frontend Workflow (`client/`)
 
-The Opportunity Workspace frontend scaffold now exists under `client/`.
+The Opportunity Workspace frontend is Docker-first.
 
-1. Install frontend dependencies:
-   - `cd client`
-   - `npm install`
-2. Configure local frontend environment:
-   - `copy .env.example .env.local`
-   - ensure `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
-3. Start backend API with the canonical Docker runtime from repo root:
-   - `just docker-start`
-4. Start frontend dev server from `client/`:
-   - `npm run dev -- --hostname 127.0.0.1 --port 3000`
-5. Open the workspace route:
+1. Start the full local stack:
+   - `just dev`
+2. Open the workspace route:
    - `http://127.0.0.1:3000/licitaciones`
-6. Run frontend validation from `client/`:
-   - `npm run lint`
-   - `npm run typecheck`
-   - `npm run build`
+3. Run frontend validation through the containerized client service when needed:
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+
+Host-local `client/` commands remain fallback only when the Docker path is unavailable.
 
 ## Manual CSV append from workspace
 

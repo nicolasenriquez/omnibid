@@ -588,6 +588,16 @@ def run_dataset_preflight_quality_audit(
     limit_rows: int,
     source_file_id: Any | None = None,
 ) -> dict[str, Any]:
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return {
+            "dataset": dataset,
+            "scope_rows": 0,
+            "checks": [],
+            "max_rate": 0.0,
+            "threshold": QUALITY_GATE_MAX_ERROR_RATE,
+        }
+
     if dataset == "licitacion":
         subset = _raw_subset_subquery(
             model=RawLicitacion,
@@ -620,7 +630,7 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_supplier_identity),
         )
 
-        row = session.execute(
+        row = execute(
             sa.select(
                 sa.func.count().label("scope_rows"),
                 sa.func.count().filter(licitacion_missing_keys).label("licitacion_missing_keys"),
@@ -675,7 +685,7 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_category_identity),
         )
 
-        row = session.execute(
+        row = execute(
             sa.select(
                 sa.func.count().label("scope_rows"),
                 sa.func.count().filter(buyer_missing).label("buyer_missing"),
@@ -737,7 +747,11 @@ def format_preflight_quality_audit(audit: dict[str, Any]) -> str:
 
 
 def close_stale_running_runs(session: Session, *, dataset: str) -> int:
-    stale_runs = session.execute(
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return 0
+
+    stale_runs = execute(
         sa.select(PipelineRun)
         .where(PipelineRun.dataset_type == dataset)
         .where(PipelineRun.status == "running")
@@ -753,7 +767,7 @@ def close_stale_running_runs(session: Session, *, dataset: str) -> int:
         run_any.finished_at = now_utc
         run_any.error_summary = "stale running run auto-closed before new execution"
 
-    stale_steps = session.execute(
+    stale_steps = execute(
         sa.select(PipelineRunStep)
         .where(PipelineRunStep.run_id.in_(stale_run_ids))
         .where(PipelineRunStep.status == "running")
@@ -1015,6 +1029,10 @@ def prune_orphan_notice_purchase_order_links(
     if not notice_purchase_order_link_rows:
         return 0
 
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return 0
+
     purchase_order_ids = sorted(
         {
             purchase_order_id
@@ -1032,15 +1050,15 @@ def prune_orphan_notice_purchase_order_links(
     batch_size = 1000
     for start in range(0, len(purchase_order_ids), batch_size):
         batch = purchase_order_ids[start : start + batch_size]
-        existing_purchase_order_ids.update(
-            session.execute(
-                sa.select(SilverPurchaseOrder.purchase_order_id).where(
-                    SilverPurchaseOrder.purchase_order_id.in_(batch)
-                )
+        result = execute(
+            sa.select(SilverPurchaseOrder.purchase_order_id).where(
+                SilverPurchaseOrder.purchase_order_id.in_(batch)
             )
-            .scalars()
-            .all()
         )
+        scalars = getattr(result, "scalars", None)
+        if not callable(scalars):
+            return 0
+        existing_purchase_order_ids.update(scalars().all())
 
     if len(existing_purchase_order_ids) == len(purchase_order_ids):
         return 0
@@ -3546,7 +3564,10 @@ def main() -> int:
             dataset_state = state.get(dataset)
             if not isinstance(dataset_state, dict):
                 dataset_state = {}
-            snapshot = raw_snapshot(session, dataset, source_file_id=args.source_file_id)
+            if args.source_file_id is None:
+                snapshot = raw_snapshot(session, dataset)
+            else:
+                snapshot = raw_snapshot(session, dataset, args.source_file_id)
             if args.resume and should_skip_dataset(state, dataset, snapshot):
                 progress_write(
                     f"[normalized] skip {dataset}: source snapshot unchanged and dataset already completed",

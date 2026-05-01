@@ -21,6 +21,7 @@ import {
   ServerCrash,
   ShieldCheck,
   SlidersHorizontal,
+  Terminal,
   Upload,
   X,
 } from "lucide-react";
@@ -88,6 +89,16 @@ type RemoteState<T> =
   | { status: "idle" | "loading" }
   | { status: "success"; data: T }
   | { status: "error"; message: string; statusCode: number | null };
+
+type UploadConsoleEntry = {
+  level: "info" | "done" | "error" | "muted" | "running";
+  text: string;
+};
+
+const UPLOAD_CONSOLE_SEED: UploadConsoleEntry = {
+  level: "info",
+  text: "Flujo aislado listo. Selecciona dataset y CSV.",
+};
 
 const STAGE_COLUMNS: OpportunityStage[] = [
   "open",
@@ -325,17 +336,6 @@ function formatCompactMetricValue(metric: OpportunitySummaryMetric): string {
   if (metric.value === null) {
     return formatUnavailable(null);
   }
-  const absValue = Math.abs(metric.value);
-  if (absValue >= 1_000_000_000_000) {
-    return `CLP ${(metric.value / 1_000_000_000_000).toLocaleString("es-CL", {
-      maximumFractionDigits: 1,
-    })}T`;
-  }
-  if (absValue >= 1_000_000_000) {
-    return `CLP ${(metric.value / 1_000_000_000).toLocaleString("es-CL", {
-      maximumFractionDigits: 1,
-    })}B`;
-  }
   return formatMoney(metric.value, "CLP");
 }
 
@@ -479,7 +479,12 @@ export function OpportunityWorkspace() {
   const [uploadJobState, setUploadJobState] = useState<RemoteState<ManualUploadJobResponse>>({
     status: "idle",
   });
+  const [uploadConsoleEntries, setUploadConsoleEntries] = useState<UploadConsoleEntry[]>([
+    UPLOAD_CONSOLE_SEED,
+  ]);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  const previousUploadPreflightStatus = useRef(uploadPreflightState.status);
+  const previousUploadJobStatus = useRef(uploadJobState.status);
 
   const replaceQuery = useCallback(
     (patch: Partial<typeof queryState>) => {
@@ -568,6 +573,99 @@ export function OpportunityWorkspace() {
     return () => uploadAbortRef.current?.abort();
   }, []);
 
+  const appendUploadConsoleEntries = useCallback((entries: UploadConsoleEntry[]) => {
+    if (entries.length === 0) {
+      return;
+    }
+
+    setUploadConsoleEntries((current) => {
+      const next = [...current];
+      for (const entry of entries) {
+        const last = next[next.length - 1];
+        if (last && last.level === entry.level && last.text === entry.text) {
+          continue;
+        }
+        next.push(entry);
+      }
+      return next.slice(-12);
+    });
+  }, []);
+
+  const resetUploadConsole = useCallback(() => {
+    setUploadConsoleEntries([UPLOAD_CONSOLE_SEED]);
+  }, []);
+
+  useEffect(() => {
+    if (previousUploadPreflightStatus.current === uploadPreflightState.status) {
+      return;
+    }
+    previousUploadPreflightStatus.current = uploadPreflightState.status;
+
+    if (uploadPreflightState.status === "loading") {
+      appendUploadConsoleEntries([
+        { level: "running", text: "Validando archivo: delimitador, columnas, hash y tamaño." },
+      ]);
+      return;
+    }
+
+    if (uploadPreflightState.status === "error") {
+      appendUploadConsoleEntries([
+        { level: "error", text: `Preflight rechazado: ${uploadPreflightState.message}` },
+      ]);
+      return;
+    }
+
+    if (uploadPreflightState.status === "success") {
+      appendUploadConsoleEntries([
+        {
+          level: "done",
+          text: `Preflight OK: ${formatCount(uploadPreflightState.data.row_count)} filas, hash ${uploadPreflightState.data.file_hash_sha256.slice(0, 12)}...`,
+        },
+        {
+          level: "muted",
+          text: uploadPreflightState.data.duplicate_source_file
+            ? "Hash ya visto en pipeline. Conteos canonicos y duplicados van por separado."
+            : "Staging listo. Confirma para registrar Raw y construir capas canonicas.",
+        },
+      ]);
+    }
+  }, [appendUploadConsoleEntries, uploadPreflightState.status, uploadPreflightState]);
+
+  useEffect(() => {
+    if (previousUploadJobStatus.current === uploadJobState.status) {
+      return;
+    }
+    previousUploadJobStatus.current = uploadJobState.status;
+
+    if (uploadJobState.status === "loading") {
+      appendUploadConsoleEntries([
+        { level: "running", text: "Proceso activo: Raw -> Normalized -> Silver." },
+        { level: "muted", text: "Esto puede tardar varios minutos en CSV grandes." },
+      ]);
+      return;
+    }
+
+    if (uploadJobState.status === "error") {
+      appendUploadConsoleEntries([
+        { level: "error", text: `Proceso fallido: ${uploadJobState.message}` },
+      ]);
+      return;
+    }
+
+    if (uploadJobState.status === "success") {
+      appendUploadConsoleEntries([
+        {
+          level: "done",
+          text: `Proceso completo: ${formatCount(uploadJobState.data.telemetry.processed_rows)} procesadas, ${formatCount(uploadJobState.data.telemetry.inserted_delta_rows)} delta Raw.`,
+        },
+        {
+          level: "done",
+          text: `Capas: ${formatCount(uploadJobState.data.telemetry.normalized_rows)} Normalized, ${formatCount(uploadJobState.data.telemetry.silver_rows)} Silver.`,
+        },
+      ]);
+    }
+  }, [appendUploadConsoleEntries, uploadJobState.status, uploadJobState]);
+
   const listItems = useMemo(
     () => (listState.status === "success" ? uniqueByNoticeId(listState.data.items) : []),
     [listState],
@@ -611,6 +709,16 @@ export function OpportunityWorkspace() {
     listState.status === "success"
       ? `${formatCount(listState.data.total)} licitaciones`
       : "Resultados pendientes";
+  const uploadConsoleStatus =
+    uploadJobState.status === "success"
+      ? { label: "Completado", tone: "success" as const }
+      : uploadJobState.status === "loading"
+        ? { label: "Procesando", tone: "running" as const }
+        : uploadPreflightState.status === "loading"
+          ? { label: "Validando", tone: "running" as const }
+          : uploadPreflightState.status === "error" || uploadJobState.status === "error"
+            ? { label: "Revisar", tone: "danger" as const }
+            : { label: "Preparado", tone: "neutral" as const };
 
   const handleTabChange = (tab: WorkspaceTab) => {
     refreshList({ tab, page: 1 });
@@ -677,14 +785,25 @@ export function OpportunityWorkspace() {
     setUploadFile(null);
     setIsUploadDragActive(false);
     resetUploadProgress();
-  }, [abortActiveUpload, resetUploadProgress]);
+    resetUploadConsole();
+  }, [abortActiveUpload, resetUploadConsole, resetUploadProgress]);
 
   const handleUploadFileSelected = useCallback(
     (nextFile: File | null) => {
       setUploadFile(nextFile);
       resetUploadProgress();
+      if (nextFile) {
+        appendUploadConsoleEntries([
+          {
+            level: "info",
+            text: `Archivo montado: ${nextFile.name} (${formatFileSize(nextFile.size)}).`,
+          },
+        ]);
+      } else {
+        appendUploadConsoleEntries([{ level: "muted", text: "Archivo removido. Esperando CSV." }]);
+      }
     },
-    [resetUploadProgress],
+    [appendUploadConsoleEntries, resetUploadProgress],
   );
 
   const handleStartPreflight = useCallback(async () => {
@@ -763,8 +882,10 @@ export function OpportunityWorkspace() {
           <header className="workspace-header">
             <div className="workspace-header__content">
               <div className="workspace-header__eyebrow-row">
-                <span className="workspace-kicker">Control operativo</span>
-                <Badge>Explorer y Radar en solo lectura</Badge>
+                <div className="workspace-header__eyebrow-copy">
+                  <span className="workspace-kicker">Control operativo</span>
+                  <Badge>Explorer y Radar en solo lectura</Badge>
+                </div>
               </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
               <p className="workspace-subtitle">
@@ -775,43 +896,10 @@ export function OpportunityWorkspace() {
                 <Badge>{queryState.tab === "radar" ? "Radar activo" : "Explorador activo"}</Badge>
                 <span>{activeFilters ? "Filtros aplicados" : "Vista base"}</span>
                 <span>{apiStatusLabel}</span>
-                <span>{`Hoy ${formatToday()}`}</span>
+                <span suppressHydrationWarning>{`Hoy ${formatToday()}`}</span>
               </div>
             </div>
             <div className="workspace-header__aside">
-              <section className="workspace-operator-card" aria-label="Carga manual de CSV">
-                <div className="workspace-operator-card__topline">
-                  <span className="workspace-mode__label">Carga manual</span>
-                  <Badge>{uploadJobState.status === "success" ? "Ultima carga lista" : "Flujo separado"}</Badge>
-                </div>
-                <div className="workspace-operator-card__body">
-                  <div>
-                    <strong>Cargar CSV</strong>
-                    <p>
-                      Valida columnas, hash y dataset antes de tocar Raw, Normalized o Silver.
-                    </p>
-                  </div>
-                  <Button
-                    variant="primary"
-                    className="workspace-upload-button"
-                    leadingIcon={<Upload size={15} aria-hidden="true" />}
-                    onClick={() => setIsUploadSheetOpen(true)}
-                  >
-                    Cargar CSV
-                  </Button>
-                </div>
-                <div className="workspace-operator-card__facts">
-                  <span>
-                    <ShieldCheck size={14} aria-hidden="true" />
-                    Dataset explicito
-                  </span>
-                  <span>
-                    <FileSpreadsheet size={14} aria-hidden="true" />
-                    CSV con validacion previa
-                  </span>
-                </div>
-              </section>
-
               <section className="workspace-mode" aria-label="Snapshot operativo">
                 <div className="workspace-mode__topline">
                   <span className="workspace-mode__label">Snapshot operativo</span>
@@ -838,6 +926,14 @@ export function OpportunityWorkspace() {
                     </span>
                   ))}
                 </div>
+                <Button
+                  variant="ghost"
+                  className="workspace-mode__upload-trigger"
+                  leadingIcon={<Upload size={14} aria-hidden="true" />}
+                  onClick={() => setIsUploadSheetOpen(true)}
+                >
+                  Carga manual
+                </Button>
               </section>
             </div>
           </header>
@@ -1522,10 +1618,10 @@ export function OpportunityWorkspace() {
                 <div>
                   <span className="workspace-kicker">Carga manual</span>
                   <h2 id="upload-sheet-title" className="section-title">
-                    Cargar CSV al pipeline correcto
+                    Subir CSV al pipeline
                   </h2>
                   <p className="section-subtitle">
-                    Selecciona dataset, valida columnas y confirma procesamiento acotado.
+                    Selecciona dataset, arrastra el archivo y confirma.
                   </p>
                 </div>
                 <IconButton
@@ -1536,42 +1632,36 @@ export function OpportunityWorkspace() {
               </header>
 
               <div className="upload-sheet__body">
-                <div className="upload-sheet__grid">
-                  <div className="upload-sheet__field">
-                    <label className="ui-label" htmlFor="manual-upload-dataset">
-                      Dataset destino
-                    </label>
-                    <Select
-                      id="manual-upload-dataset"
-                      value={uploadDatasetType}
-                      onChange={(event) => {
-                        setUploadDatasetType(event.target.value as ManualUploadDatasetType | "");
+                <div
+                  className="upload-dataset-toggle"
+                  role="radiogroup"
+                  aria-label="Dataset destino"
+                >
+                  {MANUAL_UPLOAD_DATASET_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={uploadDatasetType === option.value}
+                      className={
+                        uploadDatasetType === option.value
+                          ? "upload-dataset-toggle__option upload-dataset-toggle__option--selected"
+                          : "upload-dataset-toggle__option"
+                      }
+                      onClick={() => {
+                        setUploadDatasetType(option.value);
+                        appendUploadConsoleEntries([{ level: "info", text: `Dataset destino: ${option.label}.` }]);
                         resetUploadProgress();
                       }}
-                      disabled={uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
+                      disabled={
+                        uploadPreflightState.status === "loading" ||
+                        uploadJobState.status === "loading"
+                      }
                     >
-                      <option value="">Selecciona dataset</option>
-                      {MANUAL_UPLOAD_DATASET_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                    <p className="upload-sheet__hint">
-                      {uploadDatasetType
-                        ? MANUAL_UPLOAD_DATASET_OPTIONS.find((option) => option.value === uploadDatasetType)?.helper
-                        : "Nombre de archivo no define dataset. Seleccion obligatoria."}
-                    </p>
-                  </div>
-
-                  <div className="upload-sheet__field upload-sheet__field--meta">
-                    <span className="workspace-mode__label">Guardrails</span>
-                    <ul className="upload-sheet__guardrails">
-                      <li>1 archivo CSV por corrida.</li>
-                      <li>Validacion previa antes de escribir.</li>
-                      <li>Procesamiento acotado al source file cargado.</li>
-                    </ul>
-                  </div>
+                      <span>{option.label}</span>
+                      <small>{option.helper}</small>
+                    </button>
+                  ))}
                 </div>
 
                 <label
@@ -1605,15 +1695,43 @@ export function OpportunityWorkspace() {
                     accept=".csv,text/csv"
                     onChange={(event) => handleUploadFileSelected(event.target.files?.[0] ?? null)}
                   />
-                  <FileSpreadsheet size={20} aria-hidden="true" />
+                  <FileSpreadsheet size={24} aria-hidden="true" />
                   <strong>{uploadFile ? uploadFile.name : "Arrastra CSV o haz click para elegir"}</strong>
                   <span>
-                    CSV delimitado por <code>;</code>. El backend revisa columnas requeridas, hash y tamaño permitido.
+                    CSV delimitado por <code>;</code>. El backend revisa columnas requeridas, hash y limite
+                    configurado.
                   </span>
                   {uploadFile ? (
                     <small>{`${formatFileSize(uploadFile.size)} · ultimo cambio ${new Date(uploadFile.lastModified).toLocaleDateString("es-CL")}`}</small>
-                  ) : null}
+                  ) : (
+                    <small>Tambien puedes hacer click para buscar el archivo.</small>
+                  )}
                 </label>
+
+                <div className="upload-sheet__info" role="note">
+                  <CircleAlert size={15} aria-hidden="true" />
+                  <span>1 CSV por corrida, validacion previa y procesamiento acotado al archivo cargado.</span>
+                </div>
+
+                <section className="upload-console" aria-label="Consola de procesamiento">
+                  <div className="upload-console__header">
+                    <span className="upload-console__title">
+                      <Terminal size={15} aria-hidden="true" />
+                      Consola de carga
+                    </span>
+                    <Badge className={`upload-console__status upload-console__status--${uploadConsoleStatus.tone}`}>
+                      {uploadConsoleStatus.label}
+                    </Badge>
+                  </div>
+                  <ol className="upload-console__lines">
+                    {uploadConsoleEntries.map((line, index) => (
+                      <li key={`${index}-${line.level}-${line.text.slice(0, 32)}`} className={`upload-console__line upload-console__line--${line.level}`}>
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <code>{line.text}</code>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
 
                 {uploadPreflightState.status === "loading" ? (
                   <div className="upload-progress" role="status">
@@ -1769,39 +1887,61 @@ export function OpportunityWorkspace() {
               </div>
 
               <footer className="upload-sheet__actions">
-                <Button
-                  variant="ghost"
-                  leadingIcon={<FilterX size={14} aria-hidden="true" />}
-                  onClick={() => {
-                    setUploadDatasetType("");
-                    setUploadFile(null);
-                    setIsUploadDragActive(false);
-                    resetUploadProgress();
-                  }}
-                  disabled={uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
-                >
-                  Limpiar
-                </Button>
-                <Button variant="ghost" onClick={closeUploadSheet}>
-                  Cerrar
-                </Button>
-                <Button
-                  leadingIcon={<ShieldCheck size={15} aria-hidden="true" />}
-                  onClick={handleStartPreflight}
-                  disabled={!uploadCanValidate || uploadPreflightState.status === "loading" || uploadJobState.status === "loading"}
-                  loading={uploadPreflightState.status === "loading"}
-                >
-                  Validar archivo
-                </Button>
-                <Button
-                  variant="primary"
-                  leadingIcon={<Upload size={15} aria-hidden="true" />}
-                  onClick={handleStartProcessing}
-                  disabled={!uploadCanProcess}
-                  loading={uploadJobState.status === "loading"}
-                >
-                  Confirmar y procesar
-                </Button>
+                {uploadJobState.status === "loading" ? (
+                  <>
+                    <div className="upload-sheet__actions-status" role="status">
+                      <RefreshCw size={15} aria-hidden="true" className="upload-progress__spinner" />
+                      <div>
+                        <strong>Procesando en backend</strong>
+                        <span>Raw, Normalized y Silver siguen corriendo aunque cierres este panel.</span>
+                      </div>
+                    </div>
+                    <Button variant="ghost" onClick={abortActiveUpload}>
+                      Cancelar espera
+                    </Button>
+                    <Button variant="ghost" onClick={closeUploadSheet}>
+                      Cerrar
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      leadingIcon={<FilterX size={14} aria-hidden="true" />}
+                      onClick={() => {
+                        setUploadDatasetType("");
+                        setUploadFile(null);
+                        setIsUploadDragActive(false);
+                        resetUploadProgress();
+                        resetUploadConsole();
+                      }}
+                    >
+                      Limpiar
+                    </Button>
+                    <Button variant="ghost" onClick={closeUploadSheet}>
+                      Cerrar
+                    </Button>
+                    <Button
+                      leadingIcon={<ShieldCheck size={15} aria-hidden="true" />}
+                      onClick={handleStartPreflight}
+                      disabled={
+                        !uploadCanValidate ||
+                        uploadPreflightState.status === "loading"
+                      }
+                      loading={uploadPreflightState.status === "loading"}
+                    >
+                      Validar archivo
+                    </Button>
+                    <Button
+                      variant="primary"
+                      leadingIcon={<Upload size={15} aria-hidden="true" />}
+                      onClick={handleStartProcessing}
+                      disabled={!uploadCanProcess}
+                    >
+                      Confirmar y procesar
+                    </Button>
+                  </>
+                )}
               </footer>
             </section>
           </div>

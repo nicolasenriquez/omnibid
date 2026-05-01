@@ -193,16 +193,14 @@ just docker-pipeline-full
 ### Run Frontend
 
 ```bash
-cd client
-npm install
-npm run dev -- --hostname 127.0.0.1 --port 3000
+just dev
 ```
 
 Open:
 
 - Workspace: `http://127.0.0.1:3000/licitaciones`
 
-Keep backend running with `just docker-start` and set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `client/.env.local`.
+This starts the frontend in Docker alongside the backend and database. Host-local `client/` commands remain fallback-only.
 
 ## Local Quality Gates
 

@@ -16,10 +16,20 @@ RUN addgroup --system app && adduser --system --ingroup app --home /home/app app
 
 USER app
 
-COPY --chown=app:app pyproject.toml uv.lock README.md alembic.ini ./
+COPY --chown=app:app pyproject.toml uv.lock alembic.ini ./
 COPY --chown=app:app alembic ./alembic
 
 RUN uv sync --frozen --no-install-project --no-dev
+
+FROM app AS tools
+
+COPY --chown=app:app backend ./backend
+COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app tests ./tests
+
+RUN uv sync --frozen --extra dev
+
+FROM app AS runtime
 
 COPY --chown=app:app backend ./backend
 COPY --chown=app:app scripts ./scripts
