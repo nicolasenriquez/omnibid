@@ -1,0 +1,9 @@
+title = "omnibid gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "No repository-wide blanket allowlist; add only narrow, justified exceptions."
+paths = []
+regexes = []

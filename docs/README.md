@@ -11,6 +11,7 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 - [`runbooks/`](runbooks)
   - local development, operations, CI, and implementation runbooks
   - Docker local runtime: [`runbooks/docker-local.md`](runbooks/docker-local.md)
+  - GitHub Actions CI runtime: [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
 - [`product/`](product)
   - product vision and stage-gated delivery priorities
 - [`standards/`](standards)
@@ -30,10 +31,12 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 6. [`architecture/data_architecture.md`](architecture/data_architecture.md)
 7. [`architecture/data_model.md`](architecture/data_model.md)
 8. [`runbooks/operations.md`](runbooks/operations.md)
+9. [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
 
 ## Agent Routing Guide
 
 - Runtime and pipelines: `just docker-start`, `just docker-pipeline-full`, `just docker-smoke`.
+- CI workflows and governance: `.github/`, `docs/standards/github-actions-ci-cd-standard.md`, `docs/runbooks/github-actions-ci-container-first.md`.
 - Backend routes: `backend/api/routers/`.
 - Backend config/database/model work: `backend/core/`, `backend/db/`, `backend/models/`, `alembic/versions/`.
 - Data pipeline work: `backend/ingestion/`, `backend/normalized/`, `scripts/`.
@@ -57,3 +60,5 @@ For current implementation details, see:
 - [`evidence/silver_procurement_cycle_validation_2026-04-23.md`](evidence/silver_procurement_cycle_validation_2026-04-23.md)
 - [`runbooks/procurement_investigation_workspace_plan.md`](runbooks/procurement_investigation_workspace_plan.md)
 - [`runbooks/opportunity_workspace_frontend_mvp_plan.md`](runbooks/opportunity_workspace_frontend_mvp_plan.md)
+- [`standards/github-actions-ci-cd-standard.md`](standards/github-actions-ci-cd-standard.md)
+- [`references/sdd-github-actions-container-first-ci-cd-2026-05-02.md`](references/sdd-github-actions-container-first-ci-cd-2026-05-02.md)

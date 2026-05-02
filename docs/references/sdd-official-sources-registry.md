@@ -28,6 +28,19 @@ This registry defines the preferred official sources for this repository stack.
 - Pyright: https://microsoft.github.io/pyright/
 - Bandit: https://bandit.readthedocs.io/en/latest/
 
+## CI/CD and Supply Chain
+
+- GitHub Actions workflow syntax: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+- GitHub Actions trigger behavior: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow
+- GitHub Actions token permissions: https://docs.github.com/en/actions/security-guides/automatic-token-authentication
+- GitHub Actions hardening: https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+- GitHub Actions service containers: https://docs.github.com/en/actions/guides/about-service-containers
+- Dependabot supported ecosystems: https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories
+- Dependabot options reference: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+- Docker CI/build docs: https://docs.docker.com/build/ci/
+- pre-commit: https://pre-commit.com/
+- Gitleaks action: https://github.com/gitleaks/gitleaks-action
+
 ## OpenSpec Workflow
 
 - OpenSpec (project local conventions): `openspec/` artifacts in this repository

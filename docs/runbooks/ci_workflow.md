@@ -4,6 +4,11 @@
 
 Define the local CI pipeline and the order of checks for this repository.
 
+For GitHub-hosted CI governance and rollout procedure, see:
+
+- `docs/standards/github-actions-ci-cd-standard.md`
+- `docs/runbooks/github-actions-ci-container-first.md`
+
 ## Fast Gate (default)
 
 Use this in daily development:
@@ -30,6 +35,14 @@ This runs:
 2. `just type-strict`
 3. `just security`
 4. `just test-integration`
+
+## GitHub Required Checks (Remote)
+
+The remote branch-protection checks mirror local policy:
+
+1. `Secret Scan`
+2. `Backend Gates`
+3. `Frontend Gates`
 
 ## Individual Commands
 

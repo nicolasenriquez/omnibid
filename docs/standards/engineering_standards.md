@@ -57,6 +57,7 @@ SDD rules:
 - `docs/references/sdd-standard.md`
 - `docs/references/sdd-official-sources-registry.md`
 - `docs/references/sdd-reference-template.md`
+- `docs/references/sdd-github-actions-container-first-ci-cd-2026-05-02.md`
 
 ### Library/Module Standards
 
@@ -70,3 +71,4 @@ SDD rules:
 - `docs/standards/logging-standard.md`
 - `docs/standards/postgres-standard.md`
 - `docs/standards/pandas-standard.md`
+- `docs/standards/github-actions-ci-cd-standard.md`
