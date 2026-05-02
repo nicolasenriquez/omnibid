@@ -9,7 +9,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -241,6 +241,7 @@ def ingest_file(
     chunk_size: int,
     show_progress: bool,
     expected_rows: int | None,
+    on_progress: Callable[[int, int | None], None] | None = None,
 ) -> int:
     total = 0
     chunk: list[dict[str, Any]] = []
@@ -294,7 +295,9 @@ def ingest_file(
                 chunk.clear()
                 if row_bar is not None:
                     row_bar.update(chunk_len)
-                elif total >= next_checkpoint:
+                if on_progress is not None:
+                    on_progress(total, expected_rows)
+                if total >= next_checkpoint:
                     log_line(f"{path.name}: processed={total:,} rows", show_progress)
                     next_checkpoint += checkpoint_every
 
@@ -304,7 +307,9 @@ def ingest_file(
         chunk.clear()
         if row_bar is not None:
             row_bar.update(chunk_len)
-        elif total >= next_checkpoint:
+        if on_progress is not None:
+            on_progress(total, expected_rows)
+        if total >= next_checkpoint:
             log_line(f"{path.name}: processed={total:,} rows", show_progress)
             next_checkpoint += checkpoint_every
 
@@ -340,8 +345,10 @@ def process_registered_file(
     chunk_size: int,
     show_progress: bool,
     precount: bool,
+    expected_rows: int | None = None,
+    on_progress: Callable[[int, int | None], None] | None = None,
 ) -> dict[str, int]:
-    expected_rows = count_csv_rows(path) if precount else None
+    expected_rows = expected_rows if expected_rows is not None else (count_csv_rows(path) if precount else None)
     before_scope_rows = count_raw_rows_for_source_file(session, dataset_type, source_file.id)
     with timed_step(f"ingest {path.name}", enabled=show_progress):
         processed_rows = ingest_file(
@@ -353,6 +360,7 @@ def process_registered_file(
             chunk_size=chunk_size,
             show_progress=show_progress,
             expected_rows=expected_rows,
+            on_progress=on_progress,
         )
     after_scope_rows = count_raw_rows_for_source_file(session, dataset_type, source_file.id)
     metrics = build_raw_ingest_metrics(

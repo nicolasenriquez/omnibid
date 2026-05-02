@@ -45,8 +45,16 @@ export function formatStage(stage: OpportunityStage): string {
   return OPPORTUNITY_STAGE_LABELS[stage];
 }
 
-export function formatRelationshipCertainty(certainty: RelationshipCertainty): string {
-  return RELATIONSHIP_CERTAINTY_LABELS[certainty];
+export function formatRelationshipCertainty(
+  certainty: RelationshipCertainty | string | null | undefined,
+): string {
+  if (!certainty) {
+    return RELATIONSHIP_CERTAINTY_LABELS.unconfirmed;
+  }
+  return (
+    RELATIONSHIP_CERTAINTY_LABELS[certainty as RelationshipCertainty] ??
+    RELATIONSHIP_CERTAINTY_LABELS.unconfirmed
+  );
 }
 
 export function formatUnavailable(value: string | null | undefined): string {

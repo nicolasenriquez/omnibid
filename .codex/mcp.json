@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/playwright-mcp@latest"],
+      "description": "Browser automation for interactive auditing. Use get_text/a11y_tree first. Screenshots only when user explicitly requests visual verification."
+    }
+  }
+}

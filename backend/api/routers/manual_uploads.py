@@ -6,11 +6,11 @@ import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db
@@ -23,6 +23,7 @@ from backend.ingestion.manual_uploads import (
     load_manual_upload_preflight,
     mark_manual_upload_preflight_consumed,
 )
+from backend.db.session import SessionLocal
 from backend.models.normalized import (
     NormalizedLicitacion,
     NormalizedLicitacionItem,
@@ -180,6 +181,162 @@ def _manual_upload_telemetry(
     }
 
 
+def _manual_upload_telemetry_seed() -> dict[str, Any]:
+    return {
+        "processed_rows": 0,
+        "accepted_rows": 0,
+        "inserted_delta_rows": 0,
+        "duplicate_existing_rows": 0,
+        "rejected_rows": 0,
+        "normalized_rows": 0,
+        "silver_rows": 0,
+        "normalized_inserted_delta_rows": 0,
+        "silver_inserted_delta_rows": 0,
+        "raw_ingest": {},
+        "entity_metrics": {},
+    }
+
+
+def _manual_upload_progress_payload(
+    *,
+    phase: str,
+    label: str,
+    detail: str,
+    percent: int,
+    raw_processed_rows: int,
+    raw_total_rows: int,
+    normalized_processed_rows: int,
+    normalized_total_rows: int,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "phase": phase,
+        "label": label,
+        "detail": detail,
+        "percent": max(0, min(100, int(percent))),
+        "raw_processed_rows": max(0, int(raw_processed_rows)),
+        "raw_total_rows": max(0, int(raw_total_rows)),
+        "normalized_processed_rows": max(0, int(normalized_processed_rows)),
+        "normalized_total_rows": max(0, int(normalized_total_rows)),
+        "updated_at": updated_at or datetime.now(UTC).isoformat(),
+    }
+
+
+def _manual_upload_progress_seed(preflight: ManualCsvPreflight) -> dict[str, Any]:
+    total_rows = max(0, preflight.row_count)
+    return _manual_upload_progress_payload(
+        phase="preparing",
+        label="Preparando carga manual",
+        detail=f"{total_rows:,} filas listas para validar y cargar.",
+        percent=5,
+        raw_processed_rows=0,
+        raw_total_rows=total_rows,
+        normalized_processed_rows=0,
+        normalized_total_rows=total_rows,
+    )
+
+
+def _manual_upload_progress_from_state(
+    *,
+    run: PipelineRun,
+    preflight: ManualCsvPreflight,
+) -> dict[str, Any]:
+    run_config = run.config if isinstance(run.config, dict) else {}
+    manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
+    progress = manual_upload.get("progress")
+    total_rows = max(0, preflight.row_count)
+
+    if run.status == "completed":
+        telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
+        processed_rows = int(telemetry.get("processed_rows") or total_rows)
+        return _manual_upload_progress_payload(
+            phase="completed",
+            label="Carga completada",
+            detail="Raw, Normalized y Silver cerrados.",
+            percent=100,
+            raw_processed_rows=processed_rows,
+            raw_total_rows=max(total_rows, processed_rows),
+            normalized_processed_rows=processed_rows,
+            normalized_total_rows=max(total_rows, processed_rows),
+            updated_at=str(
+                (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
+                or (run.finished_at.isoformat() if run.finished_at else None)
+                or datetime.now(UTC).isoformat()
+            ),
+        )
+
+    if run.status == "failed":
+        detail = run.error_summary or "Manual upload failed"
+        return _manual_upload_progress_payload(
+            phase="failed",
+            label="Carga fallida",
+            detail=detail,
+            percent=100,
+            raw_processed_rows=int(cast(dict[str, Any], progress).get("raw_processed_rows") or 0)
+            if isinstance(progress, dict)
+            else 0,
+            raw_total_rows=int(cast(dict[str, Any], progress).get("raw_total_rows") or total_rows)
+            if isinstance(progress, dict)
+            else total_rows,
+            normalized_processed_rows=int(
+                cast(dict[str, Any], progress).get("normalized_processed_rows") or 0
+            )
+            if isinstance(progress, dict)
+            else 0,
+            normalized_total_rows=int(
+                cast(dict[str, Any], progress).get("normalized_total_rows") or total_rows
+            )
+            if isinstance(progress, dict)
+            else total_rows,
+            updated_at=str(
+                (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
+                or (run.finished_at.isoformat() if run.finished_at else None)
+                or datetime.now(UTC).isoformat()
+            ),
+        )
+
+    if isinstance(progress, dict) and progress:
+        return _manual_upload_progress_payload(
+            phase=str(progress.get("phase") or "preparing"),
+            label=str(progress.get("label") or "Preparando carga manual"),
+            detail=str(progress.get("detail") or "Backend listo para arrancar."),
+            percent=int(progress.get("percent") or 0),
+            raw_processed_rows=int(progress.get("raw_processed_rows") or 0),
+            raw_total_rows=int(progress.get("raw_total_rows") or total_rows),
+            normalized_processed_rows=int(progress.get("normalized_processed_rows") or 0),
+            normalized_total_rows=int(progress.get("normalized_total_rows") or total_rows),
+            updated_at=str(progress.get("updated_at") or datetime.now(UTC).isoformat()),
+        )
+
+    return _manual_upload_progress_seed(preflight)
+
+
+def _set_manual_upload_progress(run: PipelineRun, progress: dict[str, Any]) -> None:
+    run_config = run.config if isinstance(run.config, dict) else {}
+    manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
+    manual_upload["progress"] = progress
+    run_config["manual_upload"] = manual_upload
+    run.config = run_config
+
+
+def _persist_manual_upload_progress(job_id: UUID, progress: dict[str, Any]) -> None:
+    with SessionLocal() as progress_db:
+        run = progress_db.execute(
+            sa.select(PipelineRun).where(PipelineRun.id == job_id)
+        ).scalar_one_or_none()
+        if run is None:
+            return
+        _set_manual_upload_progress(run, progress)
+        progress_db.commit()
+
+
+def _manual_upload_percent(base: int, span: int, processed: int, total: int | None) -> int:
+    if total is None or total <= 0:
+        return max(0, min(100, base))
+    ratio = max(0.0, min(float(processed), float(total))) / float(total)
+    return max(0, min(100, base + round(span * ratio)))
+
+
 def _job_response(
     *,
     preflight: ManualCsvPreflight,
@@ -189,11 +346,12 @@ def _job_response(
     batch: IngestionBatch,
 ) -> dict[str, Any]:
     run_config = run.config if isinstance(run.config, dict) else {}
-    telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
+    telemetry = cast(dict[str, Any], run_config.get("telemetry") or _manual_upload_telemetry_seed())
     return {
         "job_id": str(run.id),
         "status": run.status,
         "terminal_state": run.status in {"completed", "failed"},
+        "progress": _manual_upload_progress_from_state(run=run, preflight=preflight),
         "step": {
             "name": step.step_name,
             "status": step.status,
@@ -371,6 +529,8 @@ def _run_manual_upload_pipeline(
     batch: IngestionBatch,
     run: PipelineRun,
     step: PipelineRunStep,
+    on_raw_progress: Callable[[int, int | None], None] | None = None,
+    on_normalized_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     raw_metrics = process_registered_file(
         session=db,
@@ -383,6 +543,8 @@ def _run_manual_upload_pipeline(
         chunk_size=5_000,
         show_progress=False,
         precount=False,
+        expected_rows=preflight.row_count,
+        on_progress=on_raw_progress,
     )
 
     if preflight.dataset_type == "licitacion":
@@ -398,6 +560,7 @@ def _run_manual_upload_pipeline(
             state_checkpoint_every_pages=1,
             on_checkpoint=None,
             on_quality_checkpoint=None,
+            on_progress=on_normalized_progress,
         )
     else:
         normalized_result = process_ordenes_compra(
@@ -412,12 +575,248 @@ def _run_manual_upload_pipeline(
             state_checkpoint_every_pages=1,
             on_checkpoint=None,
             on_quality_checkpoint=None,
+            on_progress=on_normalized_progress,
         )
 
     return _manual_upload_telemetry(
         raw_metrics,
         cast(dict[str, dict[str, int]], normalized_result.get("entity_metrics") or {}),
     )
+
+
+def _run_manual_upload_pipeline_background(
+    *,
+    job_id: UUID,
+    preflight: ManualCsvPreflight,
+) -> None:
+    with SessionLocal() as job_db:
+        run = job_db.execute(sa.select(PipelineRun).where(PipelineRun.id == job_id)).scalar_one_or_none()
+        if run is None:
+            return
+
+        step = job_db.execute(
+            sa.select(PipelineRunStep)
+            .where(PipelineRunStep.run_id == job_id)
+            .order_by(PipelineRunStep.started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        source_file = job_db.execute(
+            sa.select(SourceFile).where(SourceFile.id == run.source_file_id)
+        ).scalar_one_or_none()
+        batch = job_db.execute(
+            sa.select(IngestionBatch)
+            .where(IngestionBatch.source_file_id == run.source_file_id)
+            .order_by(IngestionBatch.started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if step is None or source_file is None or batch is None:
+            return
+
+        source_file_is_new = source_file.status == "registered"
+        raw_total_rows = max(0, preflight.row_count)
+        normalized_total_rows = max(0, preflight.row_count)
+
+        def report_raw_progress(processed: int, total: int | None) -> None:
+            total_rows = max(0, total or raw_total_rows)
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="raw_ingest",
+                    label="Registrando Raw",
+                    detail=f"{processed:,}/{total_rows:,} filas leidas.",
+                    percent=_manual_upload_percent(5, 40, processed, total_rows),
+                    raw_processed_rows=processed,
+                    raw_total_rows=total_rows,
+                    normalized_processed_rows=0,
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+
+        def report_normalized_progress(processed: int, total: int) -> None:
+            total_rows = max(0, total or normalized_total_rows)
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="normalized",
+                    label="Construyendo Normalized",
+                    detail=f"{processed:,}/{total_rows:,} filas canonicas.",
+                    percent=_manual_upload_percent(50, 45, processed, total_rows),
+                    raw_processed_rows=raw_total_rows,
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=processed,
+                    normalized_total_rows=total_rows,
+                ),
+            )
+
+        try:
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="raw_ingest",
+                    label="Arrancando carga",
+                    detail=f"CSV listo. {raw_total_rows:,} filas para registrar en Raw.",
+                    percent=10,
+                    raw_processed_rows=0,
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=0,
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+            raw_metrics = process_registered_file(
+                session=job_db,
+                dataset_type=preflight.dataset_type,
+                path=Path(preflight.staged_file_path),
+                source_file=source_file,
+                batch=batch,
+                run=run,
+                step=step,
+                chunk_size=5_000,
+                show_progress=False,
+                precount=False,
+                expected_rows=preflight.row_count,
+                on_progress=report_raw_progress,
+            )
+
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="normalized",
+                    label="Construyendo capas canonicas",
+                    detail="Raw listo. Normalized y Silver en marcha.",
+                    percent=55,
+                    raw_processed_rows=raw_metrics["processed_rows"],
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=0,
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+
+            if preflight.dataset_type == "licitacion":
+                normalized_result = process_licitaciones(
+                    session=job_db,
+                    fetch_size=10_000,
+                    chunk_size=500,
+                    limit_rows=0,
+                    show_progress=False,
+                    start_after_id=0,
+                    source_file_id=source_file.id,
+                    debug_telemetry=False,
+                    state_checkpoint_every_pages=1,
+                    on_checkpoint=None,
+                    on_quality_checkpoint=None,
+                    on_progress=report_normalized_progress,
+                )
+            else:
+                normalized_result = process_ordenes_compra(
+                    session=job_db,
+                    fetch_size=10_000,
+                    chunk_size=500,
+                    limit_rows=0,
+                    show_progress=False,
+                    start_after_id=0,
+                    source_file_id=source_file.id,
+                    debug_telemetry=False,
+                    state_checkpoint_every_pages=1,
+                    on_checkpoint=None,
+                    on_quality_checkpoint=None,
+                    on_progress=report_normalized_progress,
+                )
+
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="finalizing",
+                    label="Finalizando carga",
+                    detail="Escribiendo telemetria y estado final.",
+                    percent=98,
+                    raw_processed_rows=raw_metrics["processed_rows"],
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=int(
+                        normalized_result.get("processed_rows") or normalized_total_rows
+                    ),
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+
+            telemetry = _manual_upload_telemetry(
+                raw_metrics,
+                cast(dict[str, dict[str, int]], normalized_result.get("entity_metrics") or {}),
+            )
+            job_db.refresh(run)
+            _finalize_job_records(
+                source_file=source_file,
+                preflight=preflight,
+                run=run,
+                step=step,
+                batch=batch,
+                completed_at=datetime.now(UTC),
+                telemetry=telemetry,
+            )
+            job_db.commit()
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="completed",
+                    label="Carga completada",
+                    detail="Raw, Normalized y Silver cerrados.",
+                    percent=100,
+                    raw_processed_rows=raw_metrics["processed_rows"],
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=int(
+                        normalized_result.get("processed_rows") or normalized_total_rows
+                    ),
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+        except ManualUploadError as exc:
+            job_db.rollback()
+            _mark_job_failed(
+                source_file=source_file,
+                source_file_is_new=source_file_is_new,
+                run=run,
+                step=step,
+                batch=batch,
+                error_summary=str(exc),
+            )
+            job_db.commit()
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="failed",
+                    label="Carga fallida",
+                    detail=str(exc),
+                    percent=100,
+                    raw_processed_rows=0,
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=0,
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            job_db.rollback()
+            safe_message = "Manual upload processing failed"
+            _mark_job_failed(
+                source_file=source_file,
+                source_file_is_new=source_file_is_new,
+                run=run,
+                step=step,
+                batch=batch,
+                error_summary=safe_message,
+            )
+            job_db.commit()
+            _persist_manual_upload_progress(
+                job_id,
+                _manual_upload_progress_payload(
+                    phase="failed",
+                    label="Carga fallida",
+                    detail=safe_message,
+                    percent=100,
+                    raw_processed_rows=0,
+                    raw_total_rows=raw_total_rows,
+                    normalized_processed_rows=0,
+                    normalized_total_rows=normalized_total_rows,
+                ),
+            )
 
 
 def _mark_job_failed(
@@ -503,6 +902,7 @@ async def preflight_manual_csv(
 @router.post("/{file_token}/process")
 def process_manual_csv(
     file_token: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -538,24 +938,13 @@ def process_manual_csv(
             preflight.file_token,
             str(run.id),
         )
-        telemetry = _run_manual_upload_pipeline(
-            db=db,
-            preflight=consumed_preflight,
-            source_file=source_file,
-            batch=batch,
-            run=run,
-            step=step,
-        )
-        telemetry = _finalize_job_records(
-            source_file=source_file,
-            preflight=consumed_preflight,
-            run=run,
-            step=step,
-            batch=batch,
-            completed_at=datetime.now(UTC),
-            telemetry=telemetry,
-        )
+        _set_manual_upload_progress(run, _manual_upload_progress_seed(consumed_preflight))
         db.commit()
+        background_tasks.add_task(
+            _run_manual_upload_pipeline_background,
+            job_id=run.id,
+            preflight=consumed_preflight,
+        )
         response = _job_response(
             preflight=consumed_preflight,
             source_file=source_file,
@@ -563,7 +952,6 @@ def process_manual_csv(
             step=step,
             batch=batch,
         )
-        response["telemetry"] = telemetry
         return response
     except ManualUploadError as exc:
         db.rollback()

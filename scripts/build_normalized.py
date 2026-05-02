@@ -1907,6 +1907,7 @@ def process_licitaciones(
     on_checkpoint: Callable[[int, int], None] | None = None,
     on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
     quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     licitaciones_before = table_row_count(session, NormalizedLicitacion)
     licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
@@ -2379,6 +2380,8 @@ def process_licitaciones(
                         },
                     },
                 )
+            if on_progress is not None:
+                on_progress(processed, target_rows)
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -2643,6 +2646,8 @@ def process_licitaciones(
     progress_write("[normalized] licitaciones done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
+    if on_progress is not None:
+        on_progress(processed, target_rows)
     return {
         "processed_rows": processed,
         "last_raw_id": last_id,
@@ -2679,6 +2684,7 @@ def process_ordenes_compra(
     on_checkpoint: Callable[[int, int], None] | None = None,
     on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
     quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     ordenes_before = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_before = table_row_count(session, NormalizedOrdenCompraItem)
@@ -3150,6 +3156,8 @@ def process_ordenes_compra(
                         },
                     },
                 )
+            if on_progress is not None:
+                on_progress(processed, target_rows)
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -3399,6 +3407,8 @@ def process_ordenes_compra(
     progress_write("[normalized] ordenes_compra done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
+    if on_progress is not None:
+        on_progress(processed, target_rows)
     return {
         "processed_rows": processed,
         "last_raw_id": last_id,

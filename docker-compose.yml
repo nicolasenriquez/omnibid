@@ -118,7 +118,7 @@ services:
       - /dev/null
 
   client:
-    image: node:24-alpine
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
     working_dir: /app
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}

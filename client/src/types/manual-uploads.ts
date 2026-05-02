@@ -62,10 +62,23 @@ export type ManualUploadTelemetry = {
   entity_metrics: Record<string, Record<string, number>>;
 };
 
+export type ManualUploadProgress = {
+  phase: "preparing" | "raw_ingest" | "normalized" | "finalizing" | "completed" | "failed";
+  label: string;
+  detail: string;
+  percent: number;
+  raw_processed_rows: number;
+  raw_total_rows: number;
+  normalized_processed_rows: number;
+  normalized_total_rows: number;
+  updated_at: string;
+};
+
 export type ManualUploadJobResponse = {
   job_id: string;
   status: string;
   terminal_state: boolean;
+  progress: ManualUploadProgress;
   step: ManualUploadStep;
   telemetry: ManualUploadTelemetry;
   source_file: ManualUploadSourceFile | null;

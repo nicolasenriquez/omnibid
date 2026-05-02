@@ -110,6 +110,14 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Keep SQL changes explicit and reviewable.
 - Keep Alembic `revision` ids compact enough for `alembic_version.version_num` (`VARCHAR(32)`); generate timestamped short ids with `uv run alembic revision --rev-id <id> -m "<name>"`.
 
+## Browser and Interactive Auditing Policy
+
+- Agents MUST perform static code analysis first before opening a browser.
+- Browser access is reserved for interactive flows that cannot be validated by reading code (e.g., drag-and-drop, polling UI states, modal transitions).
+- When browser access is required, prefer `browser_get_text` or `browser_get_a11y_tree` over screenshots.
+- Screenshots are prohibited unless explicitly requested by the user.
+- The canonical browser tool is Playwright MCP via `npx @anthropic-ai/playwright-mcp`.
+
 ## Documentation Discipline
 
 - Keep architecture + runbooks aligned with code.

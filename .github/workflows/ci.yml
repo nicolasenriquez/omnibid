@@ -71,7 +71,7 @@ jobs:
 
       - name: Integration tests
         run: |
-          docker compose --env-file .env.docker -f docker-compose.yml --profile test up -d db_test
+          docker compose --env-file .env.docker -f docker-compose.yml --profile test up -d --wait db_test
           docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync python scripts/test_db_guard.py run-integration
 
       - name: Compose cleanup

@@ -6,6 +6,7 @@ export class ClientConfigError extends Error {
 }
 
 let cachedApiBaseUrl: string | null = null;
+const FALLBACK_API_BASE_URL = "http://127.0.0.1:8000";
 
 export function getApiBaseUrl(): string {
   if (cachedApiBaseUrl) {
@@ -13,12 +14,6 @@ export function getApiBaseUrl(): string {
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  if (!baseUrl) {
-    throw new ClientConfigError(
-      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in client/.env.local based on client/.env.example.",
-    );
-  }
-
-  cachedApiBaseUrl = baseUrl.replace(/\/+$/, "");
+  cachedApiBaseUrl = (baseUrl || FALLBACK_API_BASE_URL).replace(/\/+$/, "");
   return cachedApiBaseUrl;
 }

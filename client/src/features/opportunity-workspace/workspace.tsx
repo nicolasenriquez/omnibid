@@ -3,8 +3,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -15,12 +13,12 @@ import {
   ExternalLink,
   FileSpreadsheet,
   FilterX,
-  Eye,
   RefreshCw,
   Search,
   ServerCrash,
   ShieldCheck,
   SlidersHorizontal,
+  Star,
   Terminal,
   Upload,
   X,
@@ -30,6 +28,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ApiClientError } from "@/src/lib/api/http";
 import {
   preflightManualCsvUpload,
+  fetchManualCsvUploadJob,
   processManualCsvUpload,
 } from "@/src/lib/api/manual-uploads";
 import {
@@ -64,6 +63,8 @@ import type {
   OpportunityDetail,
   OpportunityListItem,
   OpportunityListResponse,
+  OpportunitySortDirection,
+  OpportunitySortField,
   OpportunityStage,
   OpportunitySummaryMetric,
   OpportunitySummaryResponse,
@@ -95,9 +96,25 @@ type UploadConsoleEntry = {
   text: string;
 };
 
+type UploadWorkflowStepState = "idle" | "active" | "done" | "error";
+
+type UploadWorkflowStep = {
+  key: "prepare" | "validate" | "process";
+  label: string;
+  summary: string;
+  state: UploadWorkflowStepState;
+};
+
+type UploadJobState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "running"; data: ManualUploadJobResponse }
+  | { status: "success"; data: ManualUploadJobResponse }
+  | { status: "error"; message: string; statusCode: number | null };
+
 const UPLOAD_CONSOLE_SEED: UploadConsoleEntry = {
   level: "info",
-  text: "Flujo aislado listo. Selecciona dataset y CSV.",
+  text: "Flujo listo. Selecciona dataset y CSV.",
 };
 
 const STAGE_COLUMNS: OpportunityStage[] = [
@@ -148,34 +165,31 @@ const HEADER_METRIC_FALLBACKS: OpportunitySummaryMetric[] = [
 ];
 
 const CHILECOMPRA_NOTICE_URL = "https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx";
+const WATCHLIST_STORAGE_KEY = "opportunity-workspace.watchlist.v1";
 
 function toReadableError(error: unknown): { message: string; statusCode: number | null } {
   if (error instanceof ApiClientError) {
     if (error.status === 404) {
       return {
-        message:
-          "Los endpoints de oportunidades aun no estan disponibles en backend (404).",
+        message: "No se encontraron oportunidades. Intenta con otros filtros o mas tarde.",
         statusCode: 404,
       };
     }
     if (error.status && error.status >= 500) {
       return {
-        message:
-          "La API esta en linea, pero el endpoint de oportunidades respondio con un error interno.",
+        message: "Hubo un problema al cargar las oportunidades. Intenta de nuevo en unos momentos.",
         statusCode: error.status,
       };
     }
     return {
-      message:
-        "La API rechazo la consulta de oportunidades. Revisa filtros, contrato de datos o permisos CORS.",
+      message: "La consulta no pudo completarse. Revisa los filtros aplicados.",
       statusCode: error.status,
     };
   }
   if (error instanceof Error) {
     if (error.message.toLowerCase().includes("failed to fetch")) {
       return {
-        message:
-          "No fue posible contactar la API de oportunidades. Verifica backend en http://localhost:8000 y CORS.",
+        message: "No se pudo conectar con el servidor. Verifica tu conexion.",
         statusCode: null,
       };
     }
@@ -357,7 +371,32 @@ function getSortLabel(sortBy: string, sortOrder: string): string {
   if (sortBy === "publication_date") {
     return sortOrder === "desc" ? "Publicacion reciente" : "Publicacion antigua";
   }
+  if (sortBy === "days_remaining") {
+    return sortOrder === "desc" ? "Dias restantes (mas)" : "Dias restantes (menos)";
+  }
   return sortOrder === "desc" ? "Cierre lejano" : "Cierre cercano";
+}
+
+function buildExplorerScopeKey(state: ReturnType<typeof parseWorkspaceQueryState>): string {
+  return [
+    state.tab,
+    state.q.trim(),
+    state.officialStatus,
+    state.stage,
+    state.buyerRegion,
+    state.primaryCategory,
+    state.publicationFrom,
+    state.publicationTo,
+    state.closeFrom,
+    state.closeTo,
+    state.minAmount,
+    state.maxAmount,
+    state.procurementType,
+    state.lessThan100Utm ? "1" : "0",
+    String(state.pageSize),
+    state.sortBy,
+    state.sortOrder,
+  ].join("|");
 }
 
 function formatToday(): string {
@@ -388,14 +427,22 @@ function getActiveFilterLabels(
 function SortHeader({
   label,
   active = false,
+  sortOrder,
 }: {
   label: string;
   active?: boolean;
+  sortOrder?: "asc" | "desc";
 }) {
   return (
     <span className={active ? "table-sort table-sort--active" : "table-sort"}>
       <span>{label}</span>
-      <ChevronDown size={13} aria-hidden="true" />
+      {active ? (
+        <ChevronDown
+          size={13}
+          aria-hidden="true"
+          style={{ transform: sortOrder === "asc" ? "rotate(180deg)" : undefined }}
+        />
+      ) : null}
     </span>
   );
 }
@@ -469,6 +516,44 @@ export function OpportunityWorkspace() {
     queryState.selectedNoticeId ? { status: "loading" } : { status: "idle" },
   );
   const [expandedNoticeId, setExpandedNoticeId] = useState<string | null>(null);
+  const [explorerInfiniteItems, setExplorerInfiniteItems] = useState<OpportunityListItem[]>([]);
+  const [isLoadingMoreExplorer, setIsLoadingMoreExplorer] = useState(false);
+  const [loadMoreErrorMessage, setLoadMoreErrorMessage] = useState<string | null>(null);
+  const [watchlistNoticeIds, setWatchlistNoticeIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    try {
+      const raw = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return Array.from(
+        new Set(
+          parsed
+            .filter((value): value is string => typeof value === "string")
+            .map((noticeId) => noticeId.trim())
+            .filter((noticeId) => noticeId.length > 0),
+        ),
+      );
+    } catch {
+      return [];
+    }
+  });
+  const [watchlistOnly, setWatchlistOnly] = useState(false);
+  const [offerControls, setOfferControls] = useState<{
+    noticeId: string | null;
+    viewMode: "summary" | "all";
+    itemFilter: string;
+  }>({
+    noticeId: null,
+    viewMode: "summary",
+    itemFilter: "all",
+  });
   const [reloadNonce, setReloadNonce] = useState(0);
   const [isUploadSheetOpen, setIsUploadSheetOpen] = useState(false);
   const [uploadDatasetType, setUploadDatasetType] = useState<ManualUploadDatasetType | "">("");
@@ -476,15 +561,25 @@ export function OpportunityWorkspace() {
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [uploadPreflightState, setUploadPreflightState] =
     useState<RemoteState<ManualUploadPreflightResponse>>({ status: "idle" });
-  const [uploadJobState, setUploadJobState] = useState<RemoteState<ManualUploadJobResponse>>({
-    status: "idle",
-  });
+  const [uploadJobState, setUploadJobState] = useState<UploadJobState>({ status: "idle" });
   const [uploadConsoleEntries, setUploadConsoleEntries] = useState<UploadConsoleEntry[]>([
     UPLOAD_CONSOLE_SEED,
   ]);
   const uploadAbortRef = useRef<AbortController | null>(null);
   const previousUploadPreflightStatus = useRef(uploadPreflightState.status);
   const previousUploadJobStatus = useRef(uploadJobState.status);
+  const previousUploadRunningConsoleKey = useRef<string | null>(null);
+  const skipSummaryFetchRef = useRef(false);
+  const appendListFetchRef = useRef(false);
+  const loadMoreTriggerLockRef = useRef(false);
+  const explorerLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const explorerScopeKeyRef = useRef<string | null>(null);
+  const uploadRunningJobId =
+    uploadJobState.status === "running" ? uploadJobState.data.job_id : null;
+  const uploadRunningConsoleKey =
+    uploadJobState.status === "running"
+      ? `${uploadJobState.data.progress.phase}:${Math.floor(uploadJobState.data.progress.percent / 5)}`
+      : null;
 
   const replaceQuery = useCallback(
     (patch: Partial<typeof queryState>) => {
@@ -494,9 +589,20 @@ export function OpportunityWorkspace() {
   );
 
   const refreshList = useCallback(
-    (patch: Partial<typeof queryState>) => {
-      setListState({ status: "loading" });
-      setSummaryState({ status: "loading" });
+    (
+      patch: Partial<typeof queryState>,
+      options?: { preserveList?: boolean; preserveSummary?: boolean },
+    ) => {
+      if (!options?.preserveList) {
+        setListState({ status: "loading" });
+      } else {
+        appendListFetchRef.current = true;
+      }
+      if (!options?.preserveSummary) {
+        setSummaryState({ status: "loading" });
+      } else {
+        skipSummaryFetchRef.current = true;
+      }
       replaceQuery(patch);
     },
     [replaceQuery],
@@ -512,34 +618,51 @@ export function OpportunityWorkspace() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const skipSummaryFetch = skipSummaryFetchRef.current;
+    const appendListFetch = appendListFetchRef.current;
+    skipSummaryFetchRef.current = false;
+    appendListFetchRef.current = false;
 
     fetchOpportunities(filters, controller.signal)
-      .then((data) => setListState({ status: "success", data }))
+      .then((data) => {
+        setListState({ status: "success", data });
+        setLoadMoreErrorMessage(null);
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
           return;
         }
         const normalized = toReadableError(error);
+        if (appendListFetch) {
+          setLoadMoreErrorMessage(normalized.message);
+          return;
+        }
         setListState({
           status: "error",
           message: normalized.message,
           statusCode: normalized.statusCode,
         });
+      })
+      .finally(() => {
+        setIsLoadingMoreExplorer(false);
+        loadMoreTriggerLockRef.current = false;
       });
 
-    fetchOpportunitySummary(filters, controller.signal)
-      .then((data) => setSummaryState({ status: "success", data }))
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        const normalized = toReadableError(error);
-        setSummaryState({
-          status: "error",
-          message: normalized.message,
-          statusCode: normalized.statusCode,
+    if (!skipSummaryFetch) {
+      fetchOpportunitySummary(filters, controller.signal)
+        .then((data) => setSummaryState({ status: "success", data }))
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          const normalized = toReadableError(error);
+          setSummaryState({
+            status: "error",
+            message: normalized.message,
+            statusCode: normalized.statusCode,
+          });
         });
-      });
+    }
 
     return () => controller.abort();
   }, [filters, reloadNonce]);
@@ -602,32 +725,38 @@ export function OpportunityWorkspace() {
     previousUploadPreflightStatus.current = uploadPreflightState.status;
 
     if (uploadPreflightState.status === "loading") {
-      appendUploadConsoleEntries([
-        { level: "running", text: "Validando archivo: delimitador, columnas, hash y tamaño." },
-      ]);
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          { level: "running", text: "Validando dataset: delimitador, columnas, hash y tamaño." },
+        ]);
+      });
       return;
     }
 
     if (uploadPreflightState.status === "error") {
-      appendUploadConsoleEntries([
-        { level: "error", text: `Preflight rechazado: ${uploadPreflightState.message}` },
-      ]);
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          { level: "error", text: `Preflight rechazado: ${uploadPreflightState.message}` },
+        ]);
+      });
       return;
     }
 
     if (uploadPreflightState.status === "success") {
-      appendUploadConsoleEntries([
-        {
-          level: "done",
-          text: `Preflight OK: ${formatCount(uploadPreflightState.data.row_count)} filas, hash ${uploadPreflightState.data.file_hash_sha256.slice(0, 12)}...`,
-        },
-        {
-          level: "muted",
-          text: uploadPreflightState.data.duplicate_source_file
-            ? "Hash ya visto en pipeline. Conteos canonicos y duplicados van por separado."
-            : "Staging listo. Confirma para registrar Raw y construir capas canonicas.",
-        },
-      ]);
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          {
+            level: "done",
+            text: `Dataset validado: ${formatCount(uploadPreflightState.data.row_count)} filas, hash ${uploadPreflightState.data.file_hash_sha256.slice(0, 12)}...`,
+          },
+          {
+            level: "muted",
+            text: uploadPreflightState.data.duplicate_source_file
+              ? "Este archivo ya fue procesado anteriormente."
+              : "Archivo listo para procesar.",
+          },
+        ]);
+      });
     }
   }, [appendUploadConsoleEntries, uploadPreflightState.status, uploadPreflightState]);
 
@@ -638,38 +767,205 @@ export function OpportunityWorkspace() {
     previousUploadJobStatus.current = uploadJobState.status;
 
     if (uploadJobState.status === "loading") {
-      appendUploadConsoleEntries([
-        { level: "running", text: "Proceso activo: Raw -> Normalized -> Silver." },
-        { level: "muted", text: "Esto puede tardar varios minutos en CSV grandes." },
-      ]);
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          { level: "running", text: "Procesando archivo..." },
+          { level: "muted", text: "Esto puede tardar varios minutos en CSV grandes." },
+        ]);
+      });
+      return;
+    }
+
+    if (uploadJobState.status === "running") {
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          {
+            level: "running",
+            text: `${uploadJobState.data.progress.label} · ${uploadJobState.data.progress.percent}%`,
+          },
+          {
+            level: "muted",
+            text: "Puedes cerrar esta ventana. El proceso continua en el servidor.",
+          },
+        ]);
+      });
+      previousUploadRunningConsoleKey.current = uploadRunningConsoleKey;
       return;
     }
 
     if (uploadJobState.status === "error") {
-      appendUploadConsoleEntries([
-        { level: "error", text: `Proceso fallido: ${uploadJobState.message}` },
-      ]);
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          { level: "error", text: `Proceso fallido: ${uploadJobState.message}` },
+        ]);
+      });
       return;
     }
 
     if (uploadJobState.status === "success") {
+      queueMicrotask(() => {
+        appendUploadConsoleEntries([
+          {
+            level: "done",
+            text: `Proceso completado: ${formatCount(uploadJobState.data.telemetry.processed_rows)} registros procesados.`,
+          },
+          {
+            level: "done",
+            text: `Datos listos: ${formatCount(uploadJobState.data.telemetry.normalized_rows)} unificados, ${formatCount(uploadJobState.data.telemetry.silver_rows)} finales.`,
+          },
+        ]);
+      });
+    }
+  }, [appendUploadConsoleEntries, uploadJobState.status, uploadJobState, uploadRunningConsoleKey]);
+
+  useEffect(() => {
+    if (uploadJobState.status !== "running" || uploadRunningConsoleKey === null) {
+      previousUploadRunningConsoleKey.current = null;
+      return;
+    }
+
+    if (previousUploadRunningConsoleKey.current === uploadRunningConsoleKey) {
+      return;
+    }
+
+    previousUploadRunningConsoleKey.current = uploadRunningConsoleKey;
+    queueMicrotask(() => {
       appendUploadConsoleEntries([
         {
-          level: "done",
-          text: `Proceso completo: ${formatCount(uploadJobState.data.telemetry.processed_rows)} procesadas, ${formatCount(uploadJobState.data.telemetry.inserted_delta_rows)} delta Raw.`,
-        },
-        {
-          level: "done",
-          text: `Capas: ${formatCount(uploadJobState.data.telemetry.normalized_rows)} Normalized, ${formatCount(uploadJobState.data.telemetry.silver_rows)} Silver.`,
+          level: "running",
+          text: `${uploadJobState.data.progress.label}: ${uploadJobState.data.progress.percent}%`,
         },
       ]);
-    }
-  }, [appendUploadConsoleEntries, uploadJobState.status, uploadJobState]);
+    });
+  }, [appendUploadConsoleEntries, uploadJobState, uploadRunningConsoleKey]);
 
-  const listItems = useMemo(
-    () => (listState.status === "success" ? uniqueByNoticeId(listState.data.items) : []),
-    [listState],
-  );
+  useEffect(() => {
+    if (!uploadRunningJobId) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let stopped = false;
+    let timeoutId: number | undefined;
+
+    const scheduleNextPoll = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => {
+        void pollOnce();
+      }, delayMs);
+    };
+
+    const pollOnce = async () => {
+      if (stopped) {
+        return;
+      }
+
+      try {
+        const data = await fetchManualCsvUploadJob(uploadRunningJobId, controller.signal);
+        if (stopped) {
+          return;
+        }
+
+        if (data.terminal_state) {
+          setUploadJobState({ status: "success", data });
+          setListState({ status: "loading" });
+          setSummaryState({ status: "loading" });
+          setReloadNonce((current) => current + 1);
+          queueMicrotask(() => {
+            appendUploadConsoleEntries([
+                {
+                  level: "done",
+                  text: `Proceso finalizado: ${data.progress.percent}% completado.`,
+                },
+            ]);
+          });
+          return;
+        }
+
+        setUploadJobState({ status: "running", data });
+        scheduleNextPoll(1800);
+      } catch (error) {
+        if (stopped || controller.signal.aborted) {
+          return;
+        }
+        const normalized = toManualUploadError(error);
+        setUploadJobState({
+          status: "error",
+          message: normalized.message,
+          statusCode: normalized.statusCode,
+        });
+      }
+    };
+
+    scheduleNextPoll(1500);
+
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+    }, [appendUploadConsoleEntries, uploadRunningJobId]);
+
+    useEffect(() => {
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.key === "Escape" && queryState.selectedNoticeId) {
+          setDetailState({ status: "idle" });
+          replaceQuery({ selectedNoticeId: null });
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [queryState.selectedNoticeId, replaceQuery]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlistNoticeIds));
+    } catch {
+      // Ignore persistence errors in constrained browsers.
+    }
+  }, [watchlistNoticeIds]);
+
+  const explorerScopeKey = useMemo(() => buildExplorerScopeKey(queryState), [queryState]);
+
+  useEffect(() => {
+    if (queryState.tab !== "explorer") {
+      return;
+    }
+    if (listState.status !== "success") {
+      return;
+    }
+
+    const shouldReset =
+      queryState.page <= 1 || explorerScopeKeyRef.current !== explorerScopeKey;
+    const incoming = uniqueByNoticeId(listState.data.items);
+
+    setExplorerInfiniteItems((current) =>
+      shouldReset ? incoming : uniqueByNoticeId([...current, ...incoming]),
+    );
+    explorerScopeKeyRef.current = explorerScopeKey;
+  }, [explorerScopeKey, listState, queryState.page, queryState.tab]);
+
+  const baseListItems = useMemo(() => {
+    if (listState.status !== "success") {
+      return [];
+    }
+    if (queryState.tab === "explorer") {
+      return uniqueByNoticeId(explorerInfiniteItems);
+    }
+    return uniqueByNoticeId(listState.data.items);
+  }, [explorerInfiniteItems, listState, queryState.tab]);
+
+  const listItems = useMemo(() => {
+    if (!watchlistOnly) {
+      return baseListItems;
+    }
+    const watchlistSet = new Set(watchlistNoticeIds);
+    return baseListItems.filter((item) => watchlistSet.has(item.noticeId));
+  }, [baseListItems, watchlistNoticeIds, watchlistOnly]);
   const metrics = useMemo(
     () => (summaryState.status === "success" ? summaryState.data.metrics : []),
     [summaryState],
@@ -690,12 +986,35 @@ export function OpportunityWorkspace() {
     }));
   }, [listItems]);
 
-  const noResults = listState.status === "success" && listItems.length === 0 && activeFilters;
-  const emptyState = listState.status === "success" && listItems.length === 0 && !activeFilters;
+  const noResults =
+    listState.status === "success" &&
+    listItems.length === 0 &&
+    activeFilters &&
+    !watchlistOnly;
+  const emptyState =
+    listState.status === "success" &&
+    listItems.length === 0 &&
+    !activeFilters &&
+    !watchlistOnly;
+  const watchlistEmptyState =
+    listState.status === "success" &&
+    listItems.length === 0 &&
+    watchlistOnly;
+  const canAutoLoadMore =
+    listState.status === "success" &&
+    queryState.tab === "explorer" &&
+    !watchlistOnly &&
+    listItems.length < listState.data.total;
   const uploadCanValidate = Boolean(uploadDatasetType && uploadFile);
+  const uploadJobData =
+    uploadJobState.status === "running" || uploadJobState.status === "success"
+      ? uploadJobState.data
+      : null;
+  const uploadJobProgress = uploadJobData?.progress ?? null;
+  const uploadJobIsActive = uploadJobState.status === "loading" || uploadJobState.status === "running";
   const uploadCanProcess =
     uploadPreflightState.status === "success" &&
-    uploadJobState.status !== "loading" &&
+    !uploadJobIsActive &&
     uploadJobState.status !== "success";
   const apiStatusLabel =
     listState.status === "loading" || summaryState.status === "loading"
@@ -707,18 +1026,250 @@ export function OpportunityWorkspace() {
         : "API conectada";
   const resultStatusLabel =
     listState.status === "success"
-      ? `${formatCount(listState.data.total)} licitaciones`
+      ? watchlistOnly
+        ? `${formatCount(listItems.length)} en radar`
+        : `${formatCount(listState.data.total)} licitaciones`
       : "Resultados pendientes";
   const uploadConsoleStatus =
     uploadJobState.status === "success"
       ? { label: "Completado", tone: "success" as const }
-      : uploadJobState.status === "loading"
+      : uploadJobState.status === "loading" || uploadJobState.status === "running"
         ? { label: "Procesando", tone: "running" as const }
-        : uploadPreflightState.status === "loading"
-          ? { label: "Validando", tone: "running" as const }
-          : uploadPreflightState.status === "error" || uploadJobState.status === "error"
-            ? { label: "Revisar", tone: "danger" as const }
-            : { label: "Preparado", tone: "neutral" as const };
+      : uploadPreflightState.status === "loading"
+        ? { label: "Validando", tone: "running" as const }
+      : uploadPreflightState.status === "error" || uploadJobState.status === "error"
+        ? { label: "Revisar", tone: "danger" as const }
+        : { label: "Preparado", tone: "neutral" as const };
+  const uploadFlowStage =
+    uploadJobState.status === "loading" || uploadJobState.status === "running"
+      ? "processing"
+      : uploadJobState.status === "success"
+        ? "success"
+        : uploadJobState.status === "error"
+          ? "error"
+          : uploadPreflightState.status === "loading"
+            ? "validating"
+            : uploadPreflightState.status === "success"
+              ? "validated"
+              : uploadPreflightState.status === "error"
+                ? "error"
+                : uploadCanValidate
+                  ? "ready"
+                  : "idle";
+  const uploadFlowBusy = uploadFlowStage === "validating" || uploadFlowStage === "processing";
+  const uploadFlowTone =
+    uploadFlowStage === "processing" || uploadFlowStage === "validating"
+      ? "running"
+      : uploadFlowStage === "success"
+        ? "success"
+        : uploadFlowStage === "error"
+          ? "danger"
+          : "neutral";
+  const uploadTriggerLabel =
+    uploadFlowStage === "processing"
+      ? "Carga en curso"
+      : uploadFlowStage === "validating"
+        ? "Validando dataset"
+        : "Cargar manualmente";
+  const uploadFlowHeadline =
+    uploadFlowStage === "processing"
+      ? uploadJobProgress
+        ? `${uploadJobProgress.label} · ${uploadJobProgress.percent}%`
+        : "Raw, Normalized y Silver siguen corriendo"
+      : uploadFlowStage === "validating"
+        ? "Validando dataset antes de abrir proceso"
+      : uploadFlowStage === "validated"
+        ? "Dataset validado. Listo para cargar."
+          : uploadFlowStage === "success"
+            ? "Carga cerrada con resultado."
+            : uploadFlowStage === "error"
+              ? "Flujo con error. Revisa consola."
+              : uploadCanValidate
+                ? "Paso siguiente: valida el CSV."
+                : "Prepara dataset y CSV para arrancar.";
+  const uploadWorkflowSteps = useMemo<UploadWorkflowStep[]>(() => {
+    const prepareSummary = uploadDatasetType
+      ? `${formatDatasetTypeLabel(uploadDatasetType)} · ${uploadFile ? uploadFile.name : "CSV pendiente"}`
+      : uploadFile
+        ? `${uploadFile.name} · dataset pendiente`
+        : "Selecciona dataset y CSV";
+    const validateSummary =
+      uploadPreflightState.status === "loading"
+        ? "Chequeando columnas, hash y tamaño."
+        : uploadPreflightState.status === "success"
+          ? `${formatCount(uploadPreflightState.data.row_count)} filas validadas.`
+          : uploadPreflightState.status === "error"
+            ? uploadPreflightState.message
+            : "Corre validacion antes de cargar.";
+    const processSummary =
+      uploadJobState.status === "loading"
+        ? "Arrancando job en backend."
+        : uploadJobState.status === "running" && uploadJobProgress
+          ? `${uploadJobProgress.percent}% · ${uploadJobProgress.label}`
+        : uploadJobState.status === "success"
+          ? `Job ${uploadJobState.data.job_id.slice(0, 8)} completo.`
+          : uploadJobState.status === "error"
+            ? uploadJobState.message
+            : "Se activa despues de preflight aprobado.";
+
+    return [
+      {
+        key: "prepare",
+        label: "Preparar",
+        summary: prepareSummary,
+        state:
+          uploadPreflightState.status === "loading" ||
+          uploadPreflightState.status === "success" ||
+          uploadPreflightState.status === "error" ||
+          uploadJobState.status === "loading" ||
+          uploadJobState.status === "success"
+            ? "done"
+            : uploadDatasetType || uploadFile
+              ? "active"
+              : "idle",
+      },
+      {
+        key: "validate",
+        label: "Validar",
+        summary: validateSummary,
+        state:
+          uploadPreflightState.status === "loading"
+            ? "active"
+            : uploadPreflightState.status === "success"
+              ? "done"
+              : uploadPreflightState.status === "error"
+                ? "error"
+                : uploadCanValidate
+                  ? "active"
+                  : "idle",
+      },
+        {
+          key: "process",
+          label: "Cargar",
+          summary: processSummary,
+          state:
+            uploadJobState.status === "loading"
+              ? "active"
+              : uploadJobState.status === "running"
+                ? "active"
+              : uploadJobState.status === "success"
+                ? "done"
+                : uploadJobState.status === "error"
+                  ? "error"
+                  : uploadPreflightState.status === "success"
+                  ? "active"
+                  : "idle",
+      },
+    ];
+  }, [
+    uploadCanValidate,
+    uploadDatasetType,
+    uploadFile,
+    uploadJobProgress,
+    uploadJobState,
+    uploadPreflightState,
+  ]);
+
+  const orderedOffers = useMemo(() => {
+    if (detailState.status !== "success") {
+      return [];
+    }
+    return [...detailState.data.offers].sort((left, right) => {
+      const leftSelected = left.isSelected ? 1 : 0;
+      const rightSelected = right.isSelected ? 1 : 0;
+      if (leftSelected !== rightSelected) {
+        return rightSelected - leftSelected;
+      }
+
+      const leftAmount = left.offeredAmount ?? Number.POSITIVE_INFINITY;
+      const rightAmount = right.offeredAmount ?? Number.POSITIVE_INFINITY;
+      if (leftAmount !== rightAmount) {
+        return leftAmount - rightAmount;
+      }
+
+      return formatUnavailable(left.supplierName).localeCompare(formatUnavailable(right.supplierName));
+    });
+  }, [detailState]);
+
+  const offerLineOptions = useMemo(() => {
+    const byItemCode = new Map<string, number>();
+    for (const offer of orderedOffers) {
+      const itemCode = offer.itemCode && offer.itemCode.trim() ? offer.itemCode.trim() : "Sin item";
+      byItemCode.set(itemCode, (byItemCode.get(itemCode) ?? 0) + 1);
+    }
+    return Array.from(byItemCode.entries())
+      .map(([itemCode, count]) => ({ itemCode, count }))
+      .sort((left, right) => left.itemCode.localeCompare(right.itemCode));
+  }, [orderedOffers]);
+
+  const activeOfferControls =
+    offerControls.noticeId === queryState.selectedNoticeId
+      ? offerControls
+      : {
+          noticeId: queryState.selectedNoticeId,
+          viewMode: "summary" as const,
+          itemFilter: "all",
+        };
+
+  const filteredOffers = useMemo(() => {
+    if (activeOfferControls.itemFilter === "all") {
+      return orderedOffers;
+    }
+    return orderedOffers.filter((offer) => {
+      const itemCode = offer.itemCode && offer.itemCode.trim() ? offer.itemCode.trim() : "Sin item";
+      return itemCode === activeOfferControls.itemFilter;
+    });
+  }, [activeOfferControls.itemFilter, orderedOffers]);
+
+  const visibleOffers = useMemo(
+    () =>
+      activeOfferControls.viewMode === "all"
+        ? filteredOffers
+        : filteredOffers.slice(0, 5),
+    [activeOfferControls.viewMode, filteredOffers],
+  );
+
+  const selectedOffersCount = useMemo(
+    () => filteredOffers.filter((offer) => Boolean(offer.isSelected)).length,
+    [filteredOffers],
+  );
+
+  useEffect(() => {
+    if (!canAutoLoadMore || queryState.tab !== "explorer") {
+      return;
+    }
+    const sentinel = explorerLoadMoreRef.current;
+    if (!sentinel) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting) {
+          return;
+        }
+        if (loadMoreTriggerLockRef.current) {
+          return;
+        }
+        loadMoreTriggerLockRef.current = true;
+        setLoadMoreErrorMessage(null);
+        setIsLoadingMoreExplorer(true);
+        refreshList(
+          { page: queryState.page + 1 },
+          { preserveList: true, preserveSummary: true },
+        );
+      },
+      {
+        root: null,
+        rootMargin: "0px 0px 260px 0px",
+        threshold: 0.1,
+      },
+    );
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [canAutoLoadMore, queryState.page, queryState.tab, refreshList]);
 
   const handleTabChange = (tab: WorkspaceTab) => {
     refreshList({ tab, page: 1 });
@@ -727,6 +1278,25 @@ export function OpportunityWorkspace() {
   const handleStagePulse = (stage: OpportunityStage | "") => {
     refreshList({ stage, page: 1, selectedNoticeId: null });
   };
+
+  const handleSort = useCallback(
+    (field: OpportunitySortField) => {
+      const isCurrent = queryState.sortBy === field;
+      const defaultOrder: Record<OpportunitySortField, OpportunitySortDirection> = {
+        close_date: "asc",
+        days_remaining: "asc",
+        estimated_amount: "desc",
+        publication_date: "desc",
+      };
+      const nextOrder: OpportunitySortDirection = isCurrent
+        ? queryState.sortOrder === "asc"
+          ? "desc"
+          : "asc"
+        : defaultOrder[field];
+      refreshList({ sortBy: field, sortOrder: nextOrder, page: 1 });
+    },
+    [queryState.sortBy, queryState.sortOrder, refreshList],
+  );
 
   const handleToggleExpanded = (noticeId: string) => {
     setExpandedNoticeId((current) => (current === noticeId ? null : noticeId));
@@ -768,6 +1338,14 @@ export function OpportunityWorkspace() {
     await navigator.clipboard.writeText(externalNoticeCode);
   };
 
+  const toggleWatchlistNotice = useCallback((noticeId: string) => {
+    setWatchlistNoticeIds((current) =>
+      current.includes(noticeId)
+        ? current.filter((id) => id !== noticeId)
+        : [...current, noticeId],
+    );
+  }, []);
+
   const abortActiveUpload = useCallback(() => {
     uploadAbortRef.current?.abort();
     uploadAbortRef.current = null;
@@ -779,17 +1357,15 @@ export function OpportunityWorkspace() {
   }, []);
 
   const closeUploadSheet = useCallback(() => {
-    abortActiveUpload();
     setIsUploadSheetOpen(false);
-    setUploadDatasetType("");
-    setUploadFile(null);
     setIsUploadDragActive(false);
-    resetUploadProgress();
-    resetUploadConsole();
-  }, [abortActiveUpload, resetUploadConsole, resetUploadProgress]);
+  }, []);
 
   const handleUploadFileSelected = useCallback(
     (nextFile: File | null) => {
+      if (uploadJobIsActive) {
+        return;
+      }
       setUploadFile(nextFile);
       resetUploadProgress();
       if (nextFile) {
@@ -803,7 +1379,7 @@ export function OpportunityWorkspace() {
         appendUploadConsoleEntries([{ level: "muted", text: "Archivo removido. Esperando CSV." }]);
       }
     },
-    [appendUploadConsoleEntries, resetUploadProgress],
+    [appendUploadConsoleEntries, resetUploadProgress, uploadJobIsActive],
   );
 
   const handleStartPreflight = useCallback(async () => {
@@ -853,10 +1429,14 @@ export function OpportunityWorkspace() {
         uploadPreflightState.data.file_token,
         controller.signal,
       );
-      setUploadJobState({ status: "success", data });
-      setListState({ status: "loading" });
-      setSummaryState({ status: "loading" });
-      setReloadNonce((current) => current + 1);
+      if (data.terminal_state) {
+        setUploadJobState({ status: "success", data });
+        setListState({ status: "loading" });
+        setSummaryState({ status: "loading" });
+        setReloadNonce((current) => current + 1);
+      } else {
+        setUploadJobState({ status: "running", data });
+      }
     } catch (error) {
       if (controller.signal.aborted) {
         setUploadJobState({ status: "idle" });
@@ -877,8 +1457,30 @@ export function OpportunityWorkspace() {
 
   return (
     <main className="workspace-page">
-      <div className="workspace-layout">
-        <section className="workspace-main" aria-label="Vista principal de oportunidades">
+      <div
+        className={
+          queryState.selectedNoticeId
+            ? "workspace-layout workspace-layout--with-detail"
+            : "workspace-layout"
+        }
+      >
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {listState.status === "loading"
+            ? "Cargando oportunidades"
+            : listState.status === "error"
+              ? "Error al cargar oportunidades"
+              : listState.status === "success"
+                ? `${formatCount(listState.data.total)} oportunidades encontradas`
+                : ""}
+        </div>
+        <section
+          className={
+            queryState.selectedNoticeId
+              ? "workspace-main workspace-main--with-detail"
+              : "workspace-main"
+          }
+          aria-label="Vista principal de oportunidades"
+        >
           <header className="workspace-header">
             <div className="workspace-header__content">
               <div className="workspace-header__eyebrow-row">
@@ -928,11 +1530,19 @@ export function OpportunityWorkspace() {
                 </div>
                 <Button
                   variant="ghost"
-                  className="workspace-mode__upload-trigger"
+                  className={`workspace-mode__upload-trigger${
+                    uploadFlowBusy ? " workspace-mode__upload-trigger--busy" : ""
+                  }`}
                   leadingIcon={<Upload size={14} aria-hidden="true" />}
+                  trailingIcon={
+                    uploadFlowBusy ? (
+                      <RefreshCw size={13} aria-hidden="true" className="upload-progress__spinner" />
+                    ) : undefined
+                  }
+                  busy={uploadFlowBusy}
                   onClick={() => setIsUploadSheetOpen(true)}
                 >
-                  Carga manual
+                  {uploadTriggerLabel}
                 </Button>
               </section>
             </div>
@@ -950,22 +1560,23 @@ export function OpportunityWorkspace() {
                 <strong>{queryState.tab === "explorer" ? "Explorador" : "Radar"}</strong>
                 <span>{resultStatusLabel}</span>
                 <Chip>{getSortLabel(queryState.sortBy, queryState.sortOrder)}</Chip>
+                <Chip>{`Radar ${formatCount(watchlistNoticeIds.length)}`}</Chip>
+                <Button
+                  variant={watchlistOnly ? "primary" : "ghost"}
+                  className="workspace-toolbar__watchlist-toggle"
+                  leadingIcon={<Star size={14} aria-hidden="true" />}
+                  onClick={() => setWatchlistOnly((current) => !current)}
+                >
+                  {watchlistOnly ? "Ver todo" : "Solo radar"}
+                </Button>
               </div>
-              <div className="workspace-pagination">
+              <div className="workspace-pagination" aria-label="Estado de paginacion">
                 <Badge>{`Pagina ${queryState.page}`}</Badge>
-                <IconButton
-                  icon={<ArrowLeft size={15} aria-hidden="true" />}
-                  label="Pagina anterior"
-                  onClick={() =>
-                    refreshList({ page: Math.max(1, queryState.page - 1) })
-                  }
-                  disabled={queryState.page <= 1}
-                />
-                <IconButton
-                  icon={<ArrowRight size={15} aria-hidden="true" />}
-                  label="Pagina siguiente"
-                  onClick={() => refreshList({ page: queryState.page + 1 })}
-                />
+                {queryState.tab === "explorer" ? (
+                  <span className="workspace-pagination__hint">
+                    Scroll continuo: carga automatica al final.
+                  </span>
+                ) : null}
               </div>
             </div>
           </Panel>
@@ -1159,6 +1770,8 @@ export function OpportunityWorkspace() {
                 >
                   <option value="close_date:asc">Cierre mas cercano</option>
                   <option value="close_date:desc">Cierre mas lejano</option>
+                  <option value="days_remaining:asc">Dias restantes (menos primero)</option>
+                  <option value="days_remaining:desc">Dias restantes (mas primero)</option>
                   <option value="publication_date:desc">Publicacion reciente</option>
                   <option value="estimated_amount:desc">Monto mayor</option>
                 </Select>
@@ -1373,6 +1986,18 @@ export function OpportunityWorkspace() {
             />
           ) : null}
 
+          {watchlistEmptyState ? (
+            <NoDataState
+              title="Sin licitaciones en radar"
+              description="Marca licitaciones con la estrella para agregarlas a tu radar local."
+              action={
+                <Button variant="ghost" onClick={() => setWatchlistOnly(false)}>
+                  Volver a todo el explorador
+                </Button>
+              }
+            />
+          ) : null}
+
           {listState.status === "success" && queryState.tab === "radar" && listItems.length > 0 ? (
             <section className="radar-board" aria-label="Radar de oportunidades">
               {radarColumns.map((column) => (
@@ -1426,27 +2051,48 @@ export function OpportunityWorkspace() {
           {listState.status === "success" &&
           queryState.tab === "explorer" &&
           listItems.length > 0 ? (
-            <TableWrap>
-              <Table aria-label="Explorador de oportunidades">
+            <>
+              <TableWrap>
+                <Table aria-label="Explorador de oportunidades">
                 <thead>
                   <tr>
-                    <th><span className="sr-only">Expandir</span></th>
-                    <th><SortHeader label="Codigo" /></th>
-                    <th><SortHeader label="Licitacion" /></th>
-                    <th><SortHeader label="Comprador" /></th>
-                    <th><SortHeader label="Region" /></th>
-                    <th><SortHeader label="Estado" /></th>
-                    <th><SortHeader label="Etapa" active={queryState.sortBy === "days_remaining"} /></th>
-                    <th><SortHeader label="Monto" active={queryState.sortBy === "estimated_amount"} /></th>
-                    <th><SortHeader label="Cierre" active={queryState.sortBy === "close_date"} /></th>
-                    <th><SortHeader label="Lineas" /></th>
-                    <th><SortHeader label="Ofertas" /></th>
-                    <th><SortHeader label="OC" /></th>
+                    <th scope="col"><span className="sr-only">Expandir</span></th>
+                    <th scope="col"><SortHeader label="Codigo" /></th>
+                    <th scope="col"><SortHeader label="Licitacion" /></th>
+                    <th scope="col"><SortHeader label="Comprador" /></th>
+                    <th scope="col"><SortHeader label="Region" /></th>
+                    <th scope="col"><SortHeader label="Estado" /></th>
+                    <th scope="col"><span className="table-label">Etapa</span></th>
+                    <th
+                      scope="col"
+                      aria-sort={queryState.sortBy === "estimated_amount" ? (queryState.sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                      onClick={() => handleSort("estimated_amount")}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSort("estimated_amount"); } }}
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <SortHeader label="Monto" active={queryState.sortBy === "estimated_amount"} sortOrder={queryState.sortOrder} />
+                    </th>
+                    <th
+                      scope="col"
+                      aria-sort={queryState.sortBy === "close_date" ? (queryState.sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                      onClick={() => handleSort("close_date")}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSort("close_date"); } }}
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <SortHeader label="Cierre" active={queryState.sortBy === "close_date"} sortOrder={queryState.sortOrder} />
+                    </th>
+                    <th scope="col"><SortHeader label="Lineas" /></th>
+                    <th scope="col"><SortHeader label="Ofertas" /></th>
+                    <th scope="col"><SortHeader label="OC" /></th>
+                    <th scope="col"><span className="table-label">Radar</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {listItems.map((item) => {
                     const isExpanded = expandedNoticeId === item.noticeId;
+                    const isWatchlisted = watchlistNoticeIds.includes(item.noticeId);
                     return (
                       <Fragment key={item.noticeId}>
                         <tr
@@ -1502,20 +2148,33 @@ export function OpportunityWorkspace() {
                           <td>{formatDate(item.closeDate)}</td>
                           <td className="ui-table-number">{formatCount(item.lineCount)}</td>
                           <td className="ui-table-number">{formatCount(item.bidCount)}</td>
-                          <td className="ui-table-number">
-                            <div className="table-action-cell">
-                              <span>{formatCount(item.purchaseOrderCount)}</span>
-                              <IconButton
-                                icon={<Eye size={14} aria-hidden="true" />}
-                                label="Ver detalle"
-                                onClick={() => openDetail("explorer", item.noticeId)}
-                              />
-                            </div>
+                          <td className="ui-table-number">{formatCount(item.purchaseOrderCount)}</td>
+                          <td className="ui-table-cell-watchlist">
+                            <IconButton
+                              icon={
+                                <Star
+                                  size={14}
+                                  aria-hidden="true"
+                                  fill={isWatchlisted ? "currentColor" : "none"}
+                                />
+                              }
+                              className={
+                                isWatchlisted
+                                  ? "table-watchlist-button table-watchlist-button--active"
+                                  : "table-watchlist-button"
+                              }
+                              label={
+                                isWatchlisted
+                                  ? "Quitar licitacion del radar"
+                                  : "Agregar licitacion al radar"
+                              }
+                              onClick={() => toggleWatchlistNotice(item.noticeId)}
+                            />
                           </td>
                         </tr>
                         {isExpanded ? (
                           <tr key={`${item.noticeId}-expanded`} className="ui-table-expanded-row">
-                            <td colSpan={12}>
+                            <td colSpan={13}>
                               <div className="table-evidence-panel">
                                 <div className="table-evidence-panel__hero">
                                   <div className="table-evidence-panel__hero-copy">
@@ -1600,8 +2259,40 @@ export function OpportunityWorkspace() {
                     );
                   })}
                 </tbody>
-              </Table>
-            </TableWrap>
+                </Table>
+              </TableWrap>
+              <div ref={explorerLoadMoreRef} className="workspace-infinite-sentinel" aria-hidden="true" />
+              {isLoadingMoreExplorer ? (
+                <div className="workspace-infinite-loader" role="status" aria-live="polite">
+                  <RefreshCw size={14} aria-hidden="true" className="upload-progress__spinner" />
+                  <span>Cargando mas licitaciones...</span>
+                </div>
+              ) : null}
+              {loadMoreErrorMessage ? (
+                <div className="workspace-infinite-error" role="status">
+                  <span>{loadMoreErrorMessage}</span>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      loadMoreTriggerLockRef.current = false;
+                      setLoadMoreErrorMessage(null);
+                      setIsLoadingMoreExplorer(true);
+                      refreshList(
+                        { page: queryState.page + 1 },
+                        { preserveList: true, preserveSummary: true },
+                      );
+                    }}
+                  >
+                    Reintentar carga
+                  </Button>
+                </div>
+              ) : null}
+              {!canAutoLoadMore && listItems.length > 0 ? (
+                <div className="workspace-infinite-end" role="status">
+                  <span>Fin de resultados cargados para esta consulta.</span>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </section>
 
@@ -1618,10 +2309,10 @@ export function OpportunityWorkspace() {
                 <div>
                   <span className="workspace-kicker">Carga manual</span>
                   <h2 id="upload-sheet-title" className="section-title">
-                    Subir CSV al pipeline
+                    Cargar dataset CSV al pipeline
                   </h2>
                   <p className="section-subtitle">
-                    Selecciona dataset, arrastra el archivo y confirma.
+                    Selecciona Licitaciones u Ordenes de compra, adjunta CSV y valida antes de cargar.
                   </p>
                 </div>
                 <IconButton
@@ -1655,7 +2346,7 @@ export function OpportunityWorkspace() {
                       }}
                       disabled={
                         uploadPreflightState.status === "loading" ||
-                        uploadJobState.status === "loading"
+                        uploadJobIsActive
                       }
                     >
                       <span>{option.label}</span>
@@ -1685,16 +2376,20 @@ export function OpportunityWorkspace() {
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
+                    if (uploadJobIsActive) {
+                      return;
+                    }
                     setIsUploadDragActive(false);
                     handleUploadFileSelected(event.dataTransfer.files[0] ?? null);
                   }}
-                >
-                  <input
-                    className="sr-only"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => handleUploadFileSelected(event.target.files?.[0] ?? null)}
-                  />
+                  >
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept=".csv,text/csv"
+                      disabled={uploadJobIsActive}
+                      onChange={(event) => handleUploadFileSelected(event.target.files?.[0] ?? null)}
+                    />
                   <FileSpreadsheet size={24} aria-hidden="true" />
                   <strong>{uploadFile ? uploadFile.name : "Arrastra CSV o haz click para elegir"}</strong>
                   <span>
@@ -1713,11 +2408,56 @@ export function OpportunityWorkspace() {
                   <span>1 CSV por corrida, validacion previa y procesamiento acotado al archivo cargado.</span>
                 </div>
 
-                <section className="upload-console" aria-label="Consola de procesamiento">
+                <section className={`upload-workflow upload-workflow--${uploadFlowStage}`} aria-label="Progreso del flujo">
+                  <div className="upload-workflow__header">
+                    <div>
+                      <span className="workspace-mode__label">Flujo guiado</span>
+                      <strong>{uploadFlowHeadline}</strong>
+                      <p>
+                        Cierra el panel si quieres, el pipeline sigue visible en el estado del boton y
+                        vuelve al reabrir.
+                      </p>
+                    </div>
+                    <Badge className={`upload-console__status upload-console__status--${uploadFlowTone}`}>
+                      {uploadFlowBusy ? "En curso" : uploadFlowStage === "success" ? "Listo" : uploadFlowStage === "error" ? "Error" : "Preparado"}
+                    </Badge>
+                  </div>
+                  <ol className="upload-workflow__steps">
+                    {uploadWorkflowSteps.map((step) => (
+                      <li
+                        key={step.key}
+                        className={`upload-workflow__step upload-workflow__step--${step.state}`}
+                      >
+                        <span className="upload-workflow__step-marker" aria-hidden="true" />
+                        <div className="upload-workflow__step-body">
+                          <div className="upload-workflow__step-copy">
+                            <strong>{step.label}</strong>
+                            <span>{step.summary}</span>
+                          </div>
+                          <div className="upload-workflow__meter" aria-hidden="true">
+                            <span />
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+
+                <section className="upload-console" aria-label="Consola de procesamiento" aria-live="polite" aria-atomic="false">
                   <div className="upload-console__header">
                     <span className="upload-console__title">
                       <Terminal size={15} aria-hidden="true" />
                       Consola de carga
+                      <span
+                        className={`upload-live-pips${
+                          uploadFlowBusy ? " upload-live-pips--active" : " upload-live-pips--idle"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <span />
+                        <span />
+                        <span />
+                      </span>
                     </span>
                     <Badge className={`upload-console__status upload-console__status--${uploadConsoleStatus.tone}`}>
                       {uploadConsoleStatus.label}
@@ -1737,7 +2477,7 @@ export function OpportunityWorkspace() {
                   <div className="upload-progress" role="status">
                     <RefreshCw size={16} aria-hidden="true" className="upload-progress__spinner" />
                     <div>
-                      <strong>Validando archivo</strong>
+                      <strong>Validando dataset</strong>
                       <span>Revisando delimitador, columnas requeridas, hash y resumen previo.</span>
                     </div>
                   </div>
@@ -1812,12 +2552,30 @@ export function OpportunityWorkspace() {
                   <div className="upload-progress upload-progress--processing" role="status">
                     <RefreshCw size={16} aria-hidden="true" className="upload-progress__spinner" />
                     <div>
-                      <strong>Procesando CSV</strong>
+                      <strong>Cargando el dato</strong>
                       <span>Backend registra Raw y construye deltas Normalized y Silver para dataset elegido.</span>
                     </div>
                     <Button variant="ghost" onClick={abortActiveUpload}>
                       Cancelar espera
                     </Button>
+                  </div>
+                ) : null}
+
+                {uploadJobState.status === "running" && uploadJobProgress ? (
+                  <div className="upload-progress upload-progress--processing" role="status" aria-busy="true">
+                    <RefreshCw size={16} aria-hidden="true" className="upload-progress__spinner" />
+                    <div className="upload-progress__body">
+                      <div className="upload-progress__meta">
+                        <div>
+                          <strong>{uploadJobProgress.label}</strong>
+                          <span>{uploadJobProgress.detail}</span>
+                        </div>
+                        <Badge>{`${uploadJobProgress.percent}%`}</Badge>
+                      </div>
+                      <div className="upload-progress__bar" aria-hidden="true">
+                        <span style={{ width: `${uploadJobProgress.percent}%` }} />
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 
@@ -1886,29 +2644,40 @@ export function OpportunityWorkspace() {
                 ) : null}
               </div>
 
-              <footer className="upload-sheet__actions">
-                {uploadJobState.status === "loading" ? (
-                  <>
-                    <div className="upload-sheet__actions-status" role="status">
-                      <RefreshCw size={15} aria-hidden="true" className="upload-progress__spinner" />
-                      <div>
-                        <strong>Procesando en backend</strong>
-                        <span>Raw, Normalized y Silver siguen corriendo aunque cierres este panel.</span>
+                <footer className="upload-sheet__actions">
+                  {uploadJobState.status === "loading" || uploadJobState.status === "running" ? (
+                    <>
+                      <div className="upload-sheet__actions-status" role="status" aria-busy="true">
+                        <RefreshCw size={15} aria-hidden="true" className="upload-progress__spinner" />
+                        <div>
+                          <strong>
+                            {uploadJobState.status === "running" && uploadJobProgress
+                              ? uploadJobProgress.label
+                              : "Procesando en backend"}
+                          </strong>
+                          <span>
+                            {uploadJobState.status === "running" && uploadJobProgress
+                              ? `${uploadJobProgress.percent}% · ${uploadJobProgress.detail}`
+                              : "Raw, Normalized y Silver siguen corriendo aunque cierres este panel."}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <Button variant="ghost" onClick={abortActiveUpload}>
-                      Cancelar espera
-                    </Button>
-                    <Button variant="ghost" onClick={closeUploadSheet}>
-                      Cerrar
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      leadingIcon={<FilterX size={14} aria-hidden="true" />}
+                      {uploadJobState.status === "loading" ? (
+                        <Button variant="ghost" onClick={abortActiveUpload}>
+                          Cancelar espera
+                        </Button>
+                      ) : null}
+                      <Button variant="ghost" onClick={closeUploadSheet}>
+                        Cerrar
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        variant="ghost"
+                        leadingIcon={<FilterX size={14} aria-hidden="true" />}
                       onClick={() => {
+                        abortActiveUpload();
                         setUploadDatasetType("");
                         setUploadFile(null);
                         setIsUploadDragActive(false);
@@ -1930,7 +2699,7 @@ export function OpportunityWorkspace() {
                       }
                       loading={uploadPreflightState.status === "loading"}
                     >
-                      Validar archivo
+                      Validar dataset
                     </Button>
                     <Button
                       variant="primary"
@@ -1938,7 +2707,7 @@ export function OpportunityWorkspace() {
                       onClick={handleStartProcessing}
                       disabled={!uploadCanProcess}
                     >
-                      Confirmar y procesar
+                      Cargar el dato
                     </Button>
                   </>
                 )}
@@ -2083,51 +2852,104 @@ export function OpportunityWorkspace() {
               </DetailSection>
 
               <DetailSection title="Ofertas">
-                {detailState.data.offers.length === 0 ? (
+                {orderedOffers.length === 0 ? (
                   <span>Sin ofertas disponibles en la API.</span>
                 ) : (
-                  detailState.data.offers.slice(0, 5).map((offer, index) => (
-                    <article
-                      key={`${offer.supplierCode ?? "proveedor"}-${index}`}
-                      className={
-                        offer.isSelected
-                          ? "detail-offer-card detail-offer-card--selected"
-                          : "detail-offer-card"
-                      }
-                    >
-                      <header>
-                        <strong>{formatUnavailable(offer.supplierName)}</strong>
-                        <span>{offer.isSelected ? "Seleccionada" : "Oferta"}</span>
-                      </header>
-                      <div>{formatUnavailable(offer.offerName)}</div>
-                      <dl>
-                        <div>
-                          <dt>Monto</dt>
-                          <dd>{formatMoney(offer.offeredAmount, offer.currencyCode)}</dd>
-                        </div>
-                        <div>
-                          <dt>Unitario</dt>
-                          <dd>{formatMoney(offer.unitPrice, offer.currencyCode)}</dd>
-                        </div>
-                        <div>
-                          <dt>Cantidad</dt>
-                          <dd>{formatCount(offer.offeredQuantity)}</dd>
-                        </div>
-                        <div>
-                          <dt>Estado</dt>
-                          <dd>{formatUnavailable(offer.offerStatus)}</dd>
-                        </div>
-                        <div>
-                          <dt>Item</dt>
-                          <dd>{formatUnavailable(offer.itemCode)}</dd>
-                        </div>
-                        <div>
-                          <dt>Envio</dt>
-                          <dd>{formatDate(offer.submittedAt)}</dd>
-                        </div>
-                      </dl>
-                    </article>
-                  ))
+                  <>
+                    <div className="detail-offers-summary">
+                      <span>{`${formatCount(filteredOffers.length)} ofertas visibles`}</span>
+                      <span>{`${formatCount(selectedOffersCount)} ganadora(s)`}</span>
+                    </div>
+                    <div className="detail-offers-toolbar">
+                      <Select
+                        value={activeOfferControls.itemFilter}
+                        onChange={(event) =>
+                          setOfferControls({
+                            noticeId: queryState.selectedNoticeId,
+                            viewMode: activeOfferControls.viewMode,
+                            itemFilter: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="all">Todas las lineas</option>
+                        {offerLineOptions.map((option) => (
+                          <option key={option.itemCode} value={option.itemCode}>
+                            {`Item ${option.itemCode} (${formatCount(option.count)})`}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          setOfferControls({
+                            noticeId: queryState.selectedNoticeId,
+                            itemFilter: activeOfferControls.itemFilter,
+                            viewMode:
+                              activeOfferControls.viewMode === "all"
+                                ? "summary"
+                                : "all",
+                          })
+                        }
+                      >
+                        {activeOfferControls.viewMode === "all" ? "Ver resumen" : "Ver todas"}
+                      </Button>
+                    </div>
+                    {visibleOffers.map((offer, index) => (
+                      <article
+                        key={`${offer.supplierCode ?? "proveedor"}-${index}`}
+                        className={
+                          offer.isSelected
+                            ? "detail-offer-card detail-offer-card--selected"
+                            : "detail-offer-card"
+                        }
+                      >
+                        <header>
+                          <strong>{formatUnavailable(offer.supplierName)}</strong>
+                          <span
+                            className={
+                              offer.isSelected
+                                ? "detail-offer-chip detail-offer-chip--winner"
+                                : "detail-offer-chip"
+                            }
+                          >
+                            {offer.isSelected ? "Ganadora" : "Oferta"}
+                          </span>
+                        </header>
+                        <div>{formatUnavailable(offer.offerName)}</div>
+                        <dl>
+                          <div>
+                            <dt>Monto</dt>
+                            <dd>{formatMoney(offer.offeredAmount, offer.currencyCode)}</dd>
+                          </div>
+                          <div>
+                            <dt>Unitario</dt>
+                            <dd>{formatMoney(offer.unitPrice, offer.currencyCode)}</dd>
+                          </div>
+                          <div>
+                            <dt>Cantidad</dt>
+                            <dd>{formatCount(offer.offeredQuantity)}</dd>
+                          </div>
+                          <div>
+                            <dt>Estado</dt>
+                            <dd>{formatUnavailable(offer.offerStatus)}</dd>
+                          </div>
+                          <div>
+                            <dt>Item</dt>
+                            <dd>{formatUnavailable(offer.itemCode)}</dd>
+                          </div>
+                          <div>
+                            <dt>Envio</dt>
+                            <dd>{formatDate(offer.submittedAt)}</dd>
+                          </div>
+                        </dl>
+                      </article>
+                    ))}
+                    {activeOfferControls.viewMode === "summary" && filteredOffers.length > visibleOffers.length ? (
+                      <span className="detail-offers-footnote">
+                        {`Mostrando 5 de ${formatCount(filteredOffers.length)} ofertas.`}
+                      </span>
+                    ) : null}
+                  </>
                 )}
               </DetailSection>
 
