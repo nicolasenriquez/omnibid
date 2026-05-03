@@ -1,0 +1,41 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: secret-scan-pr-range
+        name: secret scan PR range
+        entry: bash -lc 'bash scripts/security/run-gitleaks-pr-range.sh origin/main'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: backend-ci-fast-container
+        name: backend ci-fast (container-first)
+        entry: bash -lc 'docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync ruff check backend tests scripts && docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync mypy backend scripts && docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync pytest -q -m "not integration"'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: frontend-ci-container
+        name: frontend lint/type/build (containerized)
+        entry: bash -lc 'docker run --rm -e CI=true -v "$PWD/client:/app" -w /app mcr.microsoft.com/playwright:v1.59.1-noble sh -lc "npm ci && npm run lint && npm run typecheck && npm run build"'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

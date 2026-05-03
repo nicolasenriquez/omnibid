@@ -50,8 +50,8 @@ services:
       APP_NAME: ${APP_NAME:-app-chilecompra}
       APP_PORT: ${APP_PORT:-8000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/chilecompra}
-      TEST_DATABASE_URL: ${TEST_DATABASE_URL:-postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test}
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chilecompra
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
       DATASET_ROOT: ${DATASET_ROOT:-/datasets/mercado-publico}
       CHUNK_SIZE: ${CHUNK_SIZE:-5000}
     depends_on:
@@ -93,6 +93,57 @@ services:
       - --port
       - "8000"
 
+  backend-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tools
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_NAME: ${APP_NAME:-app-chilecompra}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chilecompra
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
+      DATASET_ROOT: ${DATASET_ROOT:-/datasets/mercado-publico}
+      CHUNK_SIZE: ${CHUNK_SIZE:-5000}
+    init: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - tail
+      - -f
+      - /dev/null
+
+  client:
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
+    working_dir: /app
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "127.0.0.1:${CLIENT_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ./client
+        target: /app
+      - type: volume
+        source: omnibid_client_node_modules
+        target: /app/node_modules
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - sh
+      - -c
+      - npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000
+
 volumes:
   omnibid_pgdata:
   omnibid_pgdata_test:
+  omnibid_client_node_modules:

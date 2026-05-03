@@ -25,6 +25,8 @@ dist/
 /data/profiling/*.csv
 /data/extracted/*
 /data/curated/*
+/screenshots/
+/client/screenshots/
 
 # Alembic local
 alembic/versions/__pycache__/

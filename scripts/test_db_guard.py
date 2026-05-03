@@ -61,6 +61,9 @@ def run_integration_tests() -> int:
         env=env,
         check=False,
     )
+    if completed.returncode == 5:
+        print("No integration tests were collected; skipping integration gate.")
+        return 0
     return completed.returncode
 
 

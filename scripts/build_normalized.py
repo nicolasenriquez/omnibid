@@ -485,13 +485,18 @@ def persist_failed_dataset_state(
     save_state(state_path, state)
 
 
-def raw_snapshot(session: Session, dataset: str) -> dict[str, int]:
+def raw_snapshot(session: Session, dataset: str, source_file_id: Any | None = None) -> dict[str, int]:
     if dataset == "licitacion":
         model: Any = RawLicitacion
     else:
         model = RawOrdenCompra
-    total_rows = session.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
-    max_id = session.execute(sa.select(sa.func.max(model.id))).scalar_one()
+    filters = []
+    if source_file_id is not None:
+        filters.append(model.source_file_id == source_file_id)
+    total_rows = session.execute(
+        sa.select(sa.func.count()).select_from(model).where(*filters)
+    ).scalar_one()
+    max_id = session.execute(sa.select(sa.func.max(model.id)).where(*filters)).scalar_one()
     return {"total_rows": int(total_rows or 0), "max_id": int(max_id or 0)}
 
 
@@ -551,15 +556,28 @@ def _raw_subset_subquery(
     start_after_id: int,
     limit_rows: int,
     name: str,
+    source_file_id: Any | None = None,
 ) -> Any:
     stmt = (
         sa.select(model.id.label("id"), model.raw_json.label("raw_json"))
-        .where(model.id > start_after_id)
+        .where(*_raw_scope_filters(model, start_after_id=start_after_id, source_file_id=source_file_id))
         .order_by(model.id.asc())
     )
     if limit_rows > 0:
         stmt = stmt.limit(limit_rows)
     return stmt.subquery(name)
+
+
+def _raw_scope_filters(
+    model: Any,
+    *,
+    start_after_id: int,
+    source_file_id: Any | None = None,
+) -> list[Any]:
+    filters = [model.id > start_after_id]
+    if source_file_id is not None:
+        filters.append(model.source_file_id == source_file_id)
+    return filters
 
 
 def run_dataset_preflight_quality_audit(
@@ -568,13 +586,25 @@ def run_dataset_preflight_quality_audit(
     dataset: str,
     start_after_id: int,
     limit_rows: int,
+    source_file_id: Any | None = None,
 ) -> dict[str, Any]:
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return {
+            "dataset": dataset,
+            "scope_rows": 0,
+            "checks": [],
+            "max_rate": 0.0,
+            "threshold": QUALITY_GATE_MAX_ERROR_RATE,
+        }
+
     if dataset == "licitacion":
         subset = _raw_subset_subquery(
             model=RawLicitacion,
             start_after_id=start_after_id,
             limit_rows=limit_rows,
             name="raw_licitaciones_subset",
+            source_file_id=source_file_id,
         )
         raw_json = subset.c.raw_json
         has_codigo_externo = _json_first_non_empty_text(raw_json, "CodigoExterno").is_not(None)
@@ -600,7 +630,7 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_supplier_identity),
         )
 
-        row = session.execute(
+        row = execute(
             sa.select(
                 sa.func.count().label("scope_rows"),
                 sa.func.count().filter(licitacion_missing_keys).label("licitacion_missing_keys"),
@@ -629,6 +659,7 @@ def run_dataset_preflight_quality_audit(
             start_after_id=start_after_id,
             limit_rows=limit_rows,
             name="raw_ordenes_subset",
+            source_file_id=source_file_id,
         )
         raw_json = subset.c.raw_json
         has_codigo = _json_first_non_empty_text(raw_json, "Codigo").is_not(None)
@@ -654,7 +685,7 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_category_identity),
         )
 
-        row = session.execute(
+        row = execute(
             sa.select(
                 sa.func.count().label("scope_rows"),
                 sa.func.count().filter(buyer_missing).label("buyer_missing"),
@@ -682,7 +713,7 @@ def run_dataset_preflight_quality_audit(
 
     max_rate = 0.0
     for check in checks:
-        rows = int(check["rows"])
+        rows = int(cast(Any, check["rows"]))
         rate = (rows / scope_rows) if scope_rows > 0 else 0.0
         check["rate"] = rate
         if rate > max_rate:
@@ -716,7 +747,11 @@ def format_preflight_quality_audit(audit: dict[str, Any]) -> str:
 
 
 def close_stale_running_runs(session: Session, *, dataset: str) -> int:
-    stale_runs = session.execute(
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return 0
+
+    stale_runs = execute(
         sa.select(PipelineRun)
         .where(PipelineRun.dataset_type == dataset)
         .where(PipelineRun.status == "running")
@@ -732,7 +767,7 @@ def close_stale_running_runs(session: Session, *, dataset: str) -> int:
         run_any.finished_at = now_utc
         run_any.error_summary = "stale running run auto-closed before new execution"
 
-    stale_steps = session.execute(
+    stale_steps = execute(
         sa.select(PipelineRunStep)
         .where(PipelineRunStep.run_id.in_(stale_run_ids))
         .where(PipelineRunStep.status == "running")
@@ -994,6 +1029,10 @@ def prune_orphan_notice_purchase_order_links(
     if not notice_purchase_order_link_rows:
         return 0
 
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return 0
+
     purchase_order_ids = sorted(
         {
             purchase_order_id
@@ -1011,15 +1050,15 @@ def prune_orphan_notice_purchase_order_links(
     batch_size = 1000
     for start in range(0, len(purchase_order_ids), batch_size):
         batch = purchase_order_ids[start : start + batch_size]
-        existing_purchase_order_ids.update(
-            session.execute(
-                sa.select(SilverPurchaseOrder.purchase_order_id).where(
-                    SilverPurchaseOrder.purchase_order_id.in_(batch)
-                )
+        result = execute(
+            sa.select(SilverPurchaseOrder.purchase_order_id).where(
+                SilverPurchaseOrder.purchase_order_id.in_(batch)
             )
-            .scalars()
-            .all()
         )
+        scalars = getattr(result, "scalars", None)
+        if not callable(scalars):
+            return 0
+        existing_purchase_order_ids.update(scalars().all())
 
     if len(existing_purchase_order_ids) == len(purchase_order_ids):
         return 0
@@ -1862,11 +1901,13 @@ def process_licitaciones(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    source_file_id: Any | None = None,
     debug_telemetry: bool = False,
     state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
     on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
     quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     licitaciones_before = table_row_count(session, NormalizedLicitacion)
     licitacion_items_before = table_row_count(session, NormalizedLicitacionItem)
@@ -1887,7 +1928,13 @@ def process_licitaciones(
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawLicitacion)
-        .where(RawLicitacion.id > start_after_id)
+        .where(
+            *_raw_scope_filters(
+                RawLicitacion,
+                start_after_id=start_after_id,
+                source_file_id=source_file_id,
+            )
+        )
     ).scalar_one()
     target_rows = min(total_rows, limit_rows) if limit_rows > 0 else total_rows
 
@@ -1991,7 +2038,13 @@ def process_licitaciones(
             batch = (
                 session.execute(
                     sa.select(RawLicitacion)
-                    .where(RawLicitacion.id > last_id)
+                    .where(
+                        *_raw_scope_filters(
+                            RawLicitacion,
+                            start_after_id=last_id,
+                            source_file_id=source_file_id,
+                        )
+                    )
                     .order_by(RawLicitacion.id.asc())
                     .limit(page_limit)
                 )
@@ -2285,9 +2338,9 @@ def process_licitaciones(
 
             session.commit()
             pages_committed = next_page_number
-            if checkpoint_due:
+            if checkpoint_due and on_checkpoint is not None:
                 on_checkpoint(last_id, processed)
-            if quality_checkpoint_due:
+            if quality_checkpoint_due and on_quality_checkpoint is not None:
                 on_quality_checkpoint(
                     last_id,
                     processed,
@@ -2327,6 +2380,8 @@ def process_licitaciones(
                         },
                     },
                 )
+            if on_progress is not None:
+                on_progress(processed, target_rows)
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -2591,6 +2646,8 @@ def process_licitaciones(
     progress_write("[normalized] licitaciones done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
+    if on_progress is not None:
+        on_progress(processed, target_rows)
     return {
         "processed_rows": processed,
         "last_raw_id": last_id,
@@ -2621,11 +2678,13 @@ def process_ordenes_compra(
     limit_rows: int,
     show_progress: bool,
     start_after_id: int = 0,
+    source_file_id: Any | None = None,
     debug_telemetry: bool = False,
     state_checkpoint_every_pages: int = 1,
     on_checkpoint: Callable[[int, int], None] | None = None,
     on_quality_checkpoint: Callable[[int, int, dict[str, dict[str, Any]]], None] | None = None,
     quality_gate_checkpoint_every_pages: int = QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     ordenes_before = table_row_count(session, NormalizedOrdenCompra)
     ordenes_items_before = table_row_count(session, NormalizedOrdenCompraItem)
@@ -2650,7 +2709,13 @@ def process_ordenes_compra(
     total_rows = session.execute(
         sa.select(sa.func.count())
         .select_from(RawOrdenCompra)
-        .where(RawOrdenCompra.id > start_after_id)
+        .where(
+            *_raw_scope_filters(
+                RawOrdenCompra,
+                start_after_id=start_after_id,
+                source_file_id=source_file_id,
+            )
+        )
     ).scalar_one()
     target_rows = min(total_rows, limit_rows) if limit_rows > 0 else total_rows
 
@@ -2746,7 +2811,13 @@ def process_ordenes_compra(
             batch = (
                 session.execute(
                     sa.select(RawOrdenCompra)
-                    .where(RawOrdenCompra.id > last_id)
+                    .where(
+                        *_raw_scope_filters(
+                            RawOrdenCompra,
+                            start_after_id=last_id,
+                            source_file_id=source_file_id,
+                        )
+                    )
                     .order_by(RawOrdenCompra.id.asc())
                     .limit(page_limit)
                 )
@@ -3022,9 +3093,9 @@ def process_ordenes_compra(
 
             session.commit()
             pages_committed = next_page_number
-            if checkpoint_due:
+            if checkpoint_due and on_checkpoint is not None:
                 on_checkpoint(last_id, processed)
-            if quality_checkpoint_due:
+            if quality_checkpoint_due and on_quality_checkpoint is not None:
                 on_quality_checkpoint(
                     last_id,
                     processed,
@@ -3085,6 +3156,8 @@ def process_ordenes_compra(
                         },
                     },
                 )
+            if on_progress is not None:
+                on_progress(processed, target_rows)
             if row_bar is not None:
                 row_bar.update(len(batch))
             else:
@@ -3334,6 +3407,8 @@ def process_ordenes_compra(
     progress_write("[normalized] ordenes_compra done", enabled=show_progress)
     if on_checkpoint is not None:
         on_checkpoint(last_id, processed)
+    if on_progress is not None:
+        on_progress(processed, target_rows)
     return {
         "processed_rows": processed,
         "last_raw_id": last_id,
@@ -3362,6 +3437,11 @@ def main() -> int:
         choices=["all", "licitacion", "orden_compra"],
         default="all",
         help="Dataset to process",
+    )
+    parser.add_argument(
+        "--source-file-id",
+        default=None,
+        help="Optional source_file_id scope for bounded processing",
     )
     parser.add_argument("--fetch-size", type=int, default=10_000, help="Rows fetched per page")
     parser.add_argument("--chunk-size", type=int, default=500, help="Rows per upsert chunk")
@@ -3494,7 +3574,10 @@ def main() -> int:
             dataset_state = state.get(dataset)
             if not isinstance(dataset_state, dict):
                 dataset_state = {}
-            snapshot = raw_snapshot(session, dataset)
+            if args.source_file_id is None:
+                snapshot = raw_snapshot(session, dataset)
+            else:
+                snapshot = raw_snapshot(session, dataset, args.source_file_id)
             if args.resume and should_skip_dataset(state, dataset, snapshot):
                 progress_write(
                     f"[normalized] skip {dataset}: source snapshot unchanged and dataset already completed",
@@ -3508,6 +3591,8 @@ def main() -> int:
                 state_int(dataset_state.get("last_processed_raw_id"), 0),
             )
             mode_label = "incremental" if args.incremental else "full"
+            if args.source_file_id:
+                mode_label = f"{mode_label}_source_file_scope"
             progress_write(
                 f"[normalized] dataset={dataset} mode={mode_label} start_after_id={start_after_id:,}",
                 enabled=args.progress,
@@ -3518,6 +3603,7 @@ def main() -> int:
                     dataset=dataset,
                     start_after_id=start_after_id,
                     limit_rows=args.limit_rows,
+                    source_file_id=args.source_file_id,
                 )
                 progress_write(
                     format_preflight_quality_audit(preflight_audit),
@@ -3611,6 +3697,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            source_file_id=args.source_file_id,
                             debug_telemetry=args.debug_telemetry,
                             state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,
@@ -3625,6 +3712,7 @@ def main() -> int:
                             limit_rows=args.limit_rows,
                             show_progress=args.progress,
                             start_after_id=start_after_id,
+                            source_file_id=args.source_file_id,
                             debug_telemetry=args.debug_telemetry,
                             state_checkpoint_every_pages=args.state_checkpoint_every_pages,
                             on_checkpoint=persist_checkpoint,

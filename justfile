@@ -11,11 +11,16 @@ NORMALIZED_LIMIT_ROWS := env_var_or_default("NORMALIZED_LIMIT_ROWS", "0")
 NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runtime/normalized_build_state.json")
 NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
 LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
-SPINNER_RUNNER := "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/run_with_spinner.ps1"
+DOCKER_COMPOSE := "docker compose --env-file .env.docker -f docker-compose.yml"
 
 # ============================================================
 # Canonical Commands (Docker-first)
 # ============================================================
+
+[group('00 Dev')]
+[doc('Start the full local app: Docker DB, backend, and frontend')]
+dev: docker-start docker-client
+    @echo "Omnibid dev stack ready: http://127.0.0.1:3000"
 
 [group('01 Setup')]
 [doc('Containerized dependency bootstrap (no host uv required)')]
@@ -30,32 +35,63 @@ uv-sync-host:
 [group('02 Quality')]
 [doc('Format code with Ruff')]
 fmt:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ruff format backend tests scripts
+
+[group('02 Quality')]
+[doc('Format code with Ruff on the host (fallback)')]
+fmt-host:
     uv run ruff format backend tests scripts
 
 [group('02 Quality')]
 [doc('Run Ruff lint checks')]
 lint:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ruff check backend tests scripts
+
+[group('02 Quality')]
+[doc('Run Ruff lint checks on the host (fallback)')]
+lint-host:
     uv run ruff check backend tests scripts
 
 [group('02 Quality')]
 [doc('Run MyPy type checks')]
 type:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync mypy backend scripts
+
+[group('02 Quality')]
+[doc('Run MyPy type checks on the host (fallback)')]
+type-host:
     uv run mypy backend scripts
 
 [group('02 Quality')]
 [doc('Format code with Black')]
 black:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync black backend tests scripts
+
+[group('02 Quality')]
+[doc('Format code with Black on the host (fallback)')]
+black-host:
     uv run black backend tests scripts
 
 [group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty)')]
 type-strict:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync pyright backend scripts
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ty check backend
+
+[group('02 Quality')]
+[doc('Run strict type gates (Pyright + ty) on the host (fallback)')]
+type-strict-host:
     uv run pyright backend scripts
     uv run ty check backend
 
 [group('02 Quality')]
 [doc('Run high-confidence/high-severity security checks')]
 security:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
+
+[group('02 Quality')]
+[doc('Run high-confidence/high-severity security checks on the host (fallback)')]
+security-host:
     uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
 
 [group('02 Quality')]
@@ -65,6 +101,11 @@ test: test-unit
 [group('02 Quality')]
 [doc('Run unit tests only')]
 test-unit:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync pytest -q -m "not integration"
+
+[group('02 Quality')]
+[doc('Run unit tests only on the host (fallback)')]
+test-unit-host:
     uv run pytest -q -m "not integration"
 
 [group('02 Quality')]
@@ -76,12 +117,24 @@ test-unit-local:
 [private]
 [doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL')]
 test-db-check:
-    uv run python scripts/test_db_guard.py check
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync python scripts/test_db_guard.py check
 
 [group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL')]
 test-integration: test-db-check
+    {{DOCKER_COMPOSE}} --profile test up -d db_test
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync python scripts/test_db_guard.py run-integration
+
+[group('02 Quality')]
+[doc('Run integration tests against TEST_DATABASE_URL on the host (fallback)')]
+test-integration-host: test-db-check-host
     uv run python scripts/test_db_guard.py run-integration
+
+[group('02 Quality')]
+[private]
+[doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL on the host (fallback)')]
+test-db-check-host:
+    uv run python scripts/test_db_guard.py check
 
 [group('02 Quality')]
 [doc('Fast local quality gate: lint + type + unit tests')]
@@ -99,19 +152,19 @@ ci: ci-fast type-strict security test-integration
 [private]
 [doc('Build Docker images for local backend stack')]
 docker-build:
-    @{{SPINNER_RUNNER}} -Message "Docker: building backend image" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml build"
+    docker compose --env-file .env.docker -f docker-compose.yml build
 
 [group('03 Docker')]
 [private]
 [doc('Start Docker PostgreSQL service only')]
 docker-db-up:
-    @{{SPINNER_RUNNER}} -Message "Docker: starting db service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d db"
+    docker compose --env-file .env.docker -f docker-compose.yml up -d db
 
 [group('03 Docker')]
 [private]
 [doc('Apply Alembic migrations in Docker backend container')]
 docker-migrate: docker-db-up
-    @{{SPINNER_RUNNER}} -Message "Docker: applying migrations" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head"
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head
 
 [group('03 Docker')]
 [private]
@@ -121,7 +174,12 @@ docker-bootstrap: docker-db-up docker-migrate
 [group('03 Docker')]
 [doc('One-command startup: build image, bootstrap DB, and start backend in background')]
 docker-start: docker-build docker-bootstrap
-    @{{SPINNER_RUNNER}} -Message "Docker: starting backend service" -CommandText "docker compose --env-file .env.docker -f docker-compose.yml up -d backend"
+    docker compose --env-file .env.docker -f docker-compose.yml up -d backend
+
+[group('03 Docker')]
+[doc('Start Next.js frontend in Docker with container-managed npm dependencies')]
+docker-client:
+    docker compose --env-file .env.docker -f docker-compose.yml up -d client
 
 [group('04 Docker Ops')]
 [private]

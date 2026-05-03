@@ -5,25 +5,36 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
+
+SpinnerColumn: Any = None
+TextColumn: Any = None
+BarColumn: Any = None
+_RichProgress: Any | None
+_Console: Any | None
+_tqdm: Any | None
 
 try:
-    from rich.console import Console as _Console
+    from rich.console import Console as _ConsoleImported
     from rich.progress import (
         BarColumn,
         SpinnerColumn,
         TextColumn,
     )
     from rich.progress import (
-        Progress as _RichProgress,
+        Progress as _RichProgressImported,
     )
+    _Console = _ConsoleImported
+    _RichProgress = _RichProgressImported
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    _RichProgress = None  # type: ignore[assignment,misc]
-    _Console = None  # type: ignore[assignment,misc]
+    _RichProgress = None
+    _Console = None
 
 try:
-    from tqdm.auto import tqdm as _tqdm  # type: ignore[import-untyped]
+    from tqdm.auto import tqdm as _tqdmImported  # type: ignore[import-untyped]
+    _tqdm = _tqdmImported
 except ImportError:  # pragma: no cover - optional dependency at runtime
     _tqdm = None
 
@@ -32,15 +43,15 @@ _BAR_FORMAT = (
     "[{elapsed}<{remaining}, {rate_fmt}]"
 )
 _ANSI_RESET = "\x1b[0m"
-_PROGRESS_AREA_READY = False
+_progress_area_ready = False
 _CURSOR_HIDE = "\x1b[?25l"
 _CURSOR_SHOW = "\x1b[?25h"
-_ACTIVE_PROGRESS_BARS = 0
-_CURSOR_HIDDEN = False
+_active_progress_bars = 0
+_cursor_hidden = False
 _CURSOR_LOCK = threading.Lock()
 
 # Shared rich console instance (stderr for progress output).
-_console: _Console | None = None
+_console: Any | None = None
 
 
 def _env_flag(name: str) -> bool:
@@ -128,57 +139,57 @@ def _set_cursor_visible(*, visible: bool) -> None:
 
 
 def _acquire_progress_cursor() -> None:
-    global _ACTIVE_PROGRESS_BARS, _CURSOR_HIDDEN
+    global _active_progress_bars, _cursor_hidden
     with _CURSOR_LOCK:
-        _ACTIVE_PROGRESS_BARS += 1
-        if _CURSOR_HIDDEN:
+        _active_progress_bars += 1
+        if _cursor_hidden:
             return
         _set_cursor_visible(visible=False)
-        _CURSOR_HIDDEN = True
+        _cursor_hidden = True
 
 
 def _release_progress_cursor() -> None:
-    global _ACTIVE_PROGRESS_BARS, _CURSOR_HIDDEN
+    global _active_progress_bars, _cursor_hidden
     with _CURSOR_LOCK:
-        if _ACTIVE_PROGRESS_BARS > 0:
-            _ACTIVE_PROGRESS_BARS -= 1
-        if _ACTIVE_PROGRESS_BARS > 0 or not _CURSOR_HIDDEN:
+        if _active_progress_bars > 0:
+            _active_progress_bars -= 1
+        if _active_progress_bars > 0 or not _cursor_hidden:
             return
         _set_cursor_visible(visible=True)
-        _CURSOR_HIDDEN = False
+        _cursor_hidden = False
 
 
 def _restore_cursor_on_exit() -> None:
-    global _ACTIVE_PROGRESS_BARS, _CURSOR_HIDDEN
+    global _active_progress_bars, _cursor_hidden
     with _CURSOR_LOCK:
-        _ACTIVE_PROGRESS_BARS = 0
-        if not _CURSOR_HIDDEN:
+        _active_progress_bars = 0
+        if not _cursor_hidden:
             return
         _set_cursor_visible(visible=True)
-        _CURSOR_HIDDEN = False
+        _cursor_hidden = False
 
 
 def _init_progress_area(enabled: bool) -> int:
-    global _PROGRESS_AREA_READY
+    global _progress_area_ready
     if not enabled or _RichProgress is None or _is_non_interactive_env():
         return 0
-    if _PROGRESS_AREA_READY:
+    if _progress_area_ready:
         return 1
     _console_print("")
     _console_print("─" * 72)
-    _PROGRESS_AREA_READY = True
+    _progress_area_ready = True
     return 1
 
 
 def _init_tqdm_progress_area(enabled: bool) -> int:
-    global _PROGRESS_AREA_READY
+    global _progress_area_ready
     if not enabled or _tqdm is None or _is_non_interactive_env():
         return 0
-    if _PROGRESS_AREA_READY:
+    if _progress_area_ready:
         return 1
     _tqdm.write("")
     _tqdm.write("-" * 72)
-    _PROGRESS_AREA_READY = True
+    _progress_area_ready = True
     return 1
 
 
@@ -190,9 +201,9 @@ def _console_print(message: str) -> None:
         print(message, file=sys.stderr)
 
 
-def _make_rich_columns(*, total: int | None, stage: str | None) -> list:
+def _make_rich_columns(*, total: int | None, stage: str | None) -> list[Any]:
     """Build rich.progress columns matching the existing bar format."""
-    columns: list = [
+    columns: list[Any] = [
         SpinnerColumn(spinner_name="dots", style="grey46"),
         TextColumn("{task.description:<18}"),
     ]
@@ -281,7 +292,7 @@ def format_duration(seconds: float) -> str:
 
 
 @contextmanager
-def timed_step(label: str, *, enabled: bool = True) -> Iterator[None]:
+def timed_step(label: str, *, enabled: bool = True) -> Generator[None, None, None]:
     started = time.perf_counter()
     if enabled:
         progress_write(f"[start] {label}", enabled=enabled)

@@ -1,0 +1,4 @@
+title = "omnibid gitleaks configuration"
+
+[extend]
+useDefault = true

@@ -5,7 +5,8 @@ Use this runbook when running `app-chilecompra` with Docker Desktop on Windows/L
 ## Scope
 
 - Backend runtime (`backend` + `db`, optional `db_test` profile).
-- Frontend runs separately from `client/` with npm and talks to the Docker backend.
+- Frontend runs in the `client` container service and talks to the Docker backend.
+- Quality and test commands use the Docker tooling stage; host-local commands remain fallback only.
 - No local Python or local PostgreSQL required on the host.
 - Dataset mounted read-only into `/datasets/mercado-publico`.
 
@@ -62,18 +63,17 @@ If a container-backed command cannot be used, state the reason before using the 
 
 ## Frontend Pairing
 
-Run the frontend from `client/` after the Docker backend is healthy:
+Run the frontend through the Docker stack after the backend is healthy:
 
 ```bash
-npm install
-npm run dev -- --hostname 127.0.0.1 --port 3000
+just dev
 ```
-
-Use `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `client/.env.local`.
 
 Open:
 
 - `http://127.0.0.1:3000/licitaciones`
+
+If you need a host-local fallback from `client/`, use the commands in `client/README.md`.
 
 ## Security Defaults
 
