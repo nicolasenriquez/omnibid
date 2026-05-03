@@ -5,7 +5,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 from backend.shared.cleaning import is_licitacion_elegible, normalize_text_base, normalize_tipo_adquisicion
 
@@ -55,11 +55,11 @@ def clean_raw_value(value: Any) -> str | None:
 def pick(raw: dict[str, Any], *keys: str) -> str | None:
     for key in keys:
         if key in raw:
-            raw_value = raw.get(key)
+            raw_value = cast(Any, raw.get(key))
             if raw_value is not None:
                 if isinstance(raw_value, dict):
                     # Sanitize corrupted dict values to str to prevent SQLAlchemy 'can't adapt type' error
-                    value = clean_raw_value(str(raw_value))
+                    value = clean_raw_value(str(cast(Any, raw_value)))
                 else:
                     value = clean_raw_value(raw_value)
                 if value is not None:

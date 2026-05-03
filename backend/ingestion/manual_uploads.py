@@ -10,7 +10,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from backend.ingestion.contracts import validate_required_columns
 
@@ -27,6 +27,16 @@ MANUAL_UPLOAD_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 class ManualUploadError(ValueError):
     pass
+
+
+def _coerce_string_tuple(values: Any) -> tuple[str, ...]:
+    if not isinstance(values, list):
+        raise ManualUploadError("manual upload metadata is malformed")
+    typed_values: list[Any] = values
+    items: list[str] = []
+    for value in typed_values:
+        items.append(str(cast(Any, value)))
+    return tuple(items)
 
 
 @dataclass(frozen=True)
@@ -77,18 +87,16 @@ class ManualCsvPreflight:
             raise ManualUploadError("manual upload metadata is missing staged_at")
         staged_at = datetime.fromisoformat(staged_at_raw)
         consumed_at = datetime.fromisoformat(consumed_at_raw) if consumed_at_raw else None
-        missing_required_columns_raw = metadata.get("missing_required_columns", [])
-        if not isinstance(missing_required_columns_raw, list):
-            raise ManualUploadError("manual upload metadata is malformed")
+        missing_required_columns_raw_any: Any = metadata.get("missing_required_columns", [])
         return cls(
             file_token=str(metadata.get("file_token") or ""),
             dataset_type=str(metadata.get("dataset_type") or ""),
             original_filename=str(metadata.get("original_filename") or ""),
             canonical_filename=str(metadata.get("canonical_filename") or ""),
-            file_size_bytes=int(metadata.get("file_size_bytes") or 0),
+            file_size_bytes=int(str(metadata.get("file_size_bytes") or 0)),
             file_hash_sha256=str(metadata.get("file_hash_sha256") or ""),
-            row_count=int(metadata.get("row_count") or 0),
-            missing_required_columns=tuple(str(value) for value in missing_required_columns_raw),
+            row_count=int(str(metadata.get("row_count") or 0)),
+            missing_required_columns=_coerce_string_tuple(missing_required_columns_raw_any),
             content_type=(str(metadata.get("content_type")) if metadata.get("content_type") else None),
             staged_file_path=str(metadata.get("staged_file_path") or ""),
             metadata_path=str(metadata.get("metadata_path") or ""),
@@ -134,11 +142,11 @@ def format_manual_upload_size_limit(max_bytes: int) -> str:
         raise ManualUploadError("manual upload max size must be non-negative")
     if max_bytes < 1024 * 1024:
         kibibytes = max_bytes / 1024 if max_bytes else 0
-        if kibibytes.is_integer():
+        if isinstance(kibibytes, float) and kibibytes.is_integer():
             return f"{int(kibibytes)} KiB"
         return f"{kibibytes:.1f} KiB"
     mebibytes = max_bytes / (1024 * 1024) if max_bytes else 0
-    if mebibytes.is_integer():
+    if isinstance(mebibytes, float) and mebibytes.is_integer():
         return f"{int(mebibytes)} MiB"
     return f"{mebibytes:.1f} MiB"
 

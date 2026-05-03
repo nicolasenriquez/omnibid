@@ -713,7 +713,7 @@ def run_dataset_preflight_quality_audit(
 
     max_rate = 0.0
     for check in checks:
-        rows = int(check["rows"])
+        rows = int(cast(Any, check["rows"]))
         rate = (rows / scope_rows) if scope_rows > 0 else 0.0
         check["rate"] = rate
         if rate > max_rate:
@@ -2338,9 +2338,9 @@ def process_licitaciones(
 
             session.commit()
             pages_committed = next_page_number
-            if checkpoint_due:
+            if checkpoint_due and on_checkpoint is not None:
                 on_checkpoint(last_id, processed)
-            if quality_checkpoint_due:
+            if quality_checkpoint_due and on_quality_checkpoint is not None:
                 on_quality_checkpoint(
                     last_id,
                     processed,
@@ -3093,9 +3093,9 @@ def process_ordenes_compra(
 
             session.commit()
             pages_committed = next_page_number
-            if checkpoint_due:
+            if checkpoint_due and on_checkpoint is not None:
                 on_checkpoint(last_id, processed)
-            if quality_checkpoint_due:
+            if quality_checkpoint_due and on_quality_checkpoint is not None:
                 on_quality_checkpoint(
                     last_id,
                     processed,

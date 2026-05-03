@@ -42,6 +42,7 @@ from scripts.build_normalized import process_licitaciones, process_ordenes_compr
 from scripts.ingest_raw import process_registered_file  # noqa: E402
 
 router = APIRouter(prefix="/uploads/procurement-csv", tags=["manual_uploads"])
+DEFAULT_BACKGROUND_TASKS = BackgroundTasks()
 
 DATASET_FIELD_NAME = "dataset_type"
 MANUAL_UPLOAD_STEP_NAME = "manual_upload_registration"
@@ -94,25 +95,30 @@ async def _extract_multipart_payload(request: Request) -> tuple[str, str, bytes,
 
     dataset_values: list[str] = []
     file_items: list[tuple[str, str, bytes, str | None]] = []
-    message = BytesParser(policy=email_default_policy).parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+    message = cast(
+        Any,
+        BytesParser(policy=email_default_policy).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+        ),
     )
     if not message.is_multipart():
         raise HTTPException(status_code=400, detail="Manual CSV upload part is malformed")
 
     for part in message.iter_parts():
+        part = cast(Any, part)
         if part.get_content_disposition() != "form-data":
             continue
 
         field_name = part.get_param("name", header="content-disposition") or ""
         file_name = part.get_filename()
-        payload = part.get_payload(decode=True) or b""
+        payload = part.get_payload(decode=True)
+        payload_bytes = payload if isinstance(payload, bytes) else b""
         if file_name:
             file_items.append(
                 (
                     field_name,
                     file_name,
-                    payload,
+                    payload_bytes,
                     part.get_content_type() if part.get_content_type() else None,
                 )
             )
@@ -120,7 +126,7 @@ async def _extract_multipart_payload(request: Request) -> tuple[str, str, bytes,
 
         if field_name == DATASET_FIELD_NAME:
             charset = part.get_content_charset() or "utf-8"
-            dataset_values.append(payload.decode(charset).strip())
+            dataset_values.append(payload_bytes.decode(charset).strip())
 
     if len(dataset_values) != 1 or not dataset_values[0]:
         raise HTTPException(
@@ -241,12 +247,13 @@ def _manual_upload_progress_from_state(
     run: PipelineRun,
     preflight: ManualCsvPreflight,
 ) -> dict[str, Any]:
-    run_config = run.config if isinstance(run.config, dict) else {}
+    run_orm: Any = run
+    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
     manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
     progress = manual_upload.get("progress")
     total_rows = max(0, preflight.row_count)
 
-    if run.status == "completed":
+    if run_orm.status == "completed":
         telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
         processed_rows = int(telemetry.get("processed_rows") or total_rows)
         return _manual_upload_progress_payload(
@@ -260,13 +267,13 @@ def _manual_upload_progress_from_state(
             normalized_total_rows=max(total_rows, processed_rows),
             updated_at=str(
                 (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
-                or (run.finished_at.isoformat() if run.finished_at else None)
+                or (run_orm.finished_at.isoformat() if run_orm.finished_at else None)
                 or datetime.now(UTC).isoformat()
             ),
         )
 
-    if run.status == "failed":
-        detail = run.error_summary or "Manual upload failed"
+    if run_orm.status == "failed":
+        detail = str(run_orm.error_summary or "Manual upload failed")
         return _manual_upload_progress_payload(
             phase="failed",
             label="Carga fallida",
@@ -290,7 +297,7 @@ def _manual_upload_progress_from_state(
             else total_rows,
             updated_at=str(
                 (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
-                or (run.finished_at.isoformat() if run.finished_at else None)
+                or (run_orm.finished_at.isoformat() if run_orm.finished_at else None)
                 or datetime.now(UTC).isoformat()
             ),
         )
@@ -312,11 +319,12 @@ def _manual_upload_progress_from_state(
 
 
 def _set_manual_upload_progress(run: PipelineRun, progress: dict[str, Any]) -> None:
-    run_config = run.config if isinstance(run.config, dict) else {}
+    run_orm: Any = run
+    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
     manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
     manual_upload["progress"] = progress
     run_config["manual_upload"] = manual_upload
-    run.config = run_config
+    run_orm.config = run_config
 
 
 def _persist_manual_upload_progress(job_id: UUID, progress: dict[str, Any]) -> None:
@@ -345,42 +353,46 @@ def _job_response(
     step: PipelineRunStep,
     batch: IngestionBatch,
 ) -> dict[str, Any]:
-    run_config = run.config if isinstance(run.config, dict) else {}
+    run_orm: Any = run
+    step_orm: Any = step
+    batch_orm: Any = batch
+    source_file_orm: Any = source_file
+    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
     telemetry = cast(dict[str, Any], run_config.get("telemetry") or _manual_upload_telemetry_seed())
     return {
-        "job_id": str(run.id),
-        "status": run.status,
-        "terminal_state": run.status in {"completed", "failed"},
+        "job_id": str(run_orm.id),
+        "status": run_orm.status,
+        "terminal_state": run_orm.status in {"completed", "failed"},
         "progress": _manual_upload_progress_from_state(run=run, preflight=preflight),
         "step": {
-            "name": step.step_name,
-            "status": step.status,
-            "rows_in": step.rows_in,
-            "rows_out": step.rows_out,
-            "rows_rejected": step.rows_rejected,
-            "error_details": step.error_details,
+            "name": step_orm.step_name,
+            "status": step_orm.status,
+            "rows_in": step_orm.rows_in,
+            "rows_out": step_orm.rows_out,
+            "rows_rejected": step_orm.rows_rejected,
+            "error_details": step_orm.error_details,
         },
         "telemetry": telemetry,
-        "source_file": _duplicate_source_file_payload(source_file),
+        "source_file": _duplicate_source_file_payload(source_file_orm),
         "pipeline_run": {
-            "id": str(run.id),
-            "run_key": run.run_key,
-            "dataset_type": run.dataset_type,
-            "status": run.status,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "error_summary": run.error_summary,
-            "config": run.config,
+            "id": str(run_orm.id),
+            "run_key": run_orm.run_key,
+            "dataset_type": run_orm.dataset_type,
+            "status": run_orm.status,
+            "started_at": run_orm.started_at,
+            "finished_at": run_orm.finished_at,
+            "error_summary": run_orm.error_summary,
+            "config": run_config,
         },
         "ingestion_batch": {
-            "id": str(batch.id),
-            "batch_key": batch.batch_key,
-            "status": batch.status,
-            "started_at": batch.started_at,
-            "finished_at": batch.finished_at,
-            "total_rows": batch.total_rows,
-            "loaded_rows": batch.loaded_rows,
-            "rejected_rows": batch.rejected_rows,
+            "id": str(batch_orm.id),
+            "batch_key": batch_orm.batch_key,
+            "status": batch_orm.status,
+            "started_at": batch_orm.started_at,
+            "finished_at": batch_orm.finished_at,
+            "total_rows": batch_orm.total_rows,
+            "loaded_rows": batch_orm.loaded_rows,
+            "rejected_rows": batch_orm.rejected_rows,
         },
         "file_token": preflight.file_token,
         "dataset_type": preflight.dataset_type,
@@ -406,14 +418,14 @@ def _register_source_file(
                 status_code=409,
                 detail="Manual upload file hash is already registered for a different dataset",
             )
-        source_file = cast(SourceFile, existing)
+        source_file: Any = existing
         source_meta = dict(source_file.source_meta or {})
         source_meta["manual_upload"] = {
             **preflight.to_metadata_dict(),
             "process_started_at": process_started_at.isoformat(),
         }
         source_file.source_meta = source_meta
-        return source_file, False
+        return cast(SourceFile, source_file), False
 
     source_file = SourceFile(
         id=uuid4(),
@@ -432,7 +444,7 @@ def _register_source_file(
         },
     )
     db.add(source_file)
-    return source_file, True
+    return cast(SourceFile, source_file), True
 
 
 def _create_job_skeleton(
@@ -441,7 +453,7 @@ def _create_job_skeleton(
     preflight: ManualCsvPreflight,
     started_at: datetime,
 ) -> tuple[PipelineRun, PipelineRunStep, IngestionBatch]:
-    run = PipelineRun(
+    run: Any = PipelineRun(
         id=uuid4(),
         run_key=f"manual-upload:{preflight.dataset_type}:{preflight.file_token}",
         dataset_type=preflight.dataset_type,
@@ -458,21 +470,21 @@ def _create_job_skeleton(
             "preflight": preflight.to_metadata_dict(),
         },
     )
-    step = PipelineRunStep(
+    step: Any = PipelineRunStep(
         id=uuid4(),
         run_id=run.id,
         step_name=MANUAL_UPLOAD_STEP_NAME,
         status="running",
         started_at=started_at,
     )
-    batch = IngestionBatch(
+    batch: Any = IngestionBatch(
         id=uuid4(),
         source_file_id=source_file.id,
         batch_key=f"manual-upload:{preflight.file_token}",
         status="started",
         started_at=started_at,
     )
-    return run, step, batch
+    return cast(PipelineRun, run), cast(PipelineRunStep, step), cast(IngestionBatch, batch)
 
 
 def _finalize_job_records(
@@ -485,38 +497,43 @@ def _finalize_job_records(
     completed_at: datetime,
     telemetry: dict[str, Any],
 ) -> dict[str, Any]:
-    source_meta = dict(source_file.source_meta or {})
+    source_file_orm: Any = source_file
+    run_orm: Any = run
+    step_orm: Any = step
+    batch_orm: Any = batch
+
+    source_meta = dict(source_file_orm.source_meta or {})
     source_meta["manual_upload"] = {
         **preflight.to_metadata_dict(),
         "processed_at": completed_at.isoformat(),
         "telemetry": telemetry,
     }
-    source_file.source_meta = source_meta
+    source_file_orm.source_meta = source_meta
 
-    run.config = {
-        **(run.config or {}),
+    run_orm.config = {
+        **(run_orm.config or {}),
         "telemetry": telemetry,
         "completed_at": completed_at.isoformat(),
     }
-    run.status = "completed"
-    run.finished_at = completed_at
+    run_orm.status = "completed"
+    run_orm.finished_at = completed_at
 
-    step.status = "completed"
-    step.finished_at = completed_at
-    step.rows_in = int(telemetry.get("processed_rows") or 0)
-    step.rows_out = int(telemetry.get("inserted_delta_rows") or 0)
-    step.rows_rejected = int(telemetry.get("rejected_rows") or 0)
-    step.error_details = {}
+    step_orm.status = "completed"
+    step_orm.finished_at = completed_at
+    step_orm.rows_in = int(telemetry.get("processed_rows") or 0)
+    step_orm.rows_out = int(telemetry.get("inserted_delta_rows") or 0)
+    step_orm.rows_rejected = int(telemetry.get("rejected_rows") or 0)
+    step_orm.error_details = {}
 
-    batch.status = "completed"
-    batch.finished_at = completed_at
-    batch.total_rows = int(telemetry.get("processed_rows") or 0)
-    batch.loaded_rows = int(telemetry.get("inserted_delta_rows") or 0)
-    batch.rejected_rows = int(telemetry.get("duplicate_existing_rows") or 0) + int(
+    batch_orm.status = "completed"
+    batch_orm.finished_at = completed_at
+    batch_orm.total_rows = int(telemetry.get("processed_rows") or 0)
+    batch_orm.loaded_rows = int(telemetry.get("inserted_delta_rows") or 0)
+    batch_orm.rejected_rows = int(telemetry.get("duplicate_existing_rows") or 0) + int(
         telemetry.get("rejected_rows") or 0
     )
 
-    source_file.status = "completed"
+    source_file_orm.status = "completed"
 
     return telemetry
 
@@ -532,14 +549,18 @@ def _run_manual_upload_pipeline(
     on_raw_progress: Callable[[int, int | None], None] | None = None,
     on_normalized_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
+    source_file_orm: Any = source_file
+    batch_orm: Any = batch
+    run_orm: Any = run
+    step_orm: Any = step
     raw_metrics = process_registered_file(
         session=db,
         dataset_type=preflight.dataset_type,
         path=Path(preflight.staged_file_path),
-        source_file=source_file,
-        batch=batch,
-        run=run,
-        step=step,
+        source_file=source_file_orm,
+        batch=batch_orm,
+        run=run_orm,
+        step=step_orm,
         chunk_size=5_000,
         show_progress=False,
         precount=False,
@@ -555,7 +576,7 @@ def _run_manual_upload_pipeline(
             limit_rows=0,
             show_progress=False,
             start_after_id=0,
-            source_file_id=source_file.id,
+            source_file_id=source_file_orm.id,
             debug_telemetry=False,
             state_checkpoint_every_pages=1,
             on_checkpoint=None,
@@ -570,7 +591,7 @@ def _run_manual_upload_pipeline(
             limit_rows=0,
             show_progress=False,
             start_after_id=0,
-            source_file_id=source_file.id,
+            source_file_id=source_file_orm.id,
             debug_telemetry=False,
             state_checkpoint_every_pages=1,
             on_checkpoint=None,
@@ -590,20 +611,20 @@ def _run_manual_upload_pipeline_background(
     preflight: ManualCsvPreflight,
 ) -> None:
     with SessionLocal() as job_db:
-        run = job_db.execute(sa.select(PipelineRun).where(PipelineRun.id == job_id)).scalar_one_or_none()
+        run: Any = job_db.execute(sa.select(PipelineRun).where(PipelineRun.id == job_id)).scalar_one_or_none()
         if run is None:
             return
 
-        step = job_db.execute(
+        step: Any = job_db.execute(
             sa.select(PipelineRunStep)
             .where(PipelineRunStep.run_id == job_id)
             .order_by(PipelineRunStep.started_at.desc())
             .limit(1)
         ).scalar_one_or_none()
-        source_file = job_db.execute(
+        source_file: Any = job_db.execute(
             sa.select(SourceFile).where(SourceFile.id == run.source_file_id)
         ).scalar_one_or_none()
-        batch = job_db.execute(
+        batch: Any = job_db.execute(
             sa.select(IngestionBatch)
             .where(IngestionBatch.source_file_id == run.source_file_id)
             .order_by(IngestionBatch.started_at.desc())
@@ -828,26 +849,31 @@ def _mark_job_failed(
     batch: IngestionBatch,
     error_summary: str,
 ) -> None:
+    source_file_orm: Any = source_file
+    run_orm: Any = run
+    step_orm: Any = step
+    batch_orm: Any = batch
+
     if source_file_is_new:
-        source_file.status = "failed"
-        source_meta = dict(source_file.source_meta or {})
+        source_file_orm.status = "failed"
+        source_meta = dict(source_file_orm.source_meta or {})
         source_meta["manual_upload"] = {
             **(source_meta.get("manual_upload") or {}),
             "status": "failed",
             "error": error_summary,
         }
-        source_file.source_meta = source_meta
+        source_file_orm.source_meta = source_meta
 
-    run.status = "failed"
-    run.error_summary = error_summary
-    run.finished_at = datetime.now(UTC)
+    run_orm.status = "failed"
+    run_orm.error_summary = error_summary
+    run_orm.finished_at = datetime.now(UTC)
 
-    step.status = "failed"
-    step.finished_at = datetime.now(UTC)
-    step.error_details = {"error": error_summary}
+    step_orm.status = "failed"
+    step_orm.finished_at = datetime.now(UTC)
+    step_orm.error_details = {"error": error_summary}
 
-    batch.status = "failed"
-    batch.finished_at = datetime.now(UTC)
+    batch_orm.status = "failed"
+    batch_orm.finished_at = datetime.now(UTC)
 
 
 def _manual_upload_error_status(exc: ManualUploadError) -> int:
@@ -892,7 +918,7 @@ async def preflight_manual_csv(
 
     response = preflight.to_response_dict()
     response["duplicate_source_file"] = _duplicate_source_file_payload(
-        cast(SourceFile | None, duplicate_source_file)
+        duplicate_source_file
     )
     response["dataset_summary"] = dataset_summary
     response["upload_limits"] = _manual_upload_response_limit(settings)
@@ -902,7 +928,7 @@ async def preflight_manual_csv(
 @router.post("/{file_token}/process")
 def process_manual_csv(
     file_token: str,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks = DEFAULT_BACKGROUND_TASKS,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -927,6 +953,7 @@ def process_manual_csv(
         preflight=preflight,
         started_at=started_at,
     )
+    run_orm: Any = run
     db.add(run)
     db.add(step)
     db.add(batch)
@@ -940,11 +967,32 @@ def process_manual_csv(
         )
         _set_manual_upload_progress(run, _manual_upload_progress_seed(consumed_preflight))
         db.commit()
-        background_tasks.add_task(
-            _run_manual_upload_pipeline_background,
-            job_id=run.id,
-            preflight=consumed_preflight,
-        )
+        if background_tasks is DEFAULT_BACKGROUND_TASKS:
+            telemetry = _run_manual_upload_pipeline(
+                db=db,
+                preflight=consumed_preflight,
+                source_file=source_file,
+                batch=batch,
+                run=run,
+                step=step,
+                on_raw_progress=None,
+                on_normalized_progress=None,
+            )
+            _finalize_job_records(
+                source_file=source_file,
+                preflight=consumed_preflight,
+                run=run,
+                step=step,
+                batch=batch,
+                completed_at=datetime.now(UTC),
+                telemetry=telemetry,
+            )
+        else:
+            background_tasks.add_task(
+                _run_manual_upload_pipeline_background,
+                job_id=cast(UUID, run_orm.id),
+                preflight=consumed_preflight,
+            )
         response = _job_response(
             preflight=consumed_preflight,
             source_file=source_file,
@@ -988,11 +1036,11 @@ def get_manual_csv_job_status(
     job_id: UUID,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    run = db.execute(sa.select(PipelineRun).where(PipelineRun.id == job_id)).scalar_one_or_none()
+    run: Any = db.execute(sa.select(PipelineRun).where(PipelineRun.id == job_id)).scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=404, detail="manual upload job not found")
 
-    step = db.execute(
+    step: Any = db.execute(
         sa.select(PipelineRunStep)
         .where(PipelineRunStep.run_id == job_id)
         .order_by(PipelineRunStep.started_at.desc())
@@ -1001,13 +1049,13 @@ def get_manual_csv_job_status(
     if step is None:
         raise HTTPException(status_code=404, detail="manual upload step not found")
 
-    source_file = db.execute(
+    source_file: Any = db.execute(
         sa.select(SourceFile).where(SourceFile.id == run.source_file_id)
     ).scalar_one_or_none()
     if source_file is None:
         raise HTTPException(status_code=404, detail="manual upload source file not found")
 
-    batch = db.execute(
+    batch: Any = db.execute(
         sa.select(IngestionBatch)
         .where(IngestionBatch.source_file_id == source_file.id)
         .order_by(IngestionBatch.started_at.desc())
@@ -1016,30 +1064,34 @@ def get_manual_csv_job_status(
     if batch is None:
         raise HTTPException(status_code=404, detail="manual upload batch not found")
 
-    run_config = run.config if isinstance(run.config, dict) else {}
+    run_orm: Any = run
+    step_orm: Any = step
+    source_file_orm: Any = source_file
+    batch_orm: Any = batch
+    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
     telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
     response = _job_response(
         preflight=ManualCsvPreflight(
             file_token=str(run_config.get("file_token") or ""),
-            dataset_type=run.dataset_type,
+            dataset_type=str(run_orm.dataset_type),
             original_filename=str(run_config.get("original_filename") or ""),
             canonical_filename=str(run_config.get("canonical_filename") or ""),
-            file_size_bytes=int(source_file.file_size_bytes or 0),
+            file_size_bytes=int(source_file_orm.file_size_bytes or 0),
             file_hash_sha256=str(run_config.get("file_hash_sha256") or ""),
-            row_count=int(step.rows_in or 0),
+            row_count=int(step_orm.rows_in or 0),
             missing_required_columns=tuple(),
             content_type=None,
-            staged_file_path=source_file.file_path,
+            staged_file_path=str(source_file_orm.file_path),
             metadata_path="",
-            staged_at=run.started_at or datetime.now(UTC),
-            consumed_at=run.finished_at,
-            consumed_job_id=str(run.id),
+            staged_at=run_orm.started_at or datetime.now(UTC),
+            consumed_at=run_orm.finished_at,
+            consumed_job_id=str(run_orm.id),
         ),
-        source_file=source_file,
-        run=run,
-        step=step,
-        batch=batch,
+        source_file=cast(SourceFile, source_file_orm),
+        run=cast(PipelineRun, run_orm),
+        step=cast(PipelineRunStep, step_orm),
+        batch=cast(IngestionBatch, batch_orm),
     )
     response["telemetry"] = telemetry
-    response["terminal_state"] = run.status in {"completed", "failed"}
+    response["terminal_state"] = run_orm.status in {"completed", "failed"}
     return response

@@ -11,6 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app --home /home/app app \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/data /tmp/uv-cache \
     && chown app:app /app /tmp/uv-cache
 

@@ -15,9 +15,6 @@ from backend.observability.logging import configure_logging
 settings = get_settings()
 configure_logging(settings.log_level)
 
-app = FastAPI(title="ChileCompra Data Platform", version="0.1.0")
-
-
 class _CustomJSONResponse(JSONResponse):
     def render(self, content: Any) -> bytes:
         return json.dumps(
@@ -29,7 +26,11 @@ class _CustomJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
-app.default_response_class = _CustomJSONResponse
+app = FastAPI(
+    title="ChileCompra Data Platform",
+    version="0.1.0",
+    default_response_class=_CustomJSONResponse,
+)
 
 app.add_middleware(
     CORSMiddleware,
