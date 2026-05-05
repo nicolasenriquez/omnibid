@@ -162,7 +162,7 @@ Each dataset execution prints:
 ## Operator Validation Steps
 
 1. Run controlled sample pipelines:
-   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync python scripts/ingest_raw.py --dataset-root /datasets/mercado-publico/dataset-mercado-publico --limit-files 2`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync python scripts/ingest_raw.py --dataset-root /datasets/mercado-publico --limit-files 2`
    - `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync python scripts/build_normalized.py --dataset all --state-path <state-path>`
 2. Validate raw persisted telemetry:
    - `ingestion_batches.total_rows == processed_rows`

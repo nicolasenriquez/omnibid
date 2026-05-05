@@ -175,10 +175,12 @@ APP_PORT=8000
 DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/chilecompra
 TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
 LOG_LEVEL=INFO
-DATASET_ROOT=/absolute/path/to/dataset-mercado-publico
+DATASET_ROOT=../dataset-mercado-publico
 ```
 
-For Docker, edit `.env.docker` and mount the host dataset read-only through `DATASET_HOST_PATH`. Container-internal PostgreSQL hosts must be service DNS names (`db`, `db_test`), not `localhost`.
+Use a sibling dataset path such as `../dataset-mercado-publico` when the repo lives in WSL.
+
+For Docker, edit `.env.docker` and mount the host dataset read-only through `DATASET_HOST_PATH` (for example `../dataset-mercado-publico` when the repo lives in WSL). Container-internal PostgreSQL hosts must be service DNS names (`db`, `db_test`), not `localhost`.
 
 ### Run Pipelines and Backend
 

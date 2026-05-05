@@ -15,7 +15,7 @@ For agents, this runbook is the first execution plan for backend, database, migr
 ## Prerequisites
 
 - Docker Desktop installed and running.
-- Dataset directory available on host (example: `C:/Users/<you>/OneDrive/Documents/dataset-mercado-publico`).
+- Dataset directory available on host (example: `../dataset-mercado-publico`).
 
 ## Initial Setup
 
