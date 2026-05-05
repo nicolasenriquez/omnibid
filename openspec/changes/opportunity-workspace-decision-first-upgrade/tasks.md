@@ -10,6 +10,15 @@
 - [ ] 1.3 Freeze MVP action semantics and read-only boundaries.
   Notes: `Descartar` local-session only; no persistent mutation APIs in this slice.
   Acceptance: CTA behavior matrix is explicit and consistent with current architecture docs.
+- [ ] 1.4 Build an exact data-fit matrix from live DB evidence.
+  Notes: capture the current coverage for notices, lines, bids, awards, purchase orders, annotations, procurement-mode flags, and data-quality issues; include the zero-coverage `has_site_visit_flag` case and the partial annotation coverage counts.
+  Acceptance: the proposal can clearly separate supported, partial, and unavailable claims.
+- [ ] 1.5 Define signal coverage semantics for the UI contract.
+  Notes: supported, partial, unavailable, with explicit `Sin dato` / `Cobertura parcial` fallbacks; partials remain visibly partial, zero-coverage signals never become primary badges.
+  Acceptance: sparse or zero-coverage signals cannot be surfaced as complete truths.
+- [ ] 1.6 Separate benchmark guidance from implementation commitments.
+  Notes: TodoLicitaciones research informs market direction and UI scanability only; only data-backed repo capabilities may enter this slice.
+  Acceptance: SEO, alerts, watchlists, export, and extra procurement-mode lanes remain explicit future slices.
 
 ## 2. Sprint 1 - Decision Flow Core
 
@@ -74,5 +83,8 @@
   Notes: keyboard flow, focus, contrast, reduced motion, touch target checks.
   Acceptance: critical issues fixed or documented before merge.
 - [ ] 6.3 Update documentation and changelog.
-  Notes: update product/architecture/workspace docs and `CHANGELOG.md`.
-  Acceptance: docs reflect decision-system scope and read-only guardrails exactly.
+  Notes: update product/architecture/workspace docs and `CHANGELOG.md`; keep proposal, design, and spec aligned on the same current-slice boundary.
+  Acceptance: docs reflect decision-system scope, read-only guardrails, and explicit future-slice boundaries exactly.
+- [ ] 6.4 Document deferred-opportunity boundaries.
+  Notes: capture watchlists, alerts, public SEO, evidence export, trust signals, semantic facets, extra procurement-mode lanes, and line-level handoff as future work only.
+  Acceptance: proposal, design, and spec all mark these as valuable but out of scope for this slice.

@@ -104,3 +104,38 @@ The redesign SHALL use external listing benchmarks for information clarity only.
 - **WHEN** scanability patterns are adopted
 - **THEN** Omnibid preserves distinct product identity and supplier-side decision framing
 - **AND** external UI style is not copied one-to-one.
+
+### Requirement: Decision signals MUST expose coverage state explicitly
+The workspace SHALL distinguish supported, partial, and unavailable data states so sparse data is never rendered as complete certainty.
+
+#### Scenario: A field is present with good coverage
+- **WHEN** a decision signal is backed by current evidence
+- **THEN** the UI may render the value normally
+
+#### Scenario: A field exists but is sparse or partially covered
+- **WHEN** a signal has partial coverage or limited support
+- **THEN** the UI SHALL render an explicit partial or unavailable state such as `Cobertura parcial` or `Sin dato`
+- **AND** it SHALL NOT present the signal as complete truth.
+
+#### Scenario: A field has zero usable coverage
+- **WHEN** a signal is not backed by current evidence
+- **THEN** the UI SHALL render `Sin dato` or equivalent unavailable copy
+- **AND** it SHALL NOT elevate the signal into a primary badge, filter, or recommendation.
+
+#### Scenario: Site visit is not yet backed by usable data
+- **WHEN** the workspace evaluates `has_site_visit_flag`
+- **THEN** it SHALL render `Sin dato`
+- **AND** it SHALL NOT expose site visit as a core badge or filter until non-zero coverage exists in the corpus.
+
+#### Scenario: Semantic annotations are only partially covered
+- **WHEN** a triage signal depends on annotation layers with incomplete coverage
+- **THEN** the UI SHALL render `Cobertura parcial`
+- **AND** it SHALL keep the signal explanatory rather than definitive.
+
+### Requirement: Adjacent product opportunities MUST remain explicitly deferred
+The change SHALL keep the current decision-first upgrade separate from broader follow-on capabilities that are valuable but out of scope here.
+
+#### Scenario: The proposal references future follow-ups
+- **WHEN** the proposal, design, or tasks mention watchlists, alerts, public SEO, evidence export, trust dashboards, semantic facets, additional procurement-mode lanes, or line-level investigation handoff
+- **THEN** those items are treated as future slices and not as commitments in this change
+- **AND** the current implementation remains centered on `/licitaciones`, read-only decision support, and the already-specified sprint scope.

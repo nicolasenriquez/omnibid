@@ -203,6 +203,45 @@ Rollback strategy:
 - gate new lanes/features behind explicit view toggles
 - fallback to current Explorador/Radar surfaces if regression appears
 
+## Deferred Follow-ups
+
+The following opportunities are intentionally not part of this change. They are valid next-step candidates, but they should be addressed as separate slices so the current decision-first upgrade stays focused and testable.
+
+| Follow-up | Existing enabling signal | Dependency / reason it is deferred |
+|---|---|---|
+| Persistent watchlists and saved searches | Client-side watchlist behavior already exists in the workspace analysis docs | Requires persisted user state, preferences, and cross-session identity semantics |
+| Deadline-driven alerts and calendarization | Notice timelines already expose forum, answers, openings, adjudication, and PO milestones | Requires notification delivery, user preferences, and operator scheduling policy |
+| Public discovery and SEO | The workspace already has strong scanability, but no public catalog surface | Requires public routing, canonical pages, and indexing strategy separate from the review app |
+| Evidence packaging and sharing | The detail drawer is already evidence-first and bounded-context friendly | Requires export/share primitives and review-package semantics beyond display-only UI |
+| Trust and data-quality signals | `data_quality_issues`, persisted summaries, and source freshness are already available | Requires a dedicated trust presentation layer and explicit operational policy |
+| Semantic facets and risk badges | Silver annotations and procurement flags already provide explainable signals | Requires a stable badge taxonomy and UI space that is not part of the current slice |
+| Additional procurement-mode lanes | Domain docs already distinguish licitación, Compra Ágil, Convenio Marco, and Trato Directo | Requires source-specific semantics and UX beyond the current decision-first defaults |
+| Line-level investigation handoff | Planned procurement-line investigation read models are already documented | Requires a separate workspace slice and a deeper evidence review contract |
+
+These follow-ups are valuable, but the current change should not absorb them. Their main role here is to keep the current slice air-tight by making the boundary between "implemented now" and "next" explicit.
+
+## Data Coverage Policy
+
+The workspace must treat current data as a graded contract, not a binary yes/no:
+
+- `supported`
+  - the field or signal is backed by current evidence and can be rendered normally
+- `partial`
+  - the field or signal exists, but coverage is incomplete or sparse enough that the UI must show that it is only partial
+- `unavailable`
+  - the field or signal does not exist in the current slice or has zero usable coverage
+
+Practical consequences:
+
+- `Sin dato` and `Cobertura parcial` states are required wherever a field can be absent or thin.
+- `has_site_visit_flag` remains non-core until actual coverage appears in the data.
+- benchmark research can guide product direction, but it never upgrades a partial signal into a guaranteed product promise.
+- public discovery, SEO, alerts, watchlists, export/share, and extra procurement-mode lanes stay separate slices even when the underlying data already exists.
+- Supported examples: title, code, official status, buyer, region, publication/close dates, estimated amount, notice-to-PO link, and Compra Ágil flags when they are explicitly validated.
+- Partial examples: semantic annotations, buyer history snapshots, and any derived compatibility signal that depends on incomplete coverage.
+- Unavailable examples: `has_site_visit_flag` today, public SEO as a product commitment, and any notification/export surface that has no delivery contract yet.
+- Coverage-aware rendering must prevent a partial or unsupported signal from being visually merged into a primary certainty badge.
+
 ## Open Questions
 
 None.

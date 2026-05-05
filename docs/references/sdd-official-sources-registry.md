@@ -5,6 +5,13 @@ This registry defines the preferred official sources for this repository stack.
 ## Runtime and Language
 
 - Python: https://docs.python.org/3/
+- Python `argparse`: https://docs.python.org/3/library/argparse.html
+- Python `csv`: https://docs.python.org/3/library/csv.html
+- Python `datetime`: https://docs.python.org/3/library/datetime.html
+- Python `hashlib`: https://docs.python.org/3/library/hashlib.html
+- Python `json`: https://docs.python.org/3/library/json.html
+- Python `pathlib`: https://docs.python.org/3/library/pathlib.html
+- Python `unicodedata`: https://docs.python.org/3/library/unicodedata.html
 - uv: https://docs.astral.sh/uv/
 - Just: https://just.systems/man/en/
 - Docker Engine/Compose: https://docs.docker.com/
@@ -18,7 +25,45 @@ This registry defines the preferred official sources for this repository stack.
 
 - SQLAlchemy 2.x: https://docs.sqlalchemy.org/en/20/
 - Alembic: https://alembic.sqlalchemy.org/en/latest/
-- PostgreSQL: https://www.postgresql.org/docs/
+- PostgreSQL 16: https://www.postgresql.org/docs/16/
+
+## NLP, Text Processing, and Settings
+
+- spaCy API architecture: https://spacy.io/api/
+- spaCy Language API: https://spacy.io/api/language/
+- spaCy linguistic features: https://spacy.io/usage/linguistic-features
+- spaCy Spanish models: https://spacy.io/models/es/
+- spaCy EntityRuler: https://spacy.io/api/entityruler
+- spaCy SpanRuler: https://spacy.io/api/spanruler
+- spaCy AttributeRuler: https://spacy.io/api/attributeruler
+- spaCy attributes: https://spacy.io/api/attributes/
+- spaCy rule-based matching: https://spacy.io/usage/rule-based-matching/
+- fastText language identification: https://fasttext.cc/docs/en/language-identification
+- scikit-learn CountVectorizer: https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.CountVectorizer.html
+- scikit-learn TfidfVectorizer: https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
+- NLTK SnowballStemmer: https://www.nltk.org/api/nltk.stem.SnowballStemmer.html
+- fastText supervised tutorial: https://fasttext.cc/docs/en/supervised-tutorial.html
+- fastText API: https://fasttext.cc/docs/en/api.html
+- fastText supervised models: https://fasttext.cc/docs/en/supervised-models.html
+- Hugging Face Tokenizers: https://huggingface.co/docs/tokenizers/index
+- Hugging Face tokenization pipeline: https://huggingface.co/docs/tokenizers/pipeline
+- Hugging Face Transformers pipelines: https://huggingface.co/docs/transformers/main_classes/pipelines
+- Sentence Transformers usage: https://sbert.net/docs/sentence_transformer/usage/usage.html
+- Sentence Transformers pretrained models: https://sbert.net/docs/sentence_transformer/pretrained_models.html
+- Pydantic Settings: https://docs.pydantic.dev/latest/concepts/pydantic_settings/
+
+## Graphs and Network Analysis
+
+- NetworkX reference index: https://networkx.org/documentation/stable/reference/index.html
+- NetworkX introduction: https://networkx.org/documentation/stable/reference/introduction.html
+- NetworkX graph types: https://networkx.org/documentation/stable/reference/classes/index.html
+- NetworkX randomness: https://networkx.org/documentation/stable/reference/randomness.html
+- NetworkX graph drawing: https://networkx.org/documentation/stable/reference/drawing.html
+- NetworkX graph reading and writing: https://networkx.org/documentation/stable/reference/readwrite/
+- NetworkX GraphML: https://networkx.org/documentation/stable/reference/readwrite/graphml.html
+- NetworkX GEXF: https://networkx.org/documentation/stable/reference/readwrite/gexf.html
+- NetworkX edge lists: https://networkx.org/documentation/stable/reference/readwrite/edgelist.html
+- NetworkX config: https://networkx.org/documentation/stable/reference/configs.html
 
 ## Testing and Quality
 

@@ -27,11 +27,11 @@ This standard does not replace product decisions or implementation guides. It de
 
 ## Version Baseline
 
-- Local development baseline: PostgreSQL 18
-- Reference runtime in Docker Compose: `postgres:18-alpine`
-- Official PostgreSQL documentation is the primary authority
+- Local development baseline: PostgreSQL 16
+- Reference runtime in Docker Compose: `postgres:16-alpine`
+- Official PostgreSQL 16 documentation is the primary authority
 
-When older PostgreSQL documentation is referenced for background reading, it must not override behavior verified against the current project baseline.
+When PostgreSQL documentation for another version is referenced for background reading, it must not override behavior verified against the current project baseline.
 
 ## Source Priority
 
@@ -290,7 +290,7 @@ Using an extension requires two distinct steps:
 1. install the extension binaries in the PostgreSQL runtime
 2. enable it in the database with `CREATE EXTENSION`
 
-The stock `postgres:18-alpine` image does not imply that optional extensions such as `pgvector` or TimescaleDB are available.
+The stock `postgres:16-alpine` image does not imply that optional extensions such as `pgvector` or TimescaleDB are available.
 
 ### Current extension posture
 
@@ -358,7 +358,7 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT ...;
 
 ## References
 
-- PostgreSQL 18 docs: https://www.postgresql.org/docs/18/
+- PostgreSQL 16 docs: https://www.postgresql.org/docs/16/
 - PostgreSQL indexes: https://www.postgresql.org/docs/18/indexes.html
 - PostgreSQL multicolumn indexes: https://www.postgresql.org/docs/18/indexes-multicolumn.html
 - PostgreSQL `CREATE INDEX`: https://www.postgresql.org/docs/18/sql-createindex.html
