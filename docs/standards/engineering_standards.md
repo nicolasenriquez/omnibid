@@ -57,6 +57,7 @@ SDD rules:
 - `docs/references/sdd-standard.md`
 - `docs/references/sdd-official-sources-registry.md`
 - `docs/references/sdd-reference-template.md`
+- `docs/references/sdd-nlp-standards-2026-05-05.md`
 - `docs/references/sdd-github-actions-container-first-ci-cd-2026-05-02.md`
 
 ### Library/Module Standards
@@ -69,6 +70,10 @@ SDD rules:
 - `docs/standards/pytest-standard.md`
 - `docs/standards/bandit-standard.md`
 - `docs/standards/logging-standard.md`
+- `docs/standards/fasttext-standard.md`
+- `docs/standards/spacy-standard.md`
+- `docs/standards/networkx-standard.md`
 - `docs/standards/postgres-standard.md`
 - `docs/standards/pandas-standard.md`
+- `docs/standards/nlp-standards.md`
 - `docs/standards/github-actions-ci-cd-standard.md`

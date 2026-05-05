@@ -11,6 +11,8 @@ The official ChileCompra API page and licitaciones PDF confirm the needed operat
 - the licitacion contract exposes stable fields and status codes suitable for a daily published-notice snapshot
 - The terminology boundary stays explicit: integration internals keep `request`, `payload`, `snapshot`, and `notice` as technical nouns, while adjacent product copy must use Spanish business terms such as `licitación`, `código externo`, `estado oficial`, `organismo comprador`, and `unidad de compra`.
 
+This lane is an upstream data freshness step for the same procurement-intelligence program. It can later feed the Silver-to-Gold decision stack, but it does not replace the CSV foundation and it does not depend on the workspace change.
+
 ## What Changes
 
 - Add a Mercado Público API client foundation for licitaciones only in this change.
