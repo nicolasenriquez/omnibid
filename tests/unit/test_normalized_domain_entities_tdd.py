@@ -28,6 +28,14 @@ class _DummyResult:
         self.rowcount = rowcount
 
 
+class _DummyNestedTransaction:
+    def __enter__(self) -> "_DummyNestedTransaction":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+
 class _DummySession:
     def __init__(self) -> None:
         self.execute_calls = 0
@@ -42,6 +50,9 @@ class _DummySession:
 
     def flush(self) -> None:
         return None
+
+    def begin_nested(self) -> _DummyNestedTransaction:
+        return _DummyNestedTransaction()
 
 
 class _RecordingSession(_DummySession):
@@ -886,6 +897,7 @@ def test_missing_domain_identities_are_tracked_as_quality_issues() -> None:
 def test_persisted_domain_identity_issues_keep_column_context() -> None:
     session = _DummySession()
     run_id = uuid4()
+    source_file_id = uuid4()
     issues = [
         {
             "table_name": "normalized_buyers",
@@ -902,9 +914,11 @@ def test_persisted_domain_identity_issues_keep_column_context() -> None:
         run_id=run_id,
         dataset="licitacion",
         issues=issues,
+        source_file_id=source_file_id,
     )
 
     assert len(session.added) == 1
     persisted = session.added[0]
     assert persisted.issue_type == "normalized_missing_domain_identity"
+    assert persisted.source_file_id == source_file_id
     assert persisted.column_name == "codigo_unidad_compra"

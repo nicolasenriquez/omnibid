@@ -28,7 +28,7 @@ Validation should first determine whether there is an active or explicitly targe
 Run:
 
 ```bash
-openspec list --json
+just openspec list --json
 ```
 
 If `@ARGUMENTS` specifies a change name, use that.
@@ -40,8 +40,8 @@ If there is no active change, run the repository baseline.
 If validating a change, inspect it first:
 
 ```bash
-openspec status --change "<name>" --json
-openspec instructions apply --change "<name>" --json
+just openspec status --change "<name>" --json
+just openspec instructions apply --change "<name>" --json
 ```
 
 Read the relevant context files so the validation report can say whether the implemented work matches the expected scope.

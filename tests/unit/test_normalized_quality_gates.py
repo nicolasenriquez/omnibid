@@ -51,18 +51,21 @@ def test_persist_normalized_quality_issues_saves_issue_context() -> None:
 
     session = _DummySession()
     run_id = uuid4()
+    source_file_id = uuid4()
 
     persist_normalized_quality_issues(
         session=session,
         run_id=run_id,
         dataset="licitacion",
         issues=issues,
+        source_file_id=source_file_id,
     )
 
     assert session.flush_calls == 1
     assert len(session.added) == 1
     added_issue = session.added[0]
     assert added_issue.run_id == run_id
+    assert added_issue.source_file_id == source_file_id
     assert added_issue.dataset_type == "licitacion"
     assert added_issue.table_name == "normalized_licitaciones"
     assert added_issue.issue_type == QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS

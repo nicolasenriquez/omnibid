@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import importlib.util
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import dialect as pg_dialect
 
+import backend.normalized.upsert_engine as UPSERT_MODULE
 from backend.models.normalized import NormalizedOferta
 from backend.models.normalized import NormalizedOrdenCompra
 from backend.normalized.transform import build_oferta_payload
@@ -34,19 +37,34 @@ class _DummyResult:
         self.rowcount = rowcount
 
 
+class _NoopNestedTransaction:
+    def __enter__(self) -> _NoopNestedTransaction:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
+
+
 class _DummySession:
     def __init__(self) -> None:
         self.execute_calls = 0
+        self.begin_nested_calls = 0
 
     def execute(self, _stmt: object) -> _DummyResult:
         self.execute_calls += 1
         return _DummyResult(1)
+
+    def begin_nested(self) -> _NoopNestedTransaction:
+        self.begin_nested_calls += 1
+        return _NoopNestedTransaction()
 
 
 class _ThresholdSession:
     def __init__(self, max_params: int) -> None:
         self.max_params = max_params
         self.execute_calls = 0
+        self.rollback_calls = 0
+        self.begin_nested_calls = 0
 
     def execute(self, stmt: object) -> _DummyResult:
         self.execute_calls += 1
@@ -54,6 +72,74 @@ class _ThresholdSession:
         if params_count > self.max_params:
             raise sa.exc.OperationalError("too many bind params", params=None, orig=Exception("bind limit"))
         return _DummyResult(1)
+
+    def begin_nested(self) -> _NoopNestedTransaction:
+        self.begin_nested_calls += 1
+        return _NoopNestedTransaction()
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+
+class _RowMapping(Mapping[str, Any]):
+    def __init__(self, values: dict[str, Any]) -> None:
+        self._values = values
+
+    def __getitem__(self, key: str) -> Any:
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+
+class _MappingResult:
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        self._row = row
+
+    def mappings(self) -> _MappingResult:
+        return self
+
+    def one(self) -> Mapping[str, Any]:
+        return self._row
+
+
+class _PreflightSession:
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        self._row = row
+        self.execute_calls = 0
+
+    def execute(self, _stmt: object) -> _MappingResult:
+        self.execute_calls += 1
+        return _MappingResult(self._row)
+
+
+class _RetrySession:
+    def __init__(self) -> None:
+        self.begin_nested_calls = 0
+        self.rollback_calls = 0
+        self.persisted_batches: list[tuple[str, ...]] = []
+
+    def begin_nested(self) -> _NestedTransaction:
+        return _NestedTransaction(self)
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.persisted_batches.clear()
+
+
+class _NestedTransaction:
+    def __init__(self, session: _RetrySession) -> None:
+        self._session = session
+
+    def __enter__(self) -> _NestedTransaction:
+        self._session.begin_nested_calls += 1
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
 
 
 class _DummyScalarResult:
@@ -80,6 +166,56 @@ class _PurchaseOrderLookupSession:
     def execute(self, _stmt: object) -> _DummyLookupResult:
         self.execute_calls += 1
         return _DummyLookupResult(self._existing_purchase_order_ids)
+
+
+@pytest.mark.parametrize(
+    ("dataset", "row_data", "expected_first_check_name", "expected_first_check_rows"),
+    [
+        (
+            "licitacion",
+            {
+                "scope_rows": 12,
+                "licitacion_missing_keys": 3,
+                "item_missing_keys": 2,
+                "oferta_missing_supplier": 1,
+            },
+            "licitacion_missing_primary_keys",
+            3,
+        ),
+        (
+            "orden_compra",
+            {
+                "scope_rows": 9,
+                "buyer_missing": 4,
+                "supplier_missing": 2,
+                "category_missing_after_fallback": 1,
+            },
+            "buyer_missing_identity",
+            4,
+        ),
+    ],
+)
+def test_run_dataset_preflight_quality_audit_reads_row_mappings(
+    dataset: str,
+    row_data: dict[str, int],
+    expected_first_check_name: str,
+    expected_first_check_rows: int,
+) -> None:
+    session = _PreflightSession(_RowMapping(row_data))
+
+    audit = MODULE.run_dataset_preflight_quality_audit(
+        session,
+        dataset=dataset,
+        start_after_id=0,
+        limit_rows=10,
+    )
+
+    assert session.execute_calls == 1
+    assert audit["dataset"] == dataset
+    assert audit["scope_rows"] == row_data["scope_rows"]
+    assert audit["checks"][0]["name"] == expected_first_check_name
+    assert audit["checks"][0]["rows"] == expected_first_check_rows
+    assert audit["max_rate"] == pytest.approx(expected_first_check_rows / row_data["scope_rows"])
 
 
 def test_dedupe_rows_keeps_latest_payload_for_same_business_key() -> None:
@@ -163,6 +299,52 @@ def test_upsert_rows_retries_with_smaller_batches_on_operational_error() -> None
 
     assert upserted == len(rows)
     assert session.execute_calls >= 3
+    assert session.begin_nested_calls >= 3
+    assert session.rollback_calls == 0
+
+
+def test_execute_payloads_with_retry_preserves_prior_batches_when_retrying() -> None:
+    session = _RetrySession()
+    attempts: list[tuple[str, ...]] = []
+    failed_batches: set[tuple[str, ...]] = set()
+
+    def fake_execute_single_upsert(
+        *,
+        session: _RetrySession,
+        model: object,
+        payloads: list[dict[str, object]],
+        conflict_fields: list[str],
+    ) -> None:
+        batch_ids = tuple(str(row["id"]) for row in payloads)
+        attempts.append(batch_ids)
+        if batch_ids == ("c", "d") and batch_ids not in failed_batches:
+            failed_batches.add(batch_ids)
+            raise sa.exc.OperationalError("too many bind params", params=None, orig=Exception("bind limit"))
+        session.persisted_batches.append(batch_ids)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(UPSERT_MODULE, "execute_single_upsert", fake_execute_single_upsert)
+
+    try:
+        UPSERT_MODULE.execute_payloads_with_retry(
+            session=session,
+            model=object(),
+            payloads=[
+                {"id": "a"},
+                {"id": "b"},
+                {"id": "c"},
+                {"id": "d"},
+            ],
+            conflict_fields=["id"],
+            max_rows_per_stmt=2,
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert attempts == [("a", "b"), ("c", "d"), ("c",), ("d",)]
+    assert session.begin_nested_calls == 4
+    assert session.rollback_calls == 0
+    assert session.persisted_batches == [("a", "b"), ("c",), ("d",)]
 
 
 def test_upsert_rows_reports_deduplicated_count_for_duplicate_keys() -> None:

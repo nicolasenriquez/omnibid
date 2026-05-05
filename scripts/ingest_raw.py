@@ -380,9 +380,15 @@ def process_registered_file(
     batch_any.status = "completed"
     batch_any.finished_at = datetime.now(UTC)
 
+    source_meta_value = cast(Any, source_file).source_meta
+    source_meta_base: dict[str, Any]
+    if isinstance(source_meta_value, dict):
+        source_meta_base = cast(dict[str, Any], source_meta_value)
+    else:
+        source_meta_base = {}
     source_file_any.status = "loaded"
     source_file_any.source_meta = {
-        **(source_file.source_meta or {}),
+        **source_meta_base,
         "raw_ingest_metrics": metrics,
     }
 
@@ -392,10 +398,13 @@ def process_registered_file(
     step_any.rows_out = metrics["inserted_delta_rows"]
     step_any.rows_rejected = metrics["existing_or_updated_rows"]
 
-    run_any.config = {
-        **(run.config or {}),
-        "raw_ingest_metrics": metrics,
-    }
+    run_config_value = cast(Any, run).config
+    run_config_base: dict[str, Any]
+    if isinstance(run_config_value, dict):
+        run_config_base = cast(dict[str, Any], run_config_value)
+    else:
+        run_config_base = {}
+    run_any.config = {**run_config_base, "raw_ingest_metrics": metrics}
     run_any.status = "completed"
     run_any.finished_at = datetime.now(UTC)
 
@@ -504,8 +513,8 @@ def main() -> int:
                         exc=exc,
                     )
                     batch_any = cast(Any, batch)
-                    step_any = cast(Any, step)
-                    run_any = cast(Any, run)
+                    step_any = step
+                    run_any = run
 
                     batch_any.status = "failed"
                     batch_any.finished_at = datetime.now(UTC)

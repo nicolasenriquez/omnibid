@@ -93,7 +93,7 @@ export type OpportunityTimelineEvent = {
 
 export type OpportunityLineEvidence = {
   itemCode: string;
-  correlative: string | null;
+  correlative: number | null;
   productCodeOnu: string | null;
   lineName: string | null;
   lineDescription: string | null;

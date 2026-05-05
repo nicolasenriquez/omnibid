@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, cast
 
 import sqlalchemy as sa
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -20,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.models.raw import RawLicitacion, RawOrdenCompra  # noqa: E402
-from backend.models.operational import DataQualityIssue, PipelineRun, PipelineRunStep  # noqa: E402
+from backend.models.operational import PipelineRun, PipelineRunStep  # noqa: E402
 from backend.models.normalized import (  # noqa: E402
     NormalizedBuyer,
     NormalizedCategory,
@@ -82,6 +80,25 @@ from backend.observability.cli_ui import (  # noqa: E402
     progress_write,
     timed_step,
 )
+from backend.normalized.quality_gate import (  # noqa: E402,F401
+    QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
+    QUALITY_GATE_DOMAIN_IDENTITY_FIELDS,
+    QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
+    QUALITY_GATE_MAX_ERROR_RATE,
+    QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT,
+    QUALITY_GATE_POLICY_VERSION,
+    QUALITY_GATE_SEVERITY_ERROR,
+    collect_normalized_quality_issues,
+    evaluate_normalized_quality_gate,
+    persist_normalized_quality_issues,
+)
+from backend.normalized.upsert_engine import (  # noqa: E402,F401
+    calculate_max_rows_per_upsert,
+    dedupe_rows,
+    flush_if_needed,
+    flush_remaining,
+    upsert_rows,
+)
 
 LICITACIONES_CONFLICT_FIELDS = ["codigo_externo"]
 LICITACION_ITEMS_CONFLICT_FIELDS = ["codigo_externo", "codigo_item"]
@@ -106,78 +123,28 @@ SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS = ["supplier_id", "notice_id"]
 SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "nlp_version"]
 SILVER_NOTICE_LINE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "item_code", "nlp_version"]
 SILVER_PURCHASE_ORDER_LINE_TEXT_ANN_CONFLICT_FIELDS = ["purchase_order_id", "line_item_id", "nlp_version"]
-POSTGRES_MAX_BIND_PARAMS = int(os.getenv("NORMALIZED_MAX_BIND_PARAMS", "32767"))
-POSTGRES_BIND_PARAM_SAFETY_MARGIN = 64
-QUALITY_GATE_POLICY_VERSION = "quality_gate_policy_v1"
-QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS = "normalized_rejected_rows"
-QUALITY_GATE_ISSUE_TYPE_MISSING_DOMAIN_IDENTITY = "normalized_missing_domain_identity"
-QUALITY_GATE_SEVERITY_WARNING = "warning"
-QUALITY_GATE_SEVERITY_ERROR = "error"
-QUALITY_GATE_MAX_ERROR_RATE = 0.005
-QUALITY_GATE_FAIL_ON_CRITICAL_ERROR = True
-QUALITY_GATE_CRITICAL_ISSUE_TYPES = {QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS}
-QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT = int(
-    os.getenv("NORMALIZED_QUALITY_GATE_CHECKPOINT_EVERY_PAGES", "10")
-)
-QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT = int(
-    os.getenv("NORMALIZED_QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST", "100000")
-)
-QUALITY_GATE_ENTITY_TABLES = {
-    "licitaciones": "normalized_licitaciones",
-    "licitacion_items": "normalized_licitacion_items",
-    "ofertas": "normalized_ofertas",
-    "ordenes_compra": "normalized_ordenes_compra",
-    "ordenes_compra_items": "normalized_ordenes_compra_items",
-    "buyers": "normalized_buyers",
-    "suppliers": "normalized_suppliers",
-    "categories": "normalized_categories",
-    "silver_notice": "silver_notice",
-    "silver_notice_line": "silver_notice_line",
-    "silver_bid_submission": "silver_bid_submission",
-    "silver_award_outcome": "silver_award_outcome",
-    "silver_purchase_order": "silver_purchase_order",
-    "silver_purchase_order_line": "silver_purchase_order_line",
-    "silver_buying_org": "silver_buying_org",
-    "silver_contracting_unit": "silver_contracting_unit",
-    "silver_supplier": "silver_supplier",
-    "silver_category_ref": "silver_category_ref",
-    "silver_notice_purchase_order_link": "silver_notice_purchase_order_link",
-    "silver_supplier_participation": "silver_supplier_participation",
-    "silver_notice_text_ann": "silver_notice_text_ann",
-    "silver_notice_line_text_ann": "silver_notice_line_text_ann",
-    "silver_purchase_order_line_text_ann": "silver_purchase_order_line_text_ann",
+
+# Backward-compatible module exports currently used by unit tests that import this script module directly.
+_LEGACY_BUILD_NORMALIZED_EXPORTS = {
+    "QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS": QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
+    "QUALITY_GATE_SEVERITY_ERROR": QUALITY_GATE_SEVERITY_ERROR,
+    "calculate_max_rows_per_upsert": calculate_max_rows_per_upsert,
+    "dedupe_rows": dedupe_rows,
+    "upsert_rows": upsert_rows,
 }
-QUALITY_GATE_DOMAIN_IDENTITY_FIELDS = {
-    "buyers": "codigo_unidad_compra",
-    "suppliers": "codigo_proveedor_or_rut_proveedor",
-    "categories": "codigo_categoria",
-}
-SILVER_FORBIDDEN_FEATURE_COLUMNS = {
-    "opportunity_rank",
-    "opportunity_score",
-    "winnability_score",
-    "convenience_score",
-    "win_probability",
-    "award_probability",
-    "forecast_value",
-    "forecast_label",
-    "anomaly_verdict",
-    "recommendation_score",
-}
-SILVER_FORBIDDEN_FEATURE_SUFFIXES = (
-    "_score",
-    "_probability",
-    "_forecast",
-    "_prediction",
-    "_rank",
-)
-SILVER_FORBIDDEN_FEATURE_PREFIXES = ("future_",)
-SILVER_ANNOTATION_TFIDF_REF_PREFIX = "tfidf://"
-SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS = (
-    "tfidf_vector",
-    "tfidf_values",
-    "tfidf_matrix",
-)
+
+
+def _dict_any(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return cast(dict[str, Any], value)
+    return {}
+
+
+def _session_execute(session: Session) -> Callable[[Any], Any] | None:
+    execute = getattr(session, "execute", None)
+    if callable(execute):
+        return cast(Callable[[Any], Any], execute)
+    return None
 
 
 def resolve_buyer_identity_key(raw: dict[str, Any]) -> str | None:
@@ -263,7 +230,7 @@ def load_state(path: Path) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
-    return data if isinstance(data, dict) else {}
+    return _dict_any(data)
 
 
 def save_state(path: Path, state: dict[str, Any]) -> None:
@@ -296,130 +263,6 @@ def create_normalized_run(session: Session, dataset: str, mode_label: str) -> tu
     return run, step
 
 
-def collect_normalized_quality_issues(
-    entity_metrics: dict[str, dict[str, int]],
-) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    for entity_name, metrics in entity_metrics.items():
-        processed_rows = max(0, state_int(metrics.get("processed_rows"), 0))
-        rejected_rows = max(0, state_int(metrics.get("rejected_rows"), 0))
-        if rejected_rows <= 0:
-            continue
-        error_rate = (rejected_rows / processed_rows) if processed_rows > 0 else 0.0
-        is_domain_identity_issue = entity_name in QUALITY_GATE_DOMAIN_IDENTITY_FIELDS
-        identity_field = str(
-            metrics.get("identity_field")
-            or QUALITY_GATE_DOMAIN_IDENTITY_FIELDS.get(entity_name, "")
-        )
-        default_rejection_reason = "missing_identity" if is_domain_identity_issue else "rejected_rows"
-        rejection_reason = str(metrics.get("rejection_reason") or default_rejection_reason)
-        issue_type = (
-            QUALITY_GATE_ISSUE_TYPE_MISSING_DOMAIN_IDENTITY
-            if is_domain_identity_issue
-            else QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS
-        )
-        issues.append(
-            {
-                "entity_name": entity_name,
-                "table_name": QUALITY_GATE_ENTITY_TABLES.get(entity_name),
-                "issue_type": issue_type,
-                "severity": QUALITY_GATE_SEVERITY_WARNING,
-                "record_ref": entity_name,
-                "column_name": identity_field if is_domain_identity_issue else None,
-                "details": {
-                    "processed_rows": processed_rows,
-                    "rejected_rows": rejected_rows,
-                    "error_rate": error_rate,
-                    "rejection_reason": rejection_reason,
-                    "identity_field": identity_field if is_domain_identity_issue else None,
-                },
-            }
-        )
-    return issues
-
-
-def persist_normalized_quality_issues(
-    session: Session,
-    run_id: Any,
-    dataset: str,
-    issues: list[dict[str, Any]],
-) -> None:
-    for issue in issues:
-        quality_issue = DataQualityIssue(
-            run_id=run_id,
-            dataset_type=dataset,
-            table_name=issue.get("table_name"),
-            issue_type=issue["issue_type"],
-            severity=issue["severity"],
-            record_ref=issue.get("record_ref"),
-            column_name=issue.get("column_name"),
-            details=issue.get("details", {}),
-        )
-        session.add(quality_issue)
-    session.flush()
-
-
-def evaluate_normalized_quality_gate(
-    entity_metrics: dict[str, dict[str, int]],
-    issues: list[dict[str, Any]],
-) -> dict[str, Any]:
-    total_processed_rows = sum(
-        max(0, state_int(metrics.get("processed_rows"), 0)) for metrics in entity_metrics.values()
-    )
-    total_rejected_rows = sum(
-        max(0, state_int(metrics.get("rejected_rows"), 0)) for metrics in entity_metrics.values()
-    )
-    dataset_error_rate = (
-        (total_rejected_rows / total_processed_rows) if total_processed_rows > 0 else 0.0
-    )
-    critical_error_issue_exists = any(
-        issue.get("severity") == QUALITY_GATE_SEVERITY_ERROR
-        and issue.get("issue_type") in QUALITY_GATE_CRITICAL_ISSUE_TYPES
-        for issue in issues
-    )
-
-    if QUALITY_GATE_FAIL_ON_CRITICAL_ERROR and critical_error_issue_exists:
-        decision = "failed"
-        decision_reason = "critical_error_issue_exists"
-    elif dataset_error_rate > QUALITY_GATE_MAX_ERROR_RATE:
-        decision = "failed"
-        decision_reason = "dataset_error_rate_exceeded_threshold"
-    elif issues:
-        decision = "warning"
-        decision_reason = "warning_issues_below_threshold"
-    else:
-        decision = "passed"
-        decision_reason = "no_quality_issues"
-
-    error_issues_count = sum(
-        1 for issue in issues if issue.get("severity") == QUALITY_GATE_SEVERITY_ERROR
-    )
-    warning_issues_count = sum(
-        1 for issue in issues if issue.get("severity") == QUALITY_GATE_SEVERITY_WARNING
-    )
-
-    return {
-        "policy_version": QUALITY_GATE_POLICY_VERSION,
-        "thresholds": {
-            "max_error_rate": QUALITY_GATE_MAX_ERROR_RATE,
-            "fail_on_critical_error": QUALITY_GATE_FAIL_ON_CRITICAL_ERROR,
-            "critical_issue_types": sorted(QUALITY_GATE_CRITICAL_ISSUE_TYPES),
-        },
-        "issue_counts": {
-            "total": len(issues),
-            "error": error_issues_count,
-            "warning": warning_issues_count,
-        },
-        "dataset_metrics": {
-            "processed_rows": total_processed_rows,
-            "rejected_rows": total_rejected_rows,
-            "error_rate": dataset_error_rate,
-        },
-        "decision": decision,
-        "decision_reason": decision_reason,
-    }
-
-
 def mark_normalized_run_completed(
     run: PipelineRun,
     step: PipelineRunStep,
@@ -428,15 +271,17 @@ def mark_normalized_run_completed(
 ) -> None:
     run_any = cast(Any, run)
     step_any = cast(Any, step)
+    run_config = _dict_any(run.config)
+    dataset_metrics = _dict_any(quality_gate.get("dataset_metrics"))
     run_any.config = {
-        **(run.config or {}),
+        **run_config,
         "quality_gate": quality_gate,
     }
     step_any.status = "completed"
     step_any.finished_at = datetime.now(UTC)
     step_any.rows_in = processed_rows
     step_any.rows_rejected = state_int(
-        quality_gate.get("dataset_metrics", {}).get("rejected_rows"),
+        dataset_metrics.get("rejected_rows"),
         0,
     )
     run_any.status = "completed"
@@ -451,11 +296,12 @@ def mark_normalized_run_failed(
 ) -> None:
     run_any = cast(Any, run)
     step_any = cast(Any, step)
+    run_config = _dict_any(run.config)
     error_details: dict[str, Any] = {"error": error_summary}
     if quality_gate is not None:
         error_details["quality_gate"] = quality_gate
         run_any.config = {
-            **(run.config or {}),
+            **run_config,
             "quality_gate": quality_gate,
         }
     step_any.status = "failed"
@@ -490,7 +336,7 @@ def raw_snapshot(session: Session, dataset: str, source_file_id: Any | None = No
         model: Any = RawLicitacion
     else:
         model = RawOrdenCompra
-    filters = []
+    filters: list[Any] = []
     if source_file_id is not None:
         filters.append(model.source_file_id == source_file_id)
     total_rows = session.execute(
@@ -501,9 +347,10 @@ def raw_snapshot(session: Session, dataset: str, source_file_id: Any | None = No
 
 
 def should_skip_dataset(state: dict[str, Any], dataset: str, snapshot: dict[str, int]) -> bool:
-    dataset_state = state.get(dataset)
-    if not isinstance(dataset_state, dict):
+    dataset_state_raw = state.get(dataset)
+    if not isinstance(dataset_state_raw, dict):
         return False
+    dataset_state = _dict_any(dataset_state_raw)
     if dataset_state.get("status") != "completed":
         return False
     return (
@@ -574,7 +421,7 @@ def _raw_scope_filters(
     start_after_id: int,
     source_file_id: Any | None = None,
 ) -> list[Any]:
-    filters = [model.id > start_after_id]
+    filters: list[Any] = [model.id > start_after_id]
     if source_file_id is not None:
         filters.append(model.source_file_id == source_file_id)
     return filters
@@ -588,8 +435,8 @@ def run_dataset_preflight_quality_audit(
     limit_rows: int,
     source_file_id: Any | None = None,
 ) -> dict[str, Any]:
-    execute = getattr(session, "execute", None)
-    if not callable(execute):
+    execute = _session_execute(session)
+    if execute is None:
         return {
             "dataset": dataset,
             "scope_rows": 0,
@@ -630,16 +477,18 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_supplier_identity),
         )
 
-        row = execute(
-            sa.select(
-                sa.func.count().label("scope_rows"),
-                sa.func.count().filter(licitacion_missing_keys).label("licitacion_missing_keys"),
-                sa.func.count().filter(item_missing_keys).label("item_missing_keys"),
-                sa.func.count().filter(oferta_missing_supplier).label("oferta_missing_supplier"),
-            ).select_from(subset)
-        ).mappings().one()
+        row = dict(
+            execute(
+                sa.select(
+                    sa.func.count().label("scope_rows"),
+                    sa.func.count().filter(licitacion_missing_keys).label("licitacion_missing_keys"),
+                    sa.func.count().filter(item_missing_keys).label("item_missing_keys"),
+                    sa.func.count().filter(oferta_missing_supplier).label("oferta_missing_supplier"),
+                ).select_from(subset)
+            ).mappings().one()
+        )
         scope_rows = int(row["scope_rows"] or 0)
-        checks = [
+        checks: list[dict[str, Any]] = [
             {
                 "name": "licitacion_missing_primary_keys",
                 "rows": int(row["licitacion_missing_keys"] or 0),
@@ -685,16 +534,18 @@ def run_dataset_preflight_quality_audit(
             sa.not_(has_category_identity),
         )
 
-        row = execute(
-            sa.select(
-                sa.func.count().label("scope_rows"),
-                sa.func.count().filter(buyer_missing).label("buyer_missing"),
-                sa.func.count().filter(supplier_missing).label("supplier_missing"),
-                sa.func.count()
-                .filter(category_missing_after_fallback)
-                .label("category_missing_after_fallback"),
-            ).select_from(subset)
-        ).mappings().one()
+        row = dict(
+            execute(
+                sa.select(
+                    sa.func.count().label("scope_rows"),
+                    sa.func.count().filter(buyer_missing).label("buyer_missing"),
+                    sa.func.count().filter(supplier_missing).label("supplier_missing"),
+                    sa.func.count()
+                    .filter(category_missing_after_fallback)
+                    .label("category_missing_after_fallback"),
+                ).select_from(subset)
+            ).mappings().one()
+        )
         scope_rows = int(row["scope_rows"] or 0)
         checks = [
             {
@@ -713,7 +564,7 @@ def run_dataset_preflight_quality_audit(
 
     max_rate = 0.0
     for check in checks:
-        rows = int(cast(Any, check["rows"]))
+        rows = int(check["rows"])
         rate = (rows / scope_rows) if scope_rows > 0 else 0.0
         check["rate"] = rate
         if rate > max_rate:
@@ -747,19 +598,22 @@ def format_preflight_quality_audit(audit: dict[str, Any]) -> str:
 
 
 def close_stale_running_runs(session: Session, *, dataset: str) -> int:
-    execute = getattr(session, "execute", None)
-    if not callable(execute):
+    execute = _session_execute(session)
+    if execute is None:
         return 0
 
-    stale_runs = execute(
+    stale_runs = cast(
+        list[PipelineRun],
+        execute(
         sa.select(PipelineRun)
         .where(PipelineRun.dataset_type == dataset)
         .where(PipelineRun.status == "running")
-    ).scalars().all()
+        ).scalars().all(),
+    )
     if not stale_runs:
         return 0
 
-    stale_run_ids = [run.id for run in stale_runs]
+    stale_run_ids = [cast(Any, run).id for run in stale_runs]
     now_utc = datetime.now(UTC)
     for run in stale_runs:
         run_any = cast(Any, run)
@@ -767,17 +621,21 @@ def close_stale_running_runs(session: Session, *, dataset: str) -> int:
         run_any.finished_at = now_utc
         run_any.error_summary = "stale running run auto-closed before new execution"
 
-    stale_steps = execute(
+    stale_steps = cast(
+        list[PipelineRunStep],
+        execute(
         sa.select(PipelineRunStep)
         .where(PipelineRunStep.run_id.in_(stale_run_ids))
         .where(PipelineRunStep.status == "running")
-    ).scalars().all()
+        ).scalars().all(),
+    )
     for step in stale_steps:
         step_any = cast(Any, step)
+        step_error_details = _dict_any(cast(Any, step).error_details)
         step_any.status = "failed"
         step_any.finished_at = now_utc
         step_any.error_details = {
-            **(step.error_details or {}),
+            **step_error_details,
             "error": "stale running step auto-closed before new execution",
         }
     return len(stale_runs)
@@ -845,183 +703,6 @@ def build_domain_entity_metrics(
     )
 
 
-def dedupe_rows(rows: list[dict[str, Any]], key_fields: list[str]) -> list[dict[str, Any]]:
-    if not key_fields:
-        raise ValueError("conflict key fields cannot be empty")
-
-    latest_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for row in rows:
-        key_values: list[Any] = []
-        for field in key_fields:
-            value = row.get(field)
-            if value is None or value == "":
-                raise ValueError(f"missing business key value for field '{field}'")
-            key_values.append(value)
-        key = tuple(key_values)
-        latest_by_key[key] = row
-    return list(latest_by_key.values())
-
-
-def validate_silver_feature_guardrails(*, model: Any, payloads: list[dict[str, Any]]) -> None:
-    table_name = str(getattr(model, "__tablename__", ""))
-    if not table_name.startswith("silver_"):
-        return
-
-    for payload in payloads:
-        if table_name.endswith("_text_ann"):
-            tfidf_ref = payload.get("tfidf_artifact_ref")
-            if tfidf_ref is not None:
-                if not isinstance(tfidf_ref, str) or not tfidf_ref.startswith(
-                    SILVER_ANNOTATION_TFIDF_REF_PREFIX
-                ):
-                    raise ValueError(
-                        f"silver annotation contract violation for {table_name}: "
-                        "tfidf_artifact_ref must be a reference string starting with 'tfidf://'"
-                    )
-            vector_columns = sorted(
-                field for field in payload if field in SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS
-            )
-            if vector_columns:
-                vector_columns_csv = ", ".join(vector_columns)
-                raise ValueError(
-                    f"silver annotation contract violation for {table_name}: "
-                    f"serialized TF-IDF vector columns are forbidden [{vector_columns_csv}]"
-                )
-
-        violations = sorted(
-            field
-            for field in payload
-            if field in SILVER_FORBIDDEN_FEATURE_COLUMNS
-            or field.endswith(SILVER_FORBIDDEN_FEATURE_SUFFIXES)
-            or field.startswith(SILVER_FORBIDDEN_FEATURE_PREFIXES)
-        )
-        if not violations:
-            continue
-        violations_csv = ", ".join(violations)
-        raise ValueError(
-            f"silver leakage guardrail violation for {table_name}: "
-            f"forbidden feature columns [{violations_csv}]"
-        )
-
-
-def upsert_rows(
-    session: Session,
-    model: Any,
-    rows: list[dict[str, Any]],
-    conflict_fields: list[str],
-) -> int:
-    if not rows:
-        return 0
-
-    payloads = dedupe_rows(rows, conflict_fields)
-    validate_silver_feature_guardrails(model=model, payloads=payloads)
-    missing_fields = [field for field in conflict_fields if field not in payloads[0]]
-    if missing_fields:
-        fields_csv = ", ".join(missing_fields)
-        raise ValueError(f"conflict key fields missing from payload: {fields_csv}")
-
-    columns_per_row = max(len(payload) for payload in payloads)
-    max_rows_per_stmt = calculate_max_rows_per_upsert(columns_per_row)
-
-    execute_payloads_with_retry(
-        session=session,
-        model=model,
-        payloads=payloads,
-        conflict_fields=conflict_fields,
-        max_rows_per_stmt=max_rows_per_stmt,
-    )
-    return len(payloads)
-
-
-def execute_payloads_with_retry(
-    session: Session,
-    model: Any,
-    payloads: list[dict[str, Any]],
-    conflict_fields: list[str],
-    max_rows_per_stmt: int,
-) -> None:
-    for start in range(0, len(payloads), max_rows_per_stmt):
-        batch_payloads = payloads[start : start + max_rows_per_stmt]
-        try:
-            execute_single_upsert(
-                session=session,
-                model=model,
-                payloads=batch_payloads,
-                conflict_fields=conflict_fields,
-            )
-        except OperationalError:
-            # Split and retry when runtime/driver limits reject large statements.
-            if len(batch_payloads) <= 1:
-                raise
-            smaller_max_rows = max(1, len(batch_payloads) // 2)
-            execute_payloads_with_retry(
-                session=session,
-                model=model,
-                payloads=batch_payloads,
-                conflict_fields=conflict_fields,
-                max_rows_per_stmt=smaller_max_rows,
-            )
-
-
-def execute_single_upsert(
-    session: Session,
-    model: Any,
-    payloads: list[dict[str, Any]],
-    conflict_fields: list[str],
-) -> None:
-    stmt = pg_insert(model).values(payloads)
-
-    update_fields = sorted(set(payloads[0].keys()) - set(conflict_fields) - {"created_at"})
-    set_map = {field: getattr(stmt.excluded, field) for field in update_fields}
-    if "updated_at" in payloads[0]:
-        set_map["updated_at"] = sa.func.now()
-
-    if set_map:
-        stmt = stmt.on_conflict_do_update(index_elements=conflict_fields, set_=set_map)
-    else:
-        stmt = stmt.on_conflict_do_nothing(index_elements=conflict_fields)
-
-    session.execute(stmt)
-
-
-def calculate_max_rows_per_upsert(columns_per_row: int) -> int:
-    if columns_per_row <= 0:
-        raise ValueError("columns_per_row must be > 0")
-    available_params = POSTGRES_MAX_BIND_PARAMS - POSTGRES_BIND_PARAM_SAFETY_MARGIN
-    return max(1, available_params // columns_per_row)
-
-
-def flush_if_needed(
-    session: Session,
-    model: Any,
-    buffer_rows: list[dict[str, Any]],
-    conflict_fields: list[str],
-    chunk_size: int,
-    *,
-    force: bool = False,
-) -> int:
-    if not force and len(buffer_rows) < chunk_size:
-        return 0
-    if not buffer_rows:
-        return 0
-    upserted = upsert_rows(session, model, buffer_rows, conflict_fields)
-    buffer_rows.clear()
-    return upserted
-
-
-def flush_remaining(
-    session: Session,
-    model: Any,
-    buffer_rows: list[dict[str, Any]],
-    conflict_fields: list[str],
-) -> int:
-    if not buffer_rows:
-        return 0
-    upserted = upsert_rows(session, model, buffer_rows, conflict_fields)
-    buffer_rows.clear()
-    return upserted
-
-
 def prune_orphan_notice_purchase_order_links(
     session: Session,
     notice_purchase_order_link_rows: list[dict[str, Any]],
@@ -1029,8 +710,8 @@ def prune_orphan_notice_purchase_order_links(
     if not notice_purchase_order_link_rows:
         return 0
 
-    execute = getattr(session, "execute", None)
-    if not callable(execute):
+    execute = _session_execute(session)
+    if execute is None:
         return 0
 
     purchase_order_ids = sorted(
@@ -1058,7 +739,11 @@ def prune_orphan_notice_purchase_order_links(
         scalars = getattr(result, "scalars", None)
         if not callable(scalars):
             return 0
-        existing_purchase_order_ids.update(scalars().all())
+        scalar_result = scalars()
+        all_values = getattr(scalar_result, "all", None)
+        if not callable(all_values):
+            return 0
+        existing_purchase_order_ids.update(cast(list[str], all_values()))
 
     if len(existing_purchase_order_ids) == len(purchase_order_ids):
         return 0
@@ -3571,9 +3256,7 @@ def main() -> int:
 
     with SessionLocal() as session:
         for dataset in datasets:
-            dataset_state = state.get(dataset)
-            if not isinstance(dataset_state, dict):
-                dataset_state = {}
+            dataset_state = _dict_any(state.get(dataset))
             if args.source_file_id is None:
                 snapshot = raw_snapshot(session, dataset)
             else:
@@ -3633,8 +3316,8 @@ def main() -> int:
             step: PipelineRunStep | None = None
 
             def persist_checkpoint(last_raw_id: int, processed_rows: int) -> None:
-                current = state.get(dataset)
-                if not isinstance(current, dict):
+                current = _dict_any(state.get(dataset))
+                if not current:
                     return
                 current["last_processed_raw_id"] = max(
                     state_int(current.get("last_processed_raw_id"), 0),
@@ -3656,8 +3339,9 @@ def main() -> int:
                     quality_issues,
                 )
                 decision = str(quality_gate.get("decision"))
+                quality_gate_dataset_metrics = _dict_any(quality_gate.get("dataset_metrics"))
                 dataset_error_rate = float(
-                    quality_gate.get("dataset_metrics", {}).get("error_rate") or 0.0
+                    quality_gate_dataset_metrics.get("error_rate") or 0.0
                 )
                 if args.debug_telemetry:
                     progress_write(
@@ -3729,7 +3413,13 @@ def main() -> int:
                     metrics.get("entity_metrics", {}),
                 )
                 quality_issues = collect_normalized_quality_issues(entity_metrics)
-                persist_normalized_quality_issues(session, run.id, dataset, quality_issues)
+                persist_normalized_quality_issues(
+                    session,
+                    run.id,
+                    dataset,
+                    quality_issues,
+                    args.source_file_id,
+                )
                 quality_gate = evaluate_normalized_quality_gate(entity_metrics, quality_issues)
                 decision = str(quality_gate.get("decision"))
 

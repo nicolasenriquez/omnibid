@@ -1,7 +1,7 @@
 import type { OpportunityStage, RelationshipCertainty, WorkspaceTab } from "@/src/types/opportunities";
 
 export const WORKSPACE_TAB_LABELS: Record<WorkspaceTab, string> = {
-  explorer: "Explorador",
+  explorer: "Lista",
   radar: "Radar",
 };
 
@@ -23,13 +23,13 @@ export const RELATIONSHIP_CERTAINTY_LABELS: Record<RelationshipCertainty, string
 };
 
 export const PROCUREMENT_TYPE_LABELS = {
-  public: "Publica",
+  public: "Pública",
   private: "Privada",
   service: "Servicios",
 } as const;
 
 export const READ_ONLY_ACTION_LABELS = {
-  copyCode: "Copiar codigo",
-  openNotice: "Abrir licitacion",
+  copyCode: "Copiar código",
+  openNotice: "Abrir licitación",
   viewDetail: "Abrir detalle",
 } as const;

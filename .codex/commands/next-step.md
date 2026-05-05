@@ -31,7 +31,7 @@ Run:
 ```bash
 git status --short --branch
 git log -10 --oneline
-openspec list --json
+just openspec list --json
 ```
 
 Use this to identify:

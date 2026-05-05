@@ -210,7 +210,17 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
                     }
                 ]
             ),
-            _MappingResult([]),
+            _MappingResult(
+                [
+                    {
+                        "purchase_order_code": "PO-1",
+                        "purchase_order_status": "ACEPTADA",
+                        "purchase_order_created_at": datetime(2026, 4, 5, tzinfo=UTC),
+                        "purchase_order_amount": Decimal("100.00"),
+                        "currency_code": "CLP",
+                    }
+                ]
+            ),
         ]
     )
 
@@ -227,6 +237,10 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
     assert payload["offers"][0]["offerName"] == "Oferta tecnica"
     assert payload["offers"][0]["unitPrice"] == 20.0
     assert payload["offers"][0]["offeredQuantity"] == 2.0
+    assert payload["purchaseOrders"][0]["purchaseOrderCode"] == "PO-1"
+    assert payload["purchaseOrders"][0]["purchaseOrderAmount"] == 100.0
+    assert payload["purchaseOrders"][0]["relationshipCertainty"] == "unconfirmed"
+    assert payload["purchaseOrders"][0]["purchaseOrderItemId"] is None
 
 
 def test_opportunities_accepts_extended_filters() -> None:

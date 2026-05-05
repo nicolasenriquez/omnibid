@@ -224,6 +224,56 @@ def test_build_manual_csv_preflight_accepts_semicolon_csv(tmp_path: Path) -> Non
     assert Path(preflight.metadata_path).exists()
 
 
+def test_build_manual_csv_preflight_accepts_required_header_aliases(tmp_path: Path) -> None:
+    licitacion_alias_payload = (
+        '"Codigo";"CodigoExterno";"Tipo de Adquisicion";"FechaPublicacion";'
+        '"FechaCierre";"CodigoItem"\n'
+        '"1";"LIC-2026-4";"Licitacion Publica";"2026-04-01";"2026-04-08";"1"\n'
+    ).encode("utf-8")
+    orden_compra_alias_payload = (
+        '"Codigo";"FechaEnvio";"Estado";"DescripcionTipoOC";"IDItem";'
+        '"CodigoProductoONU";"totalLineaNeto"\n'
+        '"1";"2026-04-01";"ACEPTADA";"Compra";"1";"12345678";"1000"\n'
+    ).encode("utf-8")
+
+    licitacion_preflight = build_manual_csv_preflight(
+        dataset_type="licitacion",
+        original_filename="lic_2026-4.csv",
+        payload=licitacion_alias_payload,
+        intake_root=tmp_path,
+        max_bytes=1024 * 1024,
+    )
+    orden_compra_preflight = build_manual_csv_preflight(
+        dataset_type="orden_compra",
+        original_filename="2026-4.csv",
+        payload=orden_compra_alias_payload,
+        intake_root=tmp_path,
+        max_bytes=1024 * 1024,
+    )
+
+    assert licitacion_preflight.missing_required_columns == ()
+    assert orden_compra_preflight.missing_required_columns == ()
+
+
+def test_build_manual_csv_preflight_accepts_total_linea_neto_alias(tmp_path: Path) -> None:
+    payload = (
+        '"Codigo";"FechaEnvio";"Estado";"DescripcionTipoOC";"IDItem";'
+        '"codigoProductoONU";"TotalLineaNeto"\n'
+        '"1";"2026-04-01";"ACEPTADA";"Compra";"1";"12345678";"1000"\n'
+    ).encode("utf-8")
+
+    preflight = build_manual_csv_preflight(
+        dataset_type="orden_compra",
+        original_filename="2026-4.csv",
+        payload=payload,
+        intake_root=tmp_path,
+        max_bytes=1024 * 1024,
+    )
+
+    assert preflight.dataset_type == "orden_compra"
+    assert preflight.missing_required_columns == ()
+
+
 def test_manual_upload_content_type_and_size_helpers() -> None:
     assert validate_manual_upload_dataset_type("  ORDEN_COMPRA  ") == "orden_compra"
     assert validate_manual_upload_content_type("text/csv; charset=utf-8") == "text/csv"

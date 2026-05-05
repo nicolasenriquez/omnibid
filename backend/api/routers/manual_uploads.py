@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from email.parser import BytesParser
-from email.policy import default as email_default_policy
 import shutil
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -13,7 +10,9 @@ import sqlalchemy as sa
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from backend.api.dataset_summary import compute_dataset_summary_counts
 from backend.api.deps import get_db
+from backend.api.manual_upload_transport import extract_manual_upload_multipart
 from backend.core.config import Settings, get_settings
 from backend.ingestion.manual_uploads import (
     ManualCsvPreflight,
@@ -24,22 +23,8 @@ from backend.ingestion.manual_uploads import (
     mark_manual_upload_preflight_consumed,
 )
 from backend.db.session import SessionLocal
-from backend.models.normalized import (
-    NormalizedLicitacion,
-    NormalizedLicitacionItem,
-    NormalizedOferta,
-    NormalizedOrdenCompra,
-    NormalizedOrdenCompraItem,
-)
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
-from backend.models.raw import RawLicitacion, RawOrdenCompra
-
-ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from scripts.build_normalized import process_licitaciones, process_ordenes_compra  # noqa: E402
-from scripts.ingest_raw import process_registered_file  # noqa: E402
+from backend.pipeline.application import run_normalized_build, run_registered_raw_ingest
 
 router = APIRouter(prefix="/uploads/procurement-csv", tags=["manual_uploads"])
 DEFAULT_BACKGROUND_TASKS = BackgroundTasks()
@@ -48,21 +33,8 @@ DATASET_FIELD_NAME = "dataset_type"
 MANUAL_UPLOAD_STEP_NAME = "manual_upload_registration"
 
 
-def _count_rows(db: Session, model: type[Any]) -> int:
-    return int(db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one())
-
-
-def _build_dataset_summary(db: Session) -> dict[str, int]:
-    return {
-        "source_files_count": _count_rows(db, SourceFile),
-        "raw_licitaciones_count": _count_rows(db, RawLicitacion),
-        "raw_ordenes_compra_count": _count_rows(db, RawOrdenCompra),
-        "normalized_licitaciones_count": _count_rows(db, NormalizedLicitacion),
-        "normalized_licitacion_items_count": _count_rows(db, NormalizedLicitacionItem),
-        "normalized_ofertas_count": _count_rows(db, NormalizedOferta),
-        "normalized_ordenes_compra_count": _count_rows(db, NormalizedOrdenCompra),
-        "normalized_ordenes_compra_items_count": _count_rows(db, NormalizedOrdenCompraItem),
-    }
+def _dict_any(value: Any) -> dict[str, Any]:
+    return cast(dict[str, Any], value) if isinstance(value, dict) else {}
 
 
 def _safe_manual_upload_token(file_token: str) -> str:
@@ -82,65 +54,16 @@ def _manual_upload_response_limit(settings: Settings) -> dict[str, int | str]:
 
 
 async def _extract_multipart_payload(request: Request) -> tuple[str, str, bytes, str | None]:
-    content_type = request.headers.get("content-type") or ""
-    if "multipart/form-data" not in content_type.lower():
-        raise HTTPException(
-            status_code=400,
-            detail="Manual CSV upload must use multipart/form-data",
-        )
-
-    body = await request.body()
-    if not body:
-        raise HTTPException(status_code=400, detail="Manual CSV upload body is empty")
-
-    dataset_values: list[str] = []
-    file_items: list[tuple[str, str, bytes, str | None]] = []
-    message = cast(
-        Any,
-        BytesParser(policy=email_default_policy).parsebytes(
-            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
-        ),
+    payload = await extract_manual_upload_multipart(
+        request,
+        dataset_field_name=DATASET_FIELD_NAME,
     )
-    if not message.is_multipart():
-        raise HTTPException(status_code=400, detail="Manual CSV upload part is malformed")
-
-    for part in message.iter_parts():
-        part = cast(Any, part)
-        if part.get_content_disposition() != "form-data":
-            continue
-
-        field_name = part.get_param("name", header="content-disposition") or ""
-        file_name = part.get_filename()
-        payload = part.get_payload(decode=True)
-        payload_bytes = payload if isinstance(payload, bytes) else b""
-        if file_name:
-            file_items.append(
-                (
-                    field_name,
-                    file_name,
-                    payload_bytes,
-                    part.get_content_type() if part.get_content_type() else None,
-                )
-            )
-            continue
-
-        if field_name == DATASET_FIELD_NAME:
-            charset = part.get_content_charset() or "utf-8"
-            dataset_values.append(payload_bytes.decode(charset).strip())
-
-    if len(dataset_values) != 1 or not dataset_values[0]:
-        raise HTTPException(
-            status_code=400,
-            detail="Select licitacion or orden_compra before uploading",
-        )
-    if len(file_items) != 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Exactly one CSV file must be uploaded",
-        )
-
-    _, original_filename, file_bytes, file_type = file_items[0]
-    return dataset_values[0], original_filename, bytes(file_bytes), file_type
+    return (
+        payload.dataset_type,
+        payload.original_filename,
+        payload.file_bytes,
+        payload.file_content_type,
+    )
 
 
 def _duplicate_source_file_payload(source_file: SourceFile | None) -> dict[str, Any] | None:
@@ -248,13 +171,13 @@ def _manual_upload_progress_from_state(
     preflight: ManualCsvPreflight,
 ) -> dict[str, Any]:
     run_orm: Any = run
-    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
-    manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
-    progress = manual_upload.get("progress")
+    run_config = _dict_any(run_orm.config)
+    manual_upload = _dict_any(run_config.get("manual_upload"))
+    progress = _dict_any(manual_upload.get("progress"))
     total_rows = max(0, preflight.row_count)
 
     if run_orm.status == "completed":
-        telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
+        telemetry = _dict_any(run_config.get("telemetry"))
         processed_rows = int(telemetry.get("processed_rows") or total_rows)
         return _manual_upload_progress_payload(
             phase="completed",
@@ -266,7 +189,7 @@ def _manual_upload_progress_from_state(
             normalized_processed_rows=processed_rows,
             normalized_total_rows=max(total_rows, processed_rows),
             updated_at=str(
-                (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
+                progress.get("updated_at")
                 or (run_orm.finished_at.isoformat() if run_orm.finished_at else None)
                 or datetime.now(UTC).isoformat()
             ),
@@ -279,30 +202,18 @@ def _manual_upload_progress_from_state(
             label="Carga fallida",
             detail=detail,
             percent=100,
-            raw_processed_rows=int(cast(dict[str, Any], progress).get("raw_processed_rows") or 0)
-            if isinstance(progress, dict)
-            else 0,
-            raw_total_rows=int(cast(dict[str, Any], progress).get("raw_total_rows") or total_rows)
-            if isinstance(progress, dict)
-            else total_rows,
-            normalized_processed_rows=int(
-                cast(dict[str, Any], progress).get("normalized_processed_rows") or 0
-            )
-            if isinstance(progress, dict)
-            else 0,
-            normalized_total_rows=int(
-                cast(dict[str, Any], progress).get("normalized_total_rows") or total_rows
-            )
-            if isinstance(progress, dict)
-            else total_rows,
+            raw_processed_rows=int(progress.get("raw_processed_rows") or 0),
+            raw_total_rows=int(progress.get("raw_total_rows") or total_rows),
+            normalized_processed_rows=int(progress.get("normalized_processed_rows") or 0),
+            normalized_total_rows=int(progress.get("normalized_total_rows") or total_rows),
             updated_at=str(
-                (cast(dict[str, Any], progress).get("updated_at") if isinstance(progress, dict) else None)
+                progress.get("updated_at")
                 or (run_orm.finished_at.isoformat() if run_orm.finished_at else None)
                 or datetime.now(UTC).isoformat()
             ),
         )
 
-    if isinstance(progress, dict) and progress:
+    if progress:
         return _manual_upload_progress_payload(
             phase=str(progress.get("phase") or "preparing"),
             label=str(progress.get("label") or "Preparando carga manual"),
@@ -320,8 +231,8 @@ def _manual_upload_progress_from_state(
 
 def _set_manual_upload_progress(run: PipelineRun, progress: dict[str, Any]) -> None:
     run_orm: Any = run
-    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
-    manual_upload = cast(dict[str, Any], run_config.get("manual_upload") or {})
+    run_config = _dict_any(run_orm.config)
+    manual_upload = _dict_any(run_config.get("manual_upload"))
     manual_upload["progress"] = progress
     run_config["manual_upload"] = manual_upload
     run_orm.config = run_config
@@ -357,8 +268,8 @@ def _job_response(
     step_orm: Any = step
     batch_orm: Any = batch
     source_file_orm: Any = source_file
-    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
-    telemetry = cast(dict[str, Any], run_config.get("telemetry") or _manual_upload_telemetry_seed())
+    run_config = _dict_any(run_orm.config)
+    telemetry = _dict_any(run_config.get("telemetry")) or _manual_upload_telemetry_seed()
     return {
         "job_id": str(run_orm.id),
         "status": run_orm.status,
@@ -413,13 +324,14 @@ def _register_source_file(
         sa.select(SourceFile).where(SourceFile.file_hash_sha256 == preflight.file_hash_sha256)
     ).scalar_one_or_none()
     if existing is not None:
-        if existing.dataset_type != preflight.dataset_type:
+        existing_orm: Any = existing
+        if str(existing_orm.dataset_type) != preflight.dataset_type:
             raise HTTPException(
                 status_code=409,
                 detail="Manual upload file hash is already registered for a different dataset",
             )
-        source_file: Any = existing
-        source_meta = dict(source_file.source_meta or {})
+        source_file = cast(Any, existing)
+        source_meta = _dict_any(source_file.source_meta)
         source_meta["manual_upload"] = {
             **preflight.to_metadata_dict(),
             "process_started_at": process_started_at.isoformat(),
@@ -444,7 +356,7 @@ def _register_source_file(
         },
     )
     db.add(source_file)
-    return cast(SourceFile, source_file), True
+    return source_file, True
 
 
 def _create_job_skeleton(
@@ -553,7 +465,7 @@ def _run_manual_upload_pipeline(
     batch_orm: Any = batch
     run_orm: Any = run
     step_orm: Any = step
-    raw_metrics = process_registered_file(
+    raw_metrics = run_registered_raw_ingest(
         session=db,
         dataset_type=preflight.dataset_type,
         path=Path(preflight.staged_file_path),
@@ -561,43 +473,15 @@ def _run_manual_upload_pipeline(
         batch=batch_orm,
         run=run_orm,
         step=step_orm,
-        chunk_size=5_000,
-        show_progress=False,
-        precount=False,
         expected_rows=preflight.row_count,
         on_progress=on_raw_progress,
     )
-
-    if preflight.dataset_type == "licitacion":
-        normalized_result = process_licitaciones(
-            session=db,
-            fetch_size=10_000,
-            chunk_size=500,
-            limit_rows=0,
-            show_progress=False,
-            start_after_id=0,
-            source_file_id=source_file_orm.id,
-            debug_telemetry=False,
-            state_checkpoint_every_pages=1,
-            on_checkpoint=None,
-            on_quality_checkpoint=None,
-            on_progress=on_normalized_progress,
-        )
-    else:
-        normalized_result = process_ordenes_compra(
-            session=db,
-            fetch_size=10_000,
-            chunk_size=500,
-            limit_rows=0,
-            show_progress=False,
-            start_after_id=0,
-            source_file_id=source_file_orm.id,
-            debug_telemetry=False,
-            state_checkpoint_every_pages=1,
-            on_checkpoint=None,
-            on_quality_checkpoint=None,
-            on_progress=on_normalized_progress,
-        )
+    normalized_result = run_normalized_build(
+        session=db,
+        dataset_type=preflight.dataset_type,
+        source_file_id=source_file_orm.id,
+        on_progress=on_normalized_progress,
+    )
 
     return _manual_upload_telemetry(
         raw_metrics,
@@ -683,7 +567,7 @@ def _run_manual_upload_pipeline_background(
                     normalized_total_rows=normalized_total_rows,
                 ),
             )
-            raw_metrics = process_registered_file(
+            raw_metrics = run_registered_raw_ingest(
                 session=job_db,
                 dataset_type=preflight.dataset_type,
                 path=Path(preflight.staged_file_path),
@@ -691,9 +575,6 @@ def _run_manual_upload_pipeline_background(
                 batch=batch,
                 run=run,
                 step=step,
-                chunk_size=5_000,
-                show_progress=False,
-                precount=False,
                 expected_rows=preflight.row_count,
                 on_progress=report_raw_progress,
             )
@@ -712,36 +593,12 @@ def _run_manual_upload_pipeline_background(
                 ),
             )
 
-            if preflight.dataset_type == "licitacion":
-                normalized_result = process_licitaciones(
-                    session=job_db,
-                    fetch_size=10_000,
-                    chunk_size=500,
-                    limit_rows=0,
-                    show_progress=False,
-                    start_after_id=0,
-                    source_file_id=source_file.id,
-                    debug_telemetry=False,
-                    state_checkpoint_every_pages=1,
-                    on_checkpoint=None,
-                    on_quality_checkpoint=None,
-                    on_progress=report_normalized_progress,
-                )
-            else:
-                normalized_result = process_ordenes_compra(
-                    session=job_db,
-                    fetch_size=10_000,
-                    chunk_size=500,
-                    limit_rows=0,
-                    show_progress=False,
-                    start_after_id=0,
-                    source_file_id=source_file.id,
-                    debug_telemetry=False,
-                    state_checkpoint_every_pages=1,
-                    on_checkpoint=None,
-                    on_quality_checkpoint=None,
-                    on_progress=report_normalized_progress,
-                )
+            normalized_result = run_normalized_build(
+                session=job_db,
+                dataset_type=preflight.dataset_type,
+                source_file_id=source_file.id,
+                on_progress=report_normalized_progress,
+            )
 
             _persist_manual_upload_progress(
                 job_id,
@@ -910,7 +767,7 @@ async def preflight_manual_csv(
         duplicate_source_file = db.execute(
             sa.select(SourceFile).where(SourceFile.file_hash_sha256 == preflight.file_hash_sha256)
         ).scalar_one_or_none()
-        dataset_summary = _build_dataset_summary(db)
+        dataset_summary = compute_dataset_summary_counts(db)
     except Exception:
         staged_dir = Path(preflight.staged_file_path).parent
         shutil.rmtree(staged_dir, ignore_errors=True)
@@ -1068,8 +925,8 @@ def get_manual_csv_job_status(
     step_orm: Any = step
     source_file_orm: Any = source_file
     batch_orm: Any = batch
-    run_config: dict[str, Any] = run_orm.config if isinstance(run_orm.config, dict) else {}
-    telemetry = cast(dict[str, Any], run_config.get("telemetry") or {})
+    run_config = _dict_any(run_orm.config)
+    telemetry = _dict_any(run_config.get("telemetry"))
     response = _job_response(
         preflight=ManualCsvPreflight(
             file_token=str(run_config.get("file_token") or ""),

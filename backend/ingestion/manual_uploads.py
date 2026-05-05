@@ -23,6 +23,15 @@ MANUAL_UPLOAD_ALLOWED_CONTENT_TYPES = {
     "text/plain",
 }
 MANUAL_UPLOAD_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+MANUAL_UPLOAD_HEADER_ALIASES: dict[str, dict[str, str]] = {
+    "licitacion": {
+        "CodigoItem": "Codigoitem",
+    },
+    "orden_compra": {
+        "CodigoProductoONU": "codigoProductoONU",
+        "TotalLineaNeto": "totalLineaNeto",
+    },
+}
 
 
 class ManualUploadError(ValueError):
@@ -32,11 +41,8 @@ class ManualUploadError(ValueError):
 def _coerce_string_tuple(values: Any) -> tuple[str, ...]:
     if not isinstance(values, list):
         raise ManualUploadError("manual upload metadata is malformed")
-    typed_values: list[Any] = values
-    items: list[str] = []
-    for value in typed_values:
-        items.append(str(cast(Any, value)))
-    return tuple(items)
+    typed_values = cast(list[object], values)
+    return tuple(str(value) for value in typed_values)
 
 
 @dataclass(frozen=True)
@@ -160,6 +166,11 @@ def _decode_manual_csv(payload: bytes) -> str:
     raise ManualUploadError("CSV encoding could not be decoded safely")
 
 
+def _normalize_manual_upload_header(dataset_type: str, header: list[str]) -> list[str]:
+    aliases = MANUAL_UPLOAD_HEADER_ALIASES.get(dataset_type, {})
+    return [aliases.get(column, column) for column in header]
+
+
 def _allocate_stage_directory(intake_root: Path) -> tuple[str, Path]:
     staging_root = intake_root / "staged"
     staging_root.mkdir(parents=True, exist_ok=True)
@@ -207,7 +218,10 @@ def build_manual_csv_preflight(
     if not any(header):
         raise ManualUploadError("CSV header is empty")
 
-    validation = validate_required_columns(normalized_dataset, header)
+    validation = validate_required_columns(
+        normalized_dataset,
+        _normalize_manual_upload_header(normalized_dataset, header),
+    )
     if not validation.ok:
         missing = ", ".join(validation.missing_required_columns)
         raise ManualUploadError(

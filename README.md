@@ -7,7 +7,7 @@
 ![Alembic](https://img.shields.io/badge/Alembic-Migrations-222222)
 
 Deterministic procurement data platform for ChileCompra workflows:
-Raw ingestion + canonical normalization + Silver procurement-cycle modeling + deterministic enrichments + versioned NLP annotations + read-only investigation/opportunity APIs + a Next.js Opportunity Workspace.
+Raw ingestion + canonical normalization + Silver procurement-cycle modeling + deterministic enrichments + versioned NLP annotations + read-only opportunity APIs + a Next.js Opportunity Workspace.
 
 ## Overview
 
@@ -24,12 +24,12 @@ Current product direction:
 
 | Area | Current Status |
 |---|---|
-| Phase | Silver procurement-cycle foundation implemented; read-only Gold-facing investigation/opportunity workspace in progress |
+| Phase | Silver procurement-cycle foundation implemented; read-only opportunity workspace active; investigation slice planned |
 | Backend | FastAPI + SQLAlchemy + Alembic |
 | Frontend | Next.js app in `client/` with `/licitaciones` workspace |
 | Database | PostgreSQL |
 | Data Layers | Raw + Normalized + Silver canonical entities |
-| API Surface | Health, operations, investigation, and opportunity read routes |
+| API Surface | Health, operations, and opportunity read routes |
 | Local CLI | `just` recipes; Docker-first runtime |
 | OpenSpec Runtime | Active changes live under `openspec/changes/`; use `/prime` before routing work |
 | Version | `0.1.0` |
@@ -62,7 +62,7 @@ Current product direction:
   - enforce TF-IDF reference-only persistence (`tfidf_artifact_ref`)
 - read-only workspace APIs:
   - opportunity list/summary/detail under `/opportunities`
-  - procurement line investigations under `/investigations/procurement-lines`
+  - procurement investigation routes are planned and documented, but not currently wired in `backend/main.py`
 - frontend Opportunity Workspace:
   - Next.js app under `client/`
   - primary route: `/licitaciones`
@@ -80,7 +80,7 @@ flowchart LR
   E --> G[(PostgreSQL)]
   F --> G
   G --> H[Operations API<br/>health, runs, files, datasets summary]
-  G --> I[Read APIs<br/>opportunities + investigations]
+  G --> I[Read APIs<br/>opportunities]
   I --> J[Next.js Opportunity Workspace<br/>/licitaciones]
   G --> K[Future Gold Layer<br/>scores/forecasting/anomalies]
 ```
@@ -103,7 +103,7 @@ flowchart TD
 ```text
 .
 ├── backend/
-│   ├── api/                      # FastAPI routers (health, operations, opportunities, investigations)
+│   ├── api/                      # FastAPI routers (health, operations, opportunities)
 │   ├── core/                     # config and runtime settings
 │   ├── db/                       # DB base/session wiring
 │   ├── ingestion/                # ingestion contracts and source registration
@@ -239,9 +239,6 @@ Targeted workflows:
   - `GET /opportunities`
   - `GET /opportunities/summary`
   - `GET /opportunities/{notice_id}`
-- Investigations:
-  - `GET /investigations/procurement-lines`
-  - `GET /investigations/procurement-lines/{notice_id}/{item_code}`
 
 ## Documentation Index
 

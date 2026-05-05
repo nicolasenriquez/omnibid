@@ -51,7 +51,7 @@ Use this only to keep commit style consistent. Do not copy old messages blindly.
 Run:
 
 ```bash
-openspec list --json
+just openspec list --json
 ```
 
 If there is an active change that clearly matches the current diff, use it as additional context for the commit message and summary.

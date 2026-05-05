@@ -143,6 +143,26 @@ services:
       - -c
       - npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000
 
+  openspec:
+    build:
+      context: .
+      dockerfile: Dockerfile.openspec
+    environment:
+      OPENSPEC_TELEMETRY: "0"
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    init: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - tail
+      - -f
+      - /dev/null
+
 volumes:
   omnibid_pgdata:
   omnibid_pgdata_test:
