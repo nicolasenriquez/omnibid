@@ -87,8 +87,8 @@ If `openspec/project.md` exists, treat it as useful legacy context, not the prim
 Run:
 
 ```bash
-openspec schemas --json
-openspec list --json
+just openspec schemas --json
+just openspec list --json
 ```
 
 Status rules:

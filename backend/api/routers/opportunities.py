@@ -8,7 +8,17 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.api.opportunities_contract import (
+    OpportunityDetailResponse,
+    OpportunityListResponse,
+    OpportunitySummaryResponse,
+)
 from backend.api.deps import get_db
+from backend.api.opportunities_query import (
+    COUNT_AND_SUMMARY_FILTER_SQL,
+    LIST_FILTER_SQL,
+    build_opportunities_filter_params,
+)
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 
@@ -17,7 +27,7 @@ OPPORTUNITY_PAGE_SIZE_MAX = 100
 OPPORTUNITY_PAGE_MAX = 500
 
 LIST_SQL = sa.text(
-    """
+    f"""
     with buyer_info as (
         select distinct on (nl.codigo_externo)
             nl.codigo_externo,
@@ -71,43 +81,7 @@ LIST_SQL = sa.text(
         end as derived_stage
     from silver_notice sn
     left join buyer_info bi on bi.codigo_externo = sn.notice_id
-    where (cast(:q as text) is null or (
-            sn.notice_title ilike :q
-            or sn.external_notice_code ilike :q
-            or bi.buyer_name ilike :q
-            or bi.primary_category ilike :q
-        ))
-      and (cast(:official_status as text) is null or sn.notice_status_name ilike :official_status)
-      and (cast(:buyer_region as text) is null or bi.buyer_region ilike :buyer_region)
-      and (cast(:primary_category as text) is null or bi.primary_category ilike :primary_category)
-      and (cast(:publication_from as timestamp) is null or sn.publication_date >= :publication_from)
-      and (cast(:publication_to as timestamp) is null or sn.publication_date < :publication_to + interval '1 day')
-      and (cast(:close_from as timestamp) is null or sn.close_date >= :close_from)
-      and (cast(:close_to as timestamp) is null or sn.close_date < :close_to + interval '1 day')
-      and (cast(:min_amount as numeric) is null or sn.estimated_amount >= :min_amount)
-      and (cast(:max_amount as numeric) is null or sn.estimated_amount <= :max_amount)
-      and (cast(:less_than_100_utm as boolean) is null or bi.flag_menos_100_utm = :less_than_100_utm)
-      and (cast(:procurement_type as text) is null or
-           case
-               when :procurement_type = 'public' then coalesce(sn.is_public_tender_flag, bi.flag_licitacion_publica)
-               when :procurement_type = 'private' then coalesce(sn.is_private_tender_flag, bi.flag_licitacion_privada)
-               when :procurement_type = 'service' then coalesce(bi.flag_licitacion_servicios, false)
-               else true
-           end)
-      and (cast(:stage as text) is null or
-           case
-               when :stage = 'open' then sn.close_date > now() + interval '7 days'
-               when :stage = 'closing_soon' then sn.close_date > now() and sn.close_date <= now() + interval '7 days'
-               when :stage = 'closed' then sn.close_date <= now()
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%adjudicada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%revocada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%suspendida%'
-               when :stage = 'awarded' then lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%'
-               when :stage = 'revoked_or_suspended' then lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-                 or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%'
-               when :stage = 'unknown' then sn.close_date is null
-               else true
-           end)
+    {LIST_FILTER_SQL}
     order by
         case when :sort_by = 'close_date' and :sort_order = 'asc' then sn.close_date end asc nulls last,
         case when :sort_by = 'close_date' and :sort_order = 'desc' then sn.close_date end desc nulls last,
@@ -123,55 +97,16 @@ LIST_SQL = sa.text(
 )
 
 COUNT_SQL = sa.text(
-    """
+    f"""
     select count(*) as total
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
-    where (cast(:q as text) is null or (
-            sn.notice_title ilike :q
-            or sn.external_notice_code ilike :q
-            or nl.nombre_unidad ilike :q
-        ))
-      and (cast(:official_status as text) is null or sn.notice_status_name ilike :official_status)
-      and (cast(:buyer_region as text) is null or nl.region_unidad ilike :buyer_region)
-      and (cast(:primary_category as text) is null or exists (
-            select 1 from normalized_licitacion_items nli
-            where nli.codigo_externo = nl.codigo_externo
-              and coalesce(nli.rubro1, nli.rubro2, nli.rubro3) ilike :primary_category
-        ))
-      and (cast(:publication_from as timestamp) is null or sn.publication_date >= :publication_from)
-      and (cast(:publication_to as timestamp) is null or sn.publication_date < :publication_to + interval '1 day')
-      and (cast(:close_from as timestamp) is null or sn.close_date >= :close_from)
-      and (cast(:close_to as timestamp) is null or sn.close_date < :close_to + interval '1 day')
-      and (cast(:min_amount as numeric) is null or sn.estimated_amount >= :min_amount)
-      and (cast(:max_amount as numeric) is null or sn.estimated_amount <= :max_amount)
-      and (cast(:less_than_100_utm as boolean) is null or nl.flag_menos_100_utm = :less_than_100_utm)
-      and (cast(:procurement_type as text) is null or
-           case
-               when :procurement_type = 'public' then coalesce(sn.is_public_tender_flag, nl.flag_licitacion_publica)
-               when :procurement_type = 'private' then coalesce(sn.is_private_tender_flag, nl.flag_licitacion_privada)
-               when :procurement_type = 'service' then coalesce(nl.flag_licitacion_servicios, false)
-               else true
-           end)
-      and (cast(:stage as text) is null or
-           case
-               when :stage = 'open' then sn.close_date > now() + interval '7 days'
-               when :stage = 'closing_soon' then sn.close_date > now() and sn.close_date <= now() + interval '7 days'
-               when :stage = 'closed' then sn.close_date <= now()
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%adjudicada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%revocada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%suspendida%'
-               when :stage = 'awarded' then lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%'
-               when :stage = 'revoked_or_suspended' then lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-                 or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%'
-               when :stage = 'unknown' then sn.close_date is null
-               else true
-           end)
+    {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )
 
 SUMMARY_SQL = sa.text(
-    """
+    f"""
     select
         count(*) as total_opportunities,
         count(*) filter (where close_date is null) as unknown_stage,
@@ -193,46 +128,7 @@ SUMMARY_SQL = sa.text(
         coalesce(sum(estimated_amount) filter (where estimated_amount is not null), 0) as total_estimated_amount
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
-    where (cast(:q as text) is null or (
-            sn.notice_title ilike :q
-            or sn.external_notice_code ilike :q
-            or nl.nombre_unidad ilike :q
-        ))
-      and (cast(:official_status as text) is null or sn.notice_status_name ilike :official_status)
-      and (cast(:buyer_region as text) is null or nl.region_unidad ilike :buyer_region)
-      and (cast(:primary_category as text) is null or exists (
-            select 1 from normalized_licitacion_items nli
-            where nli.codigo_externo = nl.codigo_externo
-              and coalesce(nli.rubro1, nli.rubro2, nli.rubro3) ilike :primary_category
-        ))
-      and (cast(:publication_from as timestamp) is null or sn.publication_date >= :publication_from)
-      and (cast(:publication_to as timestamp) is null or sn.publication_date < :publication_to + interval '1 day')
-      and (cast(:close_from as timestamp) is null or sn.close_date >= :close_from)
-      and (cast(:close_to as timestamp) is null or sn.close_date < :close_to + interval '1 day')
-      and (cast(:min_amount as numeric) is null or sn.estimated_amount >= :min_amount)
-      and (cast(:max_amount as numeric) is null or sn.estimated_amount <= :max_amount)
-      and (cast(:less_than_100_utm as boolean) is null or nl.flag_menos_100_utm = :less_than_100_utm)
-      and (cast(:procurement_type as text) is null or
-           case
-               when :procurement_type = 'public' then coalesce(sn.is_public_tender_flag, nl.flag_licitacion_publica)
-               when :procurement_type = 'private' then coalesce(sn.is_private_tender_flag, nl.flag_licitacion_privada)
-               when :procurement_type = 'service' then coalesce(nl.flag_licitacion_servicios, false)
-               else true
-           end)
-      and (cast(:stage as text) is null or
-           case
-               when :stage = 'open' then sn.close_date > now() + interval '7 days'
-               when :stage = 'closing_soon' then sn.close_date > now() and sn.close_date <= now() + interval '7 days'
-               when :stage = 'closed' then sn.close_date <= now()
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%adjudicada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%revocada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%suspendida%'
-               when :stage = 'awarded' then lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%'
-               when :stage = 'revoked_or_suspended' then lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-                 or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%'
-               when :stage = 'unknown' then sn.close_date is null
-               else true
-           end)
+    {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )
 
@@ -421,44 +317,21 @@ def _relationship_summary(lines: list[dict[str, Any]]) -> str:
     return "unconfirmed"
 
 
-def _contains_filter(value: str | None) -> str | None:
-    return f"%{value}%" if value else None
-
-
-def _shared_filter_params(
-    *,
-    q: str | None,
-    official_status: str | None,
-    buyer_region: str | None,
-    primary_category: str | None,
-    publication_from: date | None,
-    publication_to: date | None,
-    close_from: date | None,
-    close_to: date | None,
-    min_amount: Decimal | None,
-    max_amount: Decimal | None,
-    procurement_type: str | None,
-    less_than_100_utm: bool | None,
-    stage: str | None,
-) -> dict[str, Any]:
+def _purchase_order_contract_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "q": _contains_filter(q),
-        "official_status": _contains_filter(official_status),
-        "buyer_region": _contains_filter(buyer_region),
-        "primary_category": _contains_filter(primary_category),
-        "publication_from": publication_from,
-        "publication_to": publication_to,
-        "close_from": close_from,
-        "close_to": close_to,
-        "min_amount": min_amount,
-        "max_amount": max_amount,
-        "procurement_type": procurement_type,
-        "less_than_100_utm": less_than_100_utm,
-        "stage": stage,
+        "purchaseOrderCode": row.get("purchaseOrderCode"),
+        "purchaseOrderStatus": row.get("purchaseOrderStatus"),
+        "purchaseOrderCreatedAt": row.get("purchaseOrderCreatedAt"),
+        "purchaseOrderAmount": row.get("purchaseOrderAmount"),
+        "currencyCode": row.get("currencyCode"),
+        "purchaseOrderItemId": None,
+        "purchaseOrderItemProductCodeOnu": None,
+        "purchaseOrderItemNetTotal": None,
+        "relationshipCertainty": "unconfirmed",
     }
 
 
-@router.get("")
+@router.get("", response_model=OpportunityListResponse)
 def list_opportunities(
     page: int = Query(default=1, ge=1, le=OPPORTUNITY_PAGE_MAX),
     page_size: int = Query(
@@ -484,7 +357,7 @@ def list_opportunities(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     offset = (page - 1) * page_size
-    shared_params = _shared_filter_params(
+    shared_params = build_opportunities_filter_params(
         q=q,
         official_status=official_status,
         buyer_region=buyer_region,
@@ -524,7 +397,7 @@ def list_opportunities(
     }
 
 
-@router.get("/summary")
+@router.get("/summary", response_model=OpportunitySummaryResponse)
 def get_opportunities_summary(
     page: int = Query(default=1, ge=1, le=OPPORTUNITY_PAGE_MAX),
     page_size: int = Query(
@@ -551,7 +424,7 @@ def get_opportunities_summary(
 ) -> dict[str, Any]:
     row = db.execute(
         SUMMARY_SQL,
-        _shared_filter_params(
+        build_opportunities_filter_params(
             q=q,
             official_status=official_status,
             buyer_region=buyer_region,
@@ -595,7 +468,7 @@ def get_opportunities_summary(
     return {"metrics": metrics}
 
 
-@router.get("/{notice_id}")
+@router.get("/{notice_id}", response_model=OpportunityDetailResponse)
 def get_opportunity_detail(
     notice_id: str,
     db: Session = Depends(get_db),
@@ -613,23 +486,26 @@ def get_opportunity_detail(
     offers = [_row_to_dict(cast(dict[str, Any], row)) for row in offers_rows]
 
     po_rows = db.execute(DETAIL_PURCHASE_ORDERS_SQL, {"notice_id": notice_id}).mappings()
-    purchase_orders = [_row_to_dict(cast(dict[str, Any], row)) for row in po_rows]
+    purchase_orders = [
+        _purchase_order_contract_row(_row_to_dict(cast(dict[str, Any], row)))
+        for row in po_rows
+    ]
 
     timeline = [
         {
             "key": "publication",
-            "label": "Publicacion",
+            "label": "Publicación",
             "date": detail.get("publicationDate"),
             "source": "official",
         },
         {"key": "close", "label": "Cierre", "date": detail.get("closeDate"), "source": "official"},
         {
             "key": "estimated_award",
-            "label": "Adjudicacion estimada",
+            "label": "Adjudicación estimada",
             "date": detail.get("estimatedAwardDate"),
             "source": "official",
         },
-        {"key": "award", "label": "Adjudicacion", "date": detail.get("awardDate"), "source": "official"},
+        {"key": "award", "label": "Adjudicación", "date": detail.get("awardDate"), "source": "official"},
     ]
 
     return {

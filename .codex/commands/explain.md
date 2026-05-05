@@ -92,8 +92,8 @@ For a change name:
 pwd; \
 git rev-parse --abbrev-ref HEAD; \
 git status --short; \
-openspec status --change "<change-name>" --json; \
-openspec instructions apply --change "<change-name>" --json
+just openspec status --change "<change-name>" --json; \
+just openspec instructions apply --change "<change-name>" --json
 ```
 
 For a direct path:

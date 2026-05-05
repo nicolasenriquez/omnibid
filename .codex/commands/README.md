@@ -52,6 +52,7 @@ That means:
 - planning artifacts live under `openspec/changes/<change>/`
 - execution should run from OpenSpec apply instructions
 - validation should account for whether scope is repo-wide or change-specific
+- repo-local command docs should invoke OpenSpec through `just openspec ...`, which routes to the Dockerized CLI
 
 You can also use official OpenSpec skills directly when better fit:
 - `$openspec-propose`

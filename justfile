@@ -181,6 +181,11 @@ docker-start: docker-build docker-bootstrap
 docker-client:
     docker compose --env-file .env.docker -f docker-compose.yml up -d client
 
+[group('03 Docker')]
+[doc('Run OpenSpec CLI inside the Dockerized container')]
+openspec *args:
+    {{DOCKER_COMPOSE}} run --rm --no-deps --build openspec openspec {{args}}
+
 [group('04 Docker Ops')]
 [private]
 [doc('Run raw profile + ingest pipeline in Docker backend container')]

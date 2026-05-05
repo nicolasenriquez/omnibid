@@ -95,7 +95,7 @@ If any gate is `Advisory Gap`:
 Run:
 
 ```bash
-openspec list --json
+just openspec list --json
 ```
 
 ### 2) Confirm Workflow State
@@ -103,8 +103,8 @@ openspec list --json
 Run:
 
 ```bash
-openspec status --change "<change-name>" --json
-openspec instructions apply --change "<change-name>" --json
+just openspec status --change "<change-name>" --json
+just openspec instructions apply --change "<change-name>" --json
 ```
 
 Use:

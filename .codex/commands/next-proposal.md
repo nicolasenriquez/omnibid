@@ -31,8 +31,8 @@ Run:
 ```bash
 git status --short --branch
 git log -10 --oneline
-openspec list --json
-openspec schemas --json
+just openspec list --json
+just openspec schemas --json
 ```
 
 Use this to identify:
@@ -82,8 +82,8 @@ If needed, inspect tests, routes, or feature-adjacent files to judge whether a c
 If `openspec list --json` shows active or ambiguous candidates, inspect the most relevant ones with:
 
 ```bash
-openspec status --change "<name>" --json
-openspec instructions apply --change "<name>" --json
+just openspec status --change "<name>" --json
+just openspec instructions apply --change "<name>" --json
 ```
 
 Rules:

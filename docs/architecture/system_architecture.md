@@ -6,7 +6,7 @@ Monorepo with modular backend:
 - backend/ingestion: file discovery + registration
 - backend/normalized: normalized entities
 - backend/models: operational, raw, normalized, and Silver ORM entities
-- backend/api: health, operations, opportunities, and investigations endpoints
+- backend/api: health, operations, and opportunities endpoints
 - backend/observability: structured logging and CLI display helpers
 - scripts/: operator entrypoints for raw profiling, raw ingestion, and normalized/Silver builds
 - client/: Next.js Opportunity Workspace frontend
@@ -43,12 +43,14 @@ The frontend must consume typed API contracts and map DTOs into semantic view mo
 
 The MVP is read-only. Assignment, discard, notes, AI summaries, scores, workflow edits, reminders, and other mutation workflows remain future scope.
 
-## Procurement Investigation Boundary
+## Procurement Investigation Boundary (Planned, Not Yet Wired)
 
 The first Gold-facing investigation slice is read-only and evidence-oriented:
 
 - `GET /investigations/procurement-lines`
 - `GET /investigations/procurement-lines/{notice_id}/{item_code}`
+
+These endpoints are documented as planned interface seams but are not currently included in `backend/main.py`.
 
 Investigation responses are derived from Silver procurement-cycle facts. They may expose relationship certainty and bounded handoff context, but they must not persist agent narrative or predictive business truth as canonical data.
 

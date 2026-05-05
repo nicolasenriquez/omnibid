@@ -3,20 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
-import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.api.dataset_summary import compute_dataset_summary_counts
 from backend.api.deps import get_db
-from backend.models.normalized import (
-    NormalizedLicitacion,
-    NormalizedLicitacionItem,
-    NormalizedOferta,
-    NormalizedOrdenCompra,
-    NormalizedOrdenCompraItem,
-)
 from backend.models.operational import DatasetSummarySnapshot, PipelineRun, SourceFile
-from backend.models.raw import RawLicitacion, RawOrdenCompra
+import sqlalchemy as sa
 
 router = APIRouter(tags=["operations"])
 
@@ -44,23 +37,6 @@ def reset_datasets_summary_cache() -> None:
     return None
 
 
-def _count_rows(db: Session, model: type[Any]) -> int:
-    return db.execute(sa.select(sa.func.count()).select_from(model)).scalar_one()
-
-
-def _compute_summary_counts(db: Session) -> dict[str, int]:
-    return {
-        "source_files_count": _count_rows(db, SourceFile),
-        "raw_licitaciones_count": _count_rows(db, RawLicitacion),
-        "raw_ordenes_compra_count": _count_rows(db, RawOrdenCompra),
-        "normalized_licitaciones_count": _count_rows(db, NormalizedLicitacion),
-        "normalized_licitacion_items_count": _count_rows(db, NormalizedLicitacionItem),
-        "normalized_ofertas_count": _count_rows(db, NormalizedOferta),
-        "normalized_ordenes_compra_count": _count_rows(db, NormalizedOrdenCompra),
-        "normalized_ordenes_compra_items_count": _count_rows(db, NormalizedOrdenCompraItem),
-    }
-
-
 def _latest_successful_snapshot(db: Session) -> DatasetSummarySnapshot | None:
     return db.execute(
         sa.select(DatasetSummarySnapshot)
@@ -71,7 +47,7 @@ def _latest_successful_snapshot(db: Session) -> DatasetSummarySnapshot | None:
 
 
 def _persist_summary_snapshot(db: Session, *, refresh_mode: str) -> DatasetSummarySnapshot:
-    counts = _compute_summary_counts(db)
+    counts = compute_dataset_summary_counts(db)
     generated_at = datetime.now(UTC)
     snapshot = DatasetSummarySnapshot(
         generated_at=generated_at,
@@ -140,31 +116,37 @@ def _is_snapshot_from_today(snapshot: DatasetSummarySnapshot) -> bool:
 def list_runs(
     limit: int = Query(default=RUNS_LIMIT_DEFAULT, ge=1, le=RUNS_LIMIT_MAX),
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     rows = db.execute(
         sa.select(PipelineRun)
         .order_by(PipelineRun.started_at.desc())
         .limit(limit)
     ).scalars()
-    return [
-        {
-            "id": str(r.id),
-            "run_key": r.run_key,
-            "dataset_type": r.dataset_type,
-            "status": r.status,
-            "started_at": r.started_at,
-            "finished_at": r.finished_at,
-            "source_file_id": str(r.source_file_id) if r.source_file_id else None,
-        }
-        for r in rows
-    ]
+    results: list[dict[str, Any]] = []
+    for run in rows:
+        source_file_id_value = cast(Any, run).source_file_id
+        results.append(
+            {
+                "id": str(run.id),
+                "run_key": run.run_key,
+                "dataset_type": run.dataset_type,
+                "status": run.status,
+                "started_at": run.started_at,
+                "finished_at": run.finished_at,
+                "source_file_id": (
+                    str(source_file_id_value) if source_file_id_value is not None else None
+                ),
+            }
+        )
+    return results
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
+def get_run(run_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     run = db.execute(sa.select(PipelineRun).where(PipelineRun.id == run_id)).scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
+    source_file_id_value = cast(Any, run).source_file_id
     return {
         "id": str(run.id),
         "run_key": run.run_key,
@@ -173,7 +155,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
         "started_at": run.started_at,
         "finished_at": run.finished_at,
         "error_summary": run.error_summary,
-        "source_file_id": str(run.source_file_id) if run.source_file_id else None,
+        "source_file_id": str(source_file_id_value) if source_file_id_value is not None else None,
     }
 
 
@@ -181,7 +163,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
 def list_files(
     limit: int = Query(default=FILES_LIMIT_DEFAULT, ge=1, le=FILES_LIMIT_MAX),
     db: Session = Depends(get_db),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     rows = db.execute(
         sa.select(SourceFile)
         .order_by(SourceFile.registered_at.desc())
@@ -203,7 +185,7 @@ def list_files(
 
 
 @router.get("/files/{source_file_id}")
-def get_file(source_file_id: str, db: Session = Depends(get_db)) -> dict:
+def get_file(source_file_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     source = db.execute(sa.select(SourceFile).where(SourceFile.id == source_file_id)).scalar_one_or_none()
     if source is None:
         raise HTTPException(status_code=404, detail="source file not found")
