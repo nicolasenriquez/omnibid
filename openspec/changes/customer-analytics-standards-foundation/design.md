@@ -112,3 +112,7 @@ If a later change adds API ingestion adapters, a runtime rename, or new Silver f
 - confirm the standard points to the current implemented pipeline rather than a hypothetical one
 - confirm pipeline routing and runtime validation fail fast on unsupported or inconsistent inputs
 - keep the first slice additive and low-risk
+
+## Open Questions
+
+None.
