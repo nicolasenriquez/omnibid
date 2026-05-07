@@ -82,27 +82,33 @@ from backend.observability.cli_ui import (  # noqa: E402
 from backend.normalized.quality_gate import (  # noqa: E402,F401
     QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
     QUALITY_GATE_DOMAIN_IDENTITY_FIELDS,
-    QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
     QUALITY_GATE_MAX_ERROR_RATE,
     QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT,
     QUALITY_GATE_POLICY_VERSION,
-    QUALITY_GATE_SEVERITY_ERROR,
     collect_normalized_quality_issues,
     evaluate_normalized_quality_gate,
     persist_normalized_quality_issues,
 )
+from backend.normalized import quality_gate as normalized_quality_gate  # noqa: E402
 from backend.normalized.upsert_engine import (  # noqa: E402,F401
-    calculate_max_rows_per_upsert,
-    dedupe_rows,
     flush_if_needed,
     flush_remaining,
-    upsert_rows,
 )
+from backend.normalized import upsert_engine as normalized_upsert_engine  # noqa: E402
 from backend.normalized.postprocess import (  # noqa: E402
     reconcile_silver_notice_purchase_order_links,
     refresh_silver_notice_and_line_enrichments,
     refresh_silver_purchase_order_enrichments,
 )
+
+# Backward-compatible re-exports used by existing tests/importers.
+QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS = (
+    normalized_quality_gate.QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS
+)
+QUALITY_GATE_SEVERITY_ERROR = normalized_quality_gate.QUALITY_GATE_SEVERITY_ERROR
+calculate_max_rows_per_upsert = normalized_upsert_engine.calculate_max_rows_per_upsert
+dedupe_rows = normalized_upsert_engine.dedupe_rows
+upsert_rows = normalized_upsert_engine.upsert_rows
 
 LICITACIONES_CONFLICT_FIELDS = ["codigo_externo"]
 LICITACION_ITEMS_CONFLICT_FIELDS = ["codigo_externo", "codigo_item"]
