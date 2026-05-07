@@ -72,6 +72,8 @@ exclude = [
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 reportUnusedFunction = "none"
+venvPath = "."
+venv = ".venv"
 
 [tool.bandit]
 exclude_dirs = [

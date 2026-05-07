@@ -32,6 +32,11 @@ uv-sync-host:
     uv --version
     uv sync --extra dev
 
+[group('01 Setup')]
+[doc('Diagnose RTK -> WSL routing and optionally auto-install the target distro')]
+rtk-doctor *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/rtk_doctor.ps1 {{args}}
+
 [group('02 Quality')]
 [doc('Format code with Ruff')]
 fmt:
@@ -75,8 +80,7 @@ black-host:
 [group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty)')]
 type-strict:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync pyright backend scripts
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ty check backend
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc 'uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend'
 
 [group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty) on the host (fallback)')]
@@ -121,9 +125,9 @@ test-db-check:
 
 [group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL')]
-test-integration: test-db-check
+test-integration:
     {{DOCKER_COMPOSE}} --profile test up -d db_test
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync python scripts/test_db_guard.py run-integration
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc 'uv run --no-sync python scripts/test_db_guard.py check && uv run --no-sync python scripts/test_db_guard.py run-integration'
 
 [group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL on the host (fallback)')]
@@ -142,11 +146,43 @@ quality: ci-fast
 
 [group('02 Quality')]
 [doc('Fast CI gate: lint + type + unit tests')]
-ci-fast: lint type test-unit
+ci-fast:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration'"
 
 [group('02 Quality')]
 [doc('Full CI gate: fast gate + strict type + security + integration')]
-ci: ci-fast type-strict security test-integration
+ci: ci-build ci-non-integration-no-build test-integration-no-build
+
+[group('02 Quality')]
+[private]
+[doc('Run all non-integration CI gates in one backend-tools container run')]
+ci-non-integration:
+    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration' && uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend && uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high"
+
+[group('02 Quality')]
+[private]
+[doc('Build backend-tools image once for CI execution')]
+ci-build:
+    {{DOCKER_COMPOSE}} build backend-tools
+
+[group('02 Quality')]
+[private]
+[doc('Run all non-integration CI gates in one backend-tools run without rebuild/deps')]
+ci-non-integration-no-build:
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration' && uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend && uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high"
+
+[group('02 Quality')]
+[private]
+[doc('Run integration gates without rebuilding backend-tools image')]
+test-integration-no-build:
+    {{DOCKER_COMPOSE}} --profile test up -d db_test
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc 'uv run --no-sync python scripts/test_db_guard.py check && uv run --no-sync python scripts/test_db_guard.py run-integration'
+
+[group('02 Quality')]
+[doc('Stop and remove test-profile containers after CI when cleanup is desired')]
+ci-clean:
+    {{DOCKER_COMPOSE}} --profile test stop db_test
+    {{DOCKER_COMPOSE}} --profile test rm -f db_test
 
 [group('03 Docker')]
 [private]

@@ -17,6 +17,11 @@ def test_validate_required_columns_ok_for_licitacion() -> None:
     assert result.missing_required_columns == ()
 
 
+def test_validate_required_columns_rejects_unknown_dataset_type() -> None:
+    with pytest.raises(ValueError, match="unsupported dataset type"):
+        validate_required_columns("unknown", ["Codigo"])
+
+
 def test_assert_required_columns_raises_on_missing_columns() -> None:
     columns = ["Codigo", "CodigoExterno"]
     with pytest.raises(ValueError, match="Missing required columns"):

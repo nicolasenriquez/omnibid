@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 
-ENV_FILE_PATH = Path(".env")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE_PATH = REPO_ROOT / ".env"
 
 
 def _clean_env_value(raw_value: str) -> str:
@@ -51,10 +52,29 @@ def ensure_test_database_safety() -> str:
     return test_url
 
 
+def _has_integration_tests() -> bool:
+    tests_root = REPO_ROOT / "tests"
+    if not tests_root.exists():
+        return False
+
+    for test_file in tests_root.rglob("test_*.py"):
+        try:
+            if "@pytest.mark.integration" in test_file.read_text(encoding="utf-8"):
+                return True
+        except OSError:
+            continue
+
+    return False
+
+
 def run_integration_tests() -> int:
+    if not _has_integration_tests():
+        print("No integration tests were marked; skipping integration gate.")
+        return 0
+
     test_url = ensure_test_database_safety()
     env = os.environ.copy()
-    env["DATABASE_URL"] = test_url
+    env["TEST_DATABASE_URL"] = test_url
 
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-m", "integration"],

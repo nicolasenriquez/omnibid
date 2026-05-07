@@ -12,7 +12,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 from backend.api.deps import get_db
-from backend.api.routers import operations
 from backend.main import app
 
 
@@ -79,10 +78,8 @@ class _DummySession:
 @pytest.fixture(autouse=True)
 def _reset_router_state() -> None:
     app.dependency_overrides.clear()
-    operations.reset_datasets_summary_cache()
     yield
     app.dependency_overrides.clear()
-    operations.reset_datasets_summary_cache()
 
 
 def _set_db_override(session: _DummySession) -> None:

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,22 +82,33 @@ from backend.observability.cli_ui import (  # noqa: E402
 from backend.normalized.quality_gate import (  # noqa: E402,F401
     QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
     QUALITY_GATE_DOMAIN_IDENTITY_FIELDS,
-    QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
     QUALITY_GATE_MAX_ERROR_RATE,
     QUALITY_GATE_MIN_ROWS_BEFORE_FAIL_FAST_DEFAULT,
     QUALITY_GATE_POLICY_VERSION,
-    QUALITY_GATE_SEVERITY_ERROR,
     collect_normalized_quality_issues,
     evaluate_normalized_quality_gate,
     persist_normalized_quality_issues,
 )
+from backend.normalized import quality_gate as normalized_quality_gate  # noqa: E402
 from backend.normalized.upsert_engine import (  # noqa: E402,F401
-    calculate_max_rows_per_upsert,
-    dedupe_rows,
     flush_if_needed,
     flush_remaining,
-    upsert_rows,
 )
+from backend.normalized import upsert_engine as normalized_upsert_engine  # noqa: E402
+from backend.normalized.postprocess import (  # noqa: E402
+    reconcile_silver_notice_purchase_order_links,
+    refresh_silver_notice_and_line_enrichments,
+    refresh_silver_purchase_order_enrichments,
+)
+
+# Backward-compatible re-exports used by existing tests/importers.
+QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS = (
+    normalized_quality_gate.QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS
+)
+QUALITY_GATE_SEVERITY_ERROR = normalized_quality_gate.QUALITY_GATE_SEVERITY_ERROR
+calculate_max_rows_per_upsert = normalized_upsert_engine.calculate_max_rows_per_upsert
+dedupe_rows = normalized_upsert_engine.dedupe_rows
+upsert_rows = normalized_upsert_engine.upsert_rows
 
 LICITACIONES_CONFLICT_FIELDS = ["codigo_externo"]
 LICITACION_ITEMS_CONFLICT_FIELDS = ["codigo_externo", "codigo_item"]
@@ -123,16 +133,6 @@ SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS = ["supplier_id", "notice_id"]
 SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "nlp_version"]
 SILVER_NOTICE_LINE_TEXT_ANN_CONFLICT_FIELDS = ["notice_id", "item_code", "nlp_version"]
 SILVER_PURCHASE_ORDER_LINE_TEXT_ANN_CONFLICT_FIELDS = ["purchase_order_id", "line_item_id", "nlp_version"]
-
-# Backward-compatible module exports currently used by unit tests that import this script module directly.
-_LEGACY_BUILD_NORMALIZED_EXPORTS = {
-    "QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS": QUALITY_GATE_ISSUE_TYPE_REJECTED_ROWS,
-    "QUALITY_GATE_SEVERITY_ERROR": QUALITY_GATE_SEVERITY_ERROR,
-    "calculate_max_rows_per_upsert": calculate_max_rows_per_upsert,
-    "dedupe_rows": dedupe_rows,
-    "upsert_rows": upsert_rows,
-}
-
 
 def _dict_any(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
@@ -1344,239 +1344,6 @@ def flush_silver_ordenes_remaining_buffers(
         purchase_order_line_text_ann,
         notice_purchase_order_link_rejected,
     )
-
-
-def refresh_silver_notice_and_line_enrichments(session: Session) -> None:
-    notice_line_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverNoticeLine)
-        .where(SilverNoticeLine.notice_id == SilverNotice.notice_id)
-        .scalar_subquery()
-    )
-    notice_bid_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverBidSubmission)
-        .where(SilverBidSubmission.notice_id == SilverNotice.notice_id)
-        .scalar_subquery()
-    )
-    notice_supplier_count_sq = (
-        sa.select(sa.func.count(sa.distinct(SilverBidSubmission.supplier_key)))
-        .select_from(SilverBidSubmission)
-        .where(SilverBidSubmission.notice_id == SilverNotice.notice_id)
-        .scalar_subquery()
-    )
-    notice_selected_bid_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverBidSubmission)
-        .where(
-            SilverBidSubmission.notice_id == SilverNotice.notice_id,
-            SilverBidSubmission.selected_offer_flag.is_(True),
-        )
-        .scalar_subquery()
-    )
-    notice_awarded_line_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverAwardOutcome)
-        .where(
-            SilverAwardOutcome.notice_id == SilverNotice.notice_id,
-            sa.or_(
-                SilverAwardOutcome.selected_offer_flag.is_(True),
-                SilverAwardOutcome.awarded_line_amount.is_not(None),
-            ),
-        )
-        .scalar_subquery()
-    )
-    notice_purchase_order_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverNoticePurchaseOrderLink)
-        .where(SilverNoticePurchaseOrderLink.notice_id == SilverNotice.notice_id)
-        .scalar_subquery()
-    )
-
-    session.execute(
-        sa.update(SilverNotice).values(
-            notice_line_count=sa.func.coalesce(notice_line_count_sq, 0),
-            notice_bid_count=sa.func.coalesce(notice_bid_count_sq, 0),
-            notice_supplier_count=sa.func.coalesce(notice_supplier_count_sq, 0),
-            notice_selected_bid_count=sa.func.coalesce(notice_selected_bid_count_sq, 0),
-            notice_awarded_line_count=sa.func.coalesce(notice_awarded_line_count_sq, 0),
-            notice_purchase_order_count=sa.func.coalesce(notice_purchase_order_count_sq, 0),
-            notice_has_purchase_order_flag=sa.case(
-                (sa.func.coalesce(notice_purchase_order_count_sq, 0) > 0, True),
-                else_=False,
-            ),
-            notice_awarded_to_order_conversion_flag=sa.case(
-                (
-                    sa.and_(
-                        sa.func.coalesce(notice_awarded_line_count_sq, 0) > 0,
-                        sa.func.coalesce(notice_purchase_order_count_sq, 0) > 0,
-                    ),
-                    True,
-                ),
-                else_=False,
-            ),
-            updated_at=sa.func.now(),
-        )
-    )
-
-    line_bid_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverBidSubmission)
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-    line_supplier_count_sq = (
-        sa.select(sa.func.count(sa.distinct(SilverBidSubmission.supplier_key)))
-        .select_from(SilverBidSubmission)
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-    line_min_offer_amount_sq = (
-        sa.select(sa.func.min(SilverBidSubmission.total_price_offered))
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-    line_max_offer_amount_sq = (
-        sa.select(sa.func.max(SilverBidSubmission.total_price_offered))
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-    line_avg_offer_amount_sq = (
-        sa.select(sa.func.avg(SilverBidSubmission.total_price_offered))
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-    line_median_offer_amount_sq = (
-        sa.select(
-            sa.func.percentile_cont(0.5).within_group(SilverBidSubmission.total_price_offered)
-        )
-        .where(
-            SilverBidSubmission.notice_id == SilverNoticeLine.notice_id,
-            SilverBidSubmission.item_code == SilverNoticeLine.item_code,
-        )
-        .scalar_subquery()
-    )
-
-    session.execute(
-        sa.update(SilverNoticeLine).values(
-            line_bid_count=sa.func.coalesce(line_bid_count_sq, 0),
-            line_supplier_count=sa.func.coalesce(line_supplier_count_sq, 0),
-            line_min_offer_amount=line_min_offer_amount_sq,
-            line_max_offer_amount=line_max_offer_amount_sq,
-            line_avg_offer_amount=line_avg_offer_amount_sq,
-            line_median_offer_amount=line_median_offer_amount_sq,
-            line_price_dispersion_ratio=sa.case(
-                (
-                    sa.and_(
-                        line_avg_offer_amount_sq.is_not(None),
-                        line_avg_offer_amount_sq != 0,
-                        line_min_offer_amount_sq.is_not(None),
-                        line_max_offer_amount_sq.is_not(None),
-                    ),
-                    (line_max_offer_amount_sq - line_min_offer_amount_sq) / line_avg_offer_amount_sq,
-                ),
-                else_=None,
-            ),
-            updated_at=sa.func.now(),
-        )
-    )
-
-
-def refresh_silver_purchase_order_enrichments(session: Session) -> None:
-    line_count_sq = (
-        sa.select(sa.func.count())
-        .select_from(SilverPurchaseOrderLine)
-        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
-        .scalar_subquery()
-    )
-    total_quantity_sq = (
-        sa.select(sa.func.sum(SilverPurchaseOrderLine.quantity_ordered))
-        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
-        .scalar_subquery()
-    )
-    total_net_amount_sq = (
-        sa.select(sa.func.sum(SilverPurchaseOrderLine.line_net_total))
-        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
-        .scalar_subquery()
-    )
-    unique_product_count_sq = (
-        sa.select(sa.func.count(sa.distinct(SilverPurchaseOrderLine.onu_product_code)))
-        .where(SilverPurchaseOrderLine.purchase_order_id == SilverPurchaseOrder.purchase_order_id)
-        .scalar_subquery()
-    )
-
-    session.execute(
-        sa.update(SilverPurchaseOrder).values(
-            purchase_order_line_count=sa.func.coalesce(line_count_sq, 0),
-            purchase_order_total_quantity=total_quantity_sq,
-            purchase_order_total_net_amount=total_net_amount_sq,
-            purchase_order_unique_product_count=sa.func.coalesce(unique_product_count_sq, 0),
-            is_linked_to_notice_flag=sa.case(
-                (SilverPurchaseOrder.linked_notice_id.is_not(None), True),
-                else_=False,
-            ),
-            updated_at=sa.func.now(),
-        )
-    )
-
-
-def reconcile_silver_notice_purchase_order_links(session: Session) -> int:
-    link_type = "explicit_code_match"
-    insert_stmt = pg_insert(SilverNoticePurchaseOrderLink).from_select(
-        [
-            "notice_id",
-            "purchase_order_id",
-            "link_type",
-            "link_confidence",
-            "source_system",
-            "source_file_id",
-        ],
-        sa.select(
-            SilverPurchaseOrder.linked_notice_id.label("notice_id"),
-            SilverPurchaseOrder.purchase_order_id.label("purchase_order_id"),
-            sa.literal(link_type).label("link_type"),
-            sa.literal(1).label("link_confidence"),
-            sa.literal("mercado_publico_csv").label("source_system"),
-            SilverPurchaseOrder.source_file_id.label("source_file_id"),
-        )
-        .join(
-            SilverNotice,
-            SilverNotice.notice_id == SilverPurchaseOrder.linked_notice_id,
-        )
-        .outerjoin(
-            SilverNoticePurchaseOrderLink,
-            sa.and_(
-                SilverNoticePurchaseOrderLink.notice_id == SilverPurchaseOrder.linked_notice_id,
-                SilverNoticePurchaseOrderLink.purchase_order_id
-                == SilverPurchaseOrder.purchase_order_id,
-                SilverNoticePurchaseOrderLink.link_type == link_type,
-            ),
-        )
-        .where(
-            SilverPurchaseOrder.linked_notice_id.is_not(None),
-            SilverNoticePurchaseOrderLink.notice_purchase_order_link_id.is_(None),
-        ),
-    )
-    insert_stmt = insert_stmt.on_conflict_do_nothing(
-        index_elements=SILVER_NOTICE_PURCHASE_ORDER_LINK_CONFLICT_FIELDS
-    )
-    result = cast(Any, session.execute(insert_stmt))
-    return max(0, int(result.rowcount or 0))
 
 
 def process_licitaciones(

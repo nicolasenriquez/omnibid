@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+    # TODO: PostgreSQL 18 must be handled as a separate migration task with a new volume.
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-chilecompra}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -45,6 +46,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     environment:
       APP_ENV: ${APP_ENV:-local}
       APP_NAME: ${APP_NAME:-app-chilecompra}
@@ -98,6 +100,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: tools
+    profiles:
+      - tools
     environment:
       APP_ENV: ${APP_ENV:-local}
       APP_NAME: ${APP_NAME:-app-chilecompra}
@@ -147,6 +151,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.openspec
+    profiles:
+      - tools
     environment:
       OPENSPEC_TELEMETRY: "0"
     working_dir: /workspace

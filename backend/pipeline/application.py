@@ -7,6 +7,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
+from backend.ingestion.contracts import normalize_dataset_type
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -18,12 +19,32 @@ from scripts.ingest_raw import process_registered_file  # noqa: E402
 RAW_CHUNK_SIZE = 5_000
 NORMALIZED_FETCH_SIZE = 10_000
 NORMALIZED_CHUNK_SIZE = 500
+IMPLEMENTED_SOURCE_PROFILE = "csv_drop"
+DOCUMENTED_SOURCE_PROFILES = ("csv_drop", "api_json", "open_data_snapshot")
+
+
+def normalize_source_profile(source_profile: str) -> str:
+    normalized = source_profile.strip().lower()
+    if normalized != IMPLEMENTED_SOURCE_PROFILE:
+        allowed_profiles = ", ".join(DOCUMENTED_SOURCE_PROFILES)
+        raise ValueError(
+            f"unsupported source profile: {normalized}. Supported profiles: {allowed_profiles}"
+        )
+    return normalized
+
+
+def resolve_normalized_build_processor(dataset_type: str) -> Callable[..., dict[str, Any]]:
+    normalized_dataset_type = normalize_dataset_type(dataset_type)
+    if normalized_dataset_type == "licitacion":
+        return process_licitaciones
+    return process_ordenes_compra
 
 
 def run_registered_raw_ingest(
     session: Session,
     *,
     dataset_type: str,
+    source_profile: str = IMPLEMENTED_SOURCE_PROFILE,
     path: Path,
     source_file: SourceFile,
     batch: IngestionBatch,
@@ -32,9 +53,11 @@ def run_registered_raw_ingest(
     expected_rows: int | None = None,
     on_progress: Callable[[int, int | None], None] | None = None,
 ) -> dict[str, int]:
+    normalize_source_profile(source_profile)
+    normalized_dataset_type = normalize_dataset_type(dataset_type)
     return process_registered_file(
         session=session,
-        dataset_type=dataset_type,
+        dataset_type=normalized_dataset_type,
         path=path,
         source_file=source_file,
         batch=batch,
@@ -52,9 +75,12 @@ def run_normalized_build(
     session: Session,
     *,
     dataset_type: str,
+    source_profile: str = IMPLEMENTED_SOURCE_PROFILE,
     source_file_id: Any,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
+    normalize_source_profile(source_profile)
+    processor = resolve_normalized_build_processor(dataset_type)
     base_kwargs: dict[str, Any] = {
         "session": session,
         "fetch_size": NORMALIZED_FETCH_SIZE,
@@ -69,9 +95,5 @@ def run_normalized_build(
         "on_quality_checkpoint": None,
         "on_progress": on_progress,
     }
-    if dataset_type == "licitacion":
-        return process_licitaciones(**base_kwargs)
-    if dataset_type == "orden_compra":
-        return process_ordenes_compra(**base_kwargs)
-    raise ValueError(f"unsupported dataset type: {dataset_type}")
+    return processor(**base_kwargs)
 
