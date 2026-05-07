@@ -2,7 +2,7 @@
 
 @RTK.md
 
-This file defines repository behavior guidance for coding agents in `app-chilecompra`.
+This file defines repository behavior guidance for coding agents in `omnibid`.
 
 ## Instruction Precedence
 
@@ -26,6 +26,19 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Fail-fast on schema drift, invalid config, malformed source files, or broken contracts.
 - No silent fallbacks for required dependencies (database, migrations, required columns).
 - Keep data lineage explicit: source file -> ingestion batch -> run -> step -> target table.
+
+## Ambiguity and Assumptions
+
+- State assumptions explicitly when requirements or behavior are unclear.
+- If multiple interpretations exist, surface them before acting.
+- If uncertainty affects correctness, stop and ask rather than guessing.
+
+## Simplicity and Surgical Changes
+
+- Prefer the minimum change that fully solves the request.
+- Do not add speculative abstractions, configuration, or error handling for impossible cases.
+- Touch only what you must; do not refactor adjacent code or formatting unless the request requires it.
+- Remove imports, variables, or functions only when your own change makes them unused.
 
 ## Architecture Boundaries
 
@@ -75,6 +88,10 @@ This file defines repository behavior guidance for coding agents in `app-chileco
 - Extended CI-fast: `just ci-fast`
 - Extended CI: `just ci`
 - Host `.venv`/`uv run` test, lint, type, or migration commands are fallback validation only, not the first plan.
+
+## Execution Discipline
+
+- For multi-step tasks, state a brief plan and pair each step with a verification check.
 
 ## Docker Local Runtime Policy
 

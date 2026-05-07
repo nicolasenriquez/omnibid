@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d AS app
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.15@sha256:a5727064a0de127bdb7c9d3c1383f3a9ac307d9f2d8a391edc7896c54289ced0 /uv /uvx /usr/local/bin/
@@ -10,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN addgroup --system app && adduser --system --ingroup app --home /home/app app \
+RUN addgroup --gid 1000 app && adduser --uid 1000 --ingroup app --home /home/app --disabled-password --gecos "" app \
     && apt-get update \
     && apt-get install -y --no-install-recommends libatomic1 \
     && rm -rf /var/lib/apt/lists/* \
@@ -22,7 +24,8 @@ USER app
 COPY --chown=app:app pyproject.toml uv.lock alembic.ini ./
 COPY --chown=app:app alembic ./alembic
 
-RUN uv sync --frozen --no-install-project --no-dev
+RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \
+    uv sync --frozen --no-install-project --no-dev
 
 FROM app AS tools
 
@@ -30,14 +33,16 @@ COPY --chown=app:app backend ./backend
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app tests ./tests
 
-RUN uv sync --frozen --extra dev
+RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \
+    uv sync --frozen --extra dev
 
 FROM app AS runtime
 
 COPY --chown=app:app backend ./backend
 COPY --chown=app:app scripts ./scripts
 
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \
+    uv sync --frozen --no-dev
 
 EXPOSE 8000
 

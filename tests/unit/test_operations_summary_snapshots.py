@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.api.routers import operations
+from backend.api.services import dataset_summary_snapshots
 from backend.models.operational import DatasetSummarySnapshot
 
 
@@ -168,7 +169,7 @@ def test_fresh_mode_persists_new_snapshot() -> None:
             return fixed_now
 
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(operations, "datetime", _FixedDateTime)
+    monkeypatch.setattr(dataset_summary_snapshots, "datetime", _FixedDateTime)
 
     responses: list[_DummyResult | Exception] = [_DummyResult(scalar_or_none_value=_snapshot())]
     responses.extend(_DummyResult(scalar_value=value) for value in [100, 200, 300, 400, 500, 600, 700, 800])

@@ -19,7 +19,6 @@ import {
   X,
 } from "lucide-react";
 
-import { ApiClientError } from "@/src/lib/api/http";
 import {
   preflightManualCsvUpload,
   fetchManualCsvUploadJob,
@@ -32,14 +31,8 @@ import {
 } from "@/src/lib/api/opportunities";
 import {
   formatCount,
-  formatMoney,
   formatStage,
-  formatUnavailable,
 } from "@/src/lib/formatters/opportunities";
-import {
-  PROCUREMENT_TYPE_LABELS,
-  WORKSPACE_TAB_LABELS,
-} from "@/src/features/opportunity-workspace/display-contract";
 import { WorkspaceDetailPane } from "@/src/features/opportunity-workspace/workspace-detail-pane";
 import {
   WorkspaceExplorerTable,
@@ -53,6 +46,28 @@ import {
   useUploadWorkflowState,
 } from "@/src/features/opportunity-workspace/upload-workflow-state";
 import {
+  getActiveFilterLabels,
+  getSortLabel,
+  HEADER_METRIC_FALLBACKS,
+  MANUAL_UPLOAD_DATASET_OPTIONS,
+  metricClassName,
+  metricKeyToStage,
+  parseAmountInput,
+  PRIMARY_METRIC_KEYS,
+  STAGE_COLUMNS,
+  TAB_OPTIONS,
+  toManualUploadError,
+  toReadableError,
+  uniqueByNoticeId,
+  UPLOAD_CONSOLE_SEED,
+  WATCHLIST_STORAGE_KEY,
+  formatCompactMetricValue,
+  formatDatasetTypeLabel,
+  formatFileSize,
+  formatMetricValue,
+  formatToday,
+} from "@/src/features/opportunity-workspace/workspace-view-model";
+import {
   WORKSPACE_DEFAULTS,
 } from "@/src/lib/url-state/workspace";
 import type {
@@ -65,12 +80,9 @@ import type {
   OpportunitySortDirection,
   OpportunitySortField,
   OpportunityStage,
-  OpportunitySummaryMetric,
   OpportunitySummaryResponse,
-  OpportunityWorkspaceQueryState,
   WorkspaceTab,
 } from "@/src/types/opportunities";
-import { OPPORTUNITY_STAGES } from "@/src/types/opportunities";
 import {
   Badge,
   Button,
@@ -87,235 +99,6 @@ type RemoteState<T> =
   | { status: "idle" | "loading" }
   | { status: "success"; data: T }
   | { status: "error"; message: string; statusCode: number | null };
-
-const UPLOAD_CONSOLE_SEED: UploadConsoleEntry = {
-  level: "info",
-  text: "Flujo listo. Selecciona conjunto y CSV.",
-};
-
-const STAGE_COLUMNS: OpportunityStage[] = [
-  "open",
-  "closing_soon",
-  "closed",
-  "awarded",
-  "revoked_or_suspended",
-  "unknown",
-];
-
-const TAB_OPTIONS: Array<{ id: WorkspaceTab; label: string }> = [
-  { id: "explorer", label: WORKSPACE_TAB_LABELS.explorer },
-  { id: "radar", label: WORKSPACE_TAB_LABELS.radar },
-];
-
-const MANUAL_UPLOAD_DATASET_OPTIONS: Array<{
-  value: ManualUploadDatasetType;
-  label: string;
-  helper: string;
-}> = [
-  {
-    value: "licitacion",
-    label: "Licitaciones",
-    helper: "Usa este flujo para avisos y sus líneas.",
-  },
-  {
-    value: "orden_compra",
-    label: "Órdenes de compra",
-    helper: "Usa este flujo para OC y sus ítems asociados.",
-  },
-];
-
-const PRIMARY_METRIC_KEYS = new Set([
-  "total_opportunities",
-  "open",
-  "closing_soon",
-  "closed",
-  "awarded",
-  "revoked_or_suspended",
-]);
-
-const HEADER_METRIC_FALLBACKS: OpportunitySummaryMetric[] = [
-  { key: "open", label: "Abiertas", value: null },
-  { key: "closing_soon", label: "Cierran pronto", value: null },
-  { key: "awarded", label: "Adjudicadas", value: null },
-  { key: "total_estimated_amount", label: "Monto total", value: null },
-];
-
-const WATCHLIST_STORAGE_KEY = "opportunity-workspace.watchlist.v1";
-
-function toReadableError(error: unknown): { message: string; statusCode: number | null } {
-  if (error instanceof ApiClientError) {
-    if (error.status === 404) {
-      return {
-        message: "No se encontraron oportunidades. Intenta con otros filtros o más tarde.",
-        statusCode: 404,
-      };
-    }
-    if (error.status && error.status >= 500) {
-      return {
-        message: "Hubo un problema al cargar las oportunidades. Intenta de nuevo en unos momentos.",
-        statusCode: error.status,
-      };
-    }
-    return {
-      message: "La consulta no pudo completarse. Revisa los filtros aplicados.",
-      statusCode: error.status,
-    };
-  }
-  if (error instanceof Error) {
-    if (error.message.toLowerCase().includes("failed to fetch")) {
-      return {
-        message: "No se pudo conectar con el servidor. Verifica tu conexión.",
-        statusCode: null,
-      };
-    }
-    return { message: error.message, statusCode: null };
-  }
-  return { message: "Error inesperado al consultar oportunidades.", statusCode: null };
-}
-
-function readApiErrorDetail(error: ApiClientError): string | null {
-  if (!error.body) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(error.body) as { detail?: unknown };
-    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
-      return parsed.detail.trim();
-    }
-  } catch {
-    if (error.body.trim()) {
-      return error.body.trim();
-    }
-  }
-
-  return null;
-}
-
-function toManualUploadError(error: unknown): { message: string; statusCode: number | null } {
-  if (error instanceof ApiClientError) {
-    return {
-      message:
-        readApiErrorDetail(error) ??
-        "La validación del CSV no pudo completarse. Revisa el archivo, columnas o límite de carga.",
-      statusCode: error.status,
-    };
-  }
-
-  if (error instanceof Error) {
-    if (error.name === "AbortError") {
-      return {
-        message: "Carga cancelada en cliente. Si backend ya comenzó, revisa estado antes de reintentar.",
-        statusCode: null,
-      };
-    }
-    return { message: error.message, statusCode: null };
-  }
-
-  return { message: "Error inesperado en ingesta manual de CSV.", statusCode: null };
-}
-
-function formatDatasetTypeLabel(datasetType: ManualUploadDatasetType): string {
-  return datasetType === "licitacion" ? "Licitaciones" : "Órdenes de compra";
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toLocaleString("es-CL", {
-      maximumFractionDigits: 1,
-    })} MiB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toLocaleString("es-CL", {
-      maximumFractionDigits: 1,
-    })} KiB`;
-  }
-  return `${bytes.toLocaleString("es-CL")} B`;
-}
-
-function metricClassName(key: string): string {
-  switch (key) {
-    case "open":
-      return "pulse-chip pulse-chip--open";
-    case "closing_soon":
-      return "pulse-chip pulse-chip--closing-soon";
-    case "awarded":
-      return "pulse-chip pulse-chip--awarded";
-    case "revoked_or_suspended":
-      return "pulse-chip pulse-chip--risk";
-    case "closed":
-      return "pulse-chip pulse-chip--closed";
-    default:
-      return "pulse-chip";
-  }
-}
-
-function metricKeyToStage(key: string): OpportunityStage | "" {
-  return OPPORTUNITY_STAGES.includes(key as OpportunityStage) ? (key as OpportunityStage) : "";
-}
-
-function uniqueByNoticeId(items: OpportunityListItem[]): OpportunityListItem[] {
-  const byNoticeId = new Map<string, OpportunityListItem>();
-  for (const item of items) {
-    if (!byNoticeId.has(item.noticeId)) {
-      byNoticeId.set(item.noticeId, item);
-    }
-  }
-  return Array.from(byNoticeId.values());
-}
-
-function formatMetricValue(metric: OpportunitySummaryMetric): string {
-  if (metric.key.includes("amount")) {
-    return formatMoney(metric.value, "CLP");
-  }
-  return formatCount(metric.value);
-}
-
-function formatCompactMetricValue(metric: OpportunitySummaryMetric): string {
-  if (!metric.key.includes("amount")) {
-    return formatMetricValue(metric);
-  }
-  if (metric.value === null) {
-    return formatUnavailable(null);
-  }
-  return formatMoney(metric.value, "CLP");
-}
-
-function getSortLabel(sortBy: string, sortOrder: string): string {
-  if (sortBy === "estimated_amount") {
-    return sortOrder === "desc" ? "Monto mayor" : "Monto menor";
-  }
-  if (sortBy === "publication_date") {
-    return sortOrder === "desc" ? "Publicación reciente" : "Publicación antigua";
-  }
-  if (sortBy === "days_remaining") {
-    return sortOrder === "desc" ? "Días restantes (más)" : "Días restantes (menos)";
-  }
-  return sortOrder === "desc" ? "Cierre más lejano" : "Cierre más cercano";
-}
-
-function formatToday(): string {
-  return new Intl.DateTimeFormat("es-CL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date());
-}
-
-function getActiveFilterLabels(state: OpportunityWorkspaceQueryState): string[] {
-  const labels: string[] = [];
-  if (state.q.trim()) labels.push(`Búsqueda: ${state.q.trim()}`);
-  if (state.procurementType) {
-    labels.push(PROCUREMENT_TYPE_LABELS[state.procurementType]);
-  }
-  if (state.officialStatus) labels.push(`Estado: ${state.officialStatus}`);
-  if (state.stage) labels.push(`Etapa: ${formatStage(state.stage)}`);
-  if (state.closeFrom || state.closeTo) labels.push("Rango de cierre");
-  if (state.publicationFrom || state.publicationTo) labels.push("Rango de publicación");
-  if (state.lessThan100Utm) labels.push("Menor a 100 UTM");
-  if (state.maxAmount) labels.push(`Máximo ${state.maxAmount}`);
-  return labels;
-}
 
 function NoDataState({
   title,
@@ -344,12 +127,6 @@ function NoDataState({
       {action ? <div className="state-actions">{action}</div> : null}
     </div>
   );
-}
-
-function parseAmountInput(value: string): string {
-  const sanitized = value.replace(/[^\d.]/g, "");
-  const [whole, ...rest] = sanitized.split(".");
-  return rest.length > 0 ? `${whole}.${rest.join("")}` : whole;
 }
 
 function LoadingShell() {

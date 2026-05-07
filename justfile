@@ -32,6 +32,11 @@ uv-sync-host:
     uv --version
     uv sync --extra dev
 
+[group('01 Setup')]
+[doc('Diagnose RTK -> WSL routing and optionally auto-install the target distro')]
+rtk-doctor *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/rtk_doctor.ps1 {{args}}
+
 [group('02 Quality')]
 [doc('Format code with Ruff')]
 fmt:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+SUPPORTED_DATASET_TYPES: frozenset[str] = frozenset({"licitacion", "orden_compra"})
+
 
 REQUIRED_COLUMNS: dict[str, set[str]] = {
     "licitacion": {
@@ -34,11 +36,19 @@ class ContractValidationResult:
         return not self.missing_required_columns
 
 
+def normalize_dataset_type(dataset_type: str) -> str:
+    normalized = dataset_type.strip().lower()
+    if normalized not in SUPPORTED_DATASET_TYPES:
+        raise ValueError(f"unsupported dataset type: {dataset_type}")
+    return normalized
+
+
 def validate_required_columns(dataset_type: str, columns: list[str]) -> ContractValidationResult:
-    required = REQUIRED_COLUMNS.get(dataset_type, set())
+    normalized_dataset_type = normalize_dataset_type(dataset_type)
+    required = REQUIRED_COLUMNS[normalized_dataset_type]
     available = set(columns)
     missing = tuple(sorted(required - available))
-    return ContractValidationResult(dataset_type=dataset_type, missing_required_columns=missing)
+    return ContractValidationResult(dataset_type=normalized_dataset_type, missing_required_columns=missing)
 
 
 def assert_required_columns(dataset_type: str, columns: list[str], file_name: str) -> None:
