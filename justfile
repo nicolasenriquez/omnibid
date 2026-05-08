@@ -10,8 +10,13 @@ NORMALIZED_CHUNK_SIZE := env_var_or_default("NORMALIZED_CHUNK_SIZE", "500")
 NORMALIZED_LIMIT_ROWS := env_var_or_default("NORMALIZED_LIMIT_ROWS", "0")
 NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runtime/normalized_build_state.json")
 NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
+DOCKER_CONFIG_DIR := env_var_or_default("DOCKER_CONFIG_DIR", ".docker-config")
 LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
-DOCKER_COMPOSE := "docker compose --env-file .env.docker -f docker-compose.yml"
+DOCKER_COMPOSE := if os() == "windows" {
+    "$env:DOCKER_CONFIG='{{DOCKER_CONFIG_DIR}}'; docker compose --env-file .env.docker -f docker-compose.yml"
+} else {
+    "DOCKER_CONFIG={{DOCKER_CONFIG_DIR}} docker compose --env-file .env.docker -f docker-compose.yml"
+}
 
 # ============================================================
 # Canonical Commands (Docker-first)
@@ -244,3 +249,8 @@ docker-pipeline-full: docker-pipeline-raw docker-pipeline-normalized
 docker-smoke:
     docker compose --env-file .env.docker -f docker-compose.yml ps
     docker compose --env-file .env.docker -f docker-compose.yml exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read().decode())"
+
+[group('04 Docker Ops')]
+[doc('Run ingestion queue worker in Docker backend container')]
+docker-ingestion-worker *args: docker-db-up
+    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps backend uv run --no-sync python scripts/run_ingestion_jobs.py {{args}}

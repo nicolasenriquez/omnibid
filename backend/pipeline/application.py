@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
 from backend.ingestion.contracts import normalize_dataset_type
+from backend.nlp.runtime import (
+    IMPLEMENTED_SOURCE_PROFILE,
+    normalize_source_profile,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -19,18 +23,6 @@ from scripts.ingest_raw import process_registered_file  # noqa: E402
 RAW_CHUNK_SIZE = 5_000
 NORMALIZED_FETCH_SIZE = 10_000
 NORMALIZED_CHUNK_SIZE = 500
-IMPLEMENTED_SOURCE_PROFILE = "csv_drop"
-DOCUMENTED_SOURCE_PROFILES = ("csv_drop", "api_json", "open_data_snapshot")
-
-
-def normalize_source_profile(source_profile: str) -> str:
-    normalized = source_profile.strip().lower()
-    if normalized != IMPLEMENTED_SOURCE_PROFILE:
-        allowed_profiles = ", ".join(DOCUMENTED_SOURCE_PROFILES)
-        raise ValueError(
-            f"unsupported source profile: {normalized}. Supported profiles: {allowed_profiles}"
-        )
-    return normalized
 
 
 def resolve_normalized_build_processor(dataset_type: str) -> Callable[..., dict[str, Any]]:

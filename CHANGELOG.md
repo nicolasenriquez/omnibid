@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Incremental ingestion foundation substrate:
+  - durable `source_checkpoints` table persisted before queue eligibility
+  - Postgres-backed `pipeline_jobs` queue with deterministic claim order (`priority`, `available_at`, `created_at`, `id`) and `FOR UPDATE SKIP LOCKED`
+  - `ingestion_units` lineage ledger linked to job + checkpoint
+  - generic worker harness and operator entrypoint (`scripts/run_ingestion_jobs.py`)
+  - Docker recipe `just docker-ingestion-worker`
+  - bounded retry policy defaults (`max_attempts=2`, `retry_delay_seconds=120`) with terminal dead-letter behavior
+- Canonical complete-only upsert behavior in normalized engine:
+  - non-empty existing values are not overwritten by incoming `NULL`/blank values
+  - text updates ignore whitespace-only payload values
+- OpenSpec evidence for `incremental-ingestion-foundation`:
+  - proposal/design/spec/tasks + validation record
+  - SDD reference note and queue runbook
+
 ### Planned
 - Procurement investigation workspace API routes (documented, pending wiring in `backend/main.py`)
 - Gold-layer predictive scoring and forecasting (stage-gated; forbidden in Silver)

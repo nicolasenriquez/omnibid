@@ -1,0 +1,7 @@
+{
+  "health": ["salud", "hospital", "medic", "farmac", "clinica"],
+  "construction": ["obra", "construccion", "infraestructura", "edificio", "mantencion vial"],
+  "it_services": ["software", "licencia", "tecnolog", "comput", "servidor", "red"],
+  "maintenance": ["mantencion", "mantenimiento", "reparacion", "soporte", "servicio tecnico"],
+  "outsourcing": ["outsourcing", "externalizacion", "servicio externo"]
+}

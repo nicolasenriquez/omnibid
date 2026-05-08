@@ -23,6 +23,31 @@ class SourceFile(Base):
     )
 
 
+class SourceCheckpoint(Base):
+    __tablename__ = "source_checkpoints"
+
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()"))
+    source_kind = sa.Column(sa.Text, nullable=False)
+    dataset_type = sa.Column(sa.Text, nullable=False)
+    source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"))
+    storage_uri = sa.Column(sa.Text, nullable=False)
+    payload_hash_sha256 = sa.Column(sa.String(64), nullable=False)
+    file_size_bytes = sa.Column(sa.BigInteger, nullable=False)
+    checkpoint_meta = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+    status = sa.Column(sa.Text, nullable=False, server_default=sa.text("'staged'"))
+    consumed_at = sa.Column(sa.DateTime(timezone=True))
+    consumed_job_id = sa.Column(UUID(as_uuid=True))
+    cleanup_eligible_at = sa.Column(sa.DateTime(timezone=True))
+    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    updated_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    __table_args__ = (
+        sa.Index("ix_source_checkpoints_status_created_at", "status", "created_at"),
+        sa.Index("ix_source_checkpoints_payload_hash", "payload_hash_sha256"),
+        sa.Index("ix_source_checkpoints_source_file_id", "source_file_id"),
+    )
+
+
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
 

@@ -5,8 +5,11 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+
+from backend.nlp.embeddings import FORBIDDEN_SILVER_EMBEDDING_FIELDS
 
 POSTGRES_MAX_BIND_PARAMS = int(os.getenv("NORMALIZED_MAX_BIND_PARAMS", "32767"))
 POSTGRES_BIND_PARAM_SAFETY_MARGIN = 64
@@ -38,6 +41,65 @@ SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS = (
 )
 
 
+def _has_material_payload_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    return True
+
+
+def _is_textual_sql_type(column_type: sa.types.TypeEngine[Any]) -> bool:
+    return isinstance(
+        column_type,
+        (
+            sa.String,
+            sa.Text,
+            sa.Unicode,
+            sa.UnicodeText,
+            sa.CHAR,
+            sa.VARCHAR,
+        ),
+    )
+
+
+def _is_json_sql_type(column_type: sa.types.TypeEngine[Any]) -> bool:
+    return isinstance(column_type, sa.JSON)
+
+
+def _is_array_sql_type(column_type: sa.types.TypeEngine[Any]) -> bool:
+    return isinstance(column_type, sa.ARRAY)
+
+
+def _build_complete_only_update_expr(*, model: Any, stmt: Any, field: str) -> Any:
+    current_value = getattr(model, field)
+    incoming_value = getattr(stmt.excluded, field)
+
+    # Preserve existing canonical text when incoming data is blank/whitespace.
+    if _is_textual_sql_type(current_value.type):
+        incoming_value = sa.func.nullif(sa.func.btrim(sa.cast(incoming_value, sa.Text)), "")
+    elif _is_json_sql_type(current_value.type):
+        incoming_jsonb = sa.cast(incoming_value, JSONB)
+        blank_json = sa.or_(
+            sa.and_(
+                sa.func.jsonb_typeof(incoming_jsonb) == sa.literal("object"),
+                incoming_jsonb == sa.text("'{}'::jsonb"),
+            ),
+            sa.and_(
+                sa.func.jsonb_typeof(incoming_jsonb) == sa.literal("array"),
+                incoming_jsonb == sa.text("'[]'::jsonb"),
+            ),
+        )
+        incoming_value = sa.case((blank_json, None), else_=incoming_value)
+    elif _is_array_sql_type(current_value.type):
+        incoming_value = sa.case(
+            (sa.func.coalesce(sa.func.array_length(incoming_value, 1), 0) == 0, None),
+            else_=incoming_value,
+        )
+
+    return sa.func.coalesce(incoming_value, current_value)
+
+
 def dedupe_rows(rows: list[dict[str, Any]], key_fields: list[str]) -> list[dict[str, Any]]:
     if not key_fields:
         raise ValueError("conflict key fields cannot be empty")
@@ -63,7 +125,7 @@ def validate_silver_feature_guardrails(*, model: Any, payloads: list[dict[str, A
     for payload in payloads:
         if table_name.endswith("_text_ann"):
             tfidf_ref = payload.get("tfidf_artifact_ref")
-            if tfidf_ref is not None:
+            if _has_material_payload_value(tfidf_ref):
                 if not isinstance(tfidf_ref, str) or not tfidf_ref.startswith(
                     SILVER_ANNOTATION_TFIDF_REF_PREFIX
                 ):
@@ -72,7 +134,10 @@ def validate_silver_feature_guardrails(*, model: Any, payloads: list[dict[str, A
                         "tfidf_artifact_ref must be a reference string starting with 'tfidf://'"
                     )
             vector_columns = sorted(
-                field for field in payload if field in SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS
+                field
+                for field in payload
+                if field in SILVER_ANNOTATION_FORBIDDEN_VECTOR_FIELDS
+                and _has_material_payload_value(payload.get(field))
             )
             if vector_columns:
                 vector_columns_csv = ", ".join(vector_columns)
@@ -80,13 +145,32 @@ def validate_silver_feature_guardrails(*, model: Any, payloads: list[dict[str, A
                     f"silver annotation contract violation for {table_name}: "
                     f"serialized TF-IDF vector columns are forbidden [{vector_columns_csv}]"
                 )
+            embedding_columns = sorted(
+                field
+                for field in payload
+                if (
+                    field in FORBIDDEN_SILVER_EMBEDDING_FIELDS
+                    or "embedding" in field
+                    or field.endswith("_vector")
+                )
+                and _has_material_payload_value(payload.get(field))
+            )
+            if embedding_columns:
+                embedding_columns_csv = ", ".join(embedding_columns)
+                raise ValueError(
+                    f"silver annotation contract violation for {table_name}: "
+                    f"embedding/vector fields are downstream-only [{embedding_columns_csv}]"
+                )
 
         violations = sorted(
             field
             for field in payload
-            if field in SILVER_FORBIDDEN_FEATURE_COLUMNS
-            or field.endswith(SILVER_FORBIDDEN_FEATURE_SUFFIXES)
-            or field.startswith(SILVER_FORBIDDEN_FEATURE_PREFIXES)
+            if (
+                field in SILVER_FORBIDDEN_FEATURE_COLUMNS
+                or field.endswith(SILVER_FORBIDDEN_FEATURE_SUFFIXES)
+                or field.startswith(SILVER_FORBIDDEN_FEATURE_PREFIXES)
+            )
+            and _has_material_payload_value(payload.get(field))
         )
         if not violations:
             continue
@@ -113,7 +197,10 @@ def execute_single_upsert(
     stmt = pg_insert(model).values(payloads)
 
     update_fields = sorted(set(payloads[0].keys()) - set(conflict_fields) - {"created_at"})
-    set_map = {field: getattr(stmt.excluded, field) for field in update_fields}
+    set_map = {
+        field: _build_complete_only_update_expr(model=model, stmt=stmt, field=field)
+        for field in update_fields
+    }
     if "updated_at" in payloads[0]:
         set_map["updated_at"] = sa.func.now()
 
