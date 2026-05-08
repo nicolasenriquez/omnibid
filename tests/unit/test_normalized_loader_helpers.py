@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import dialect as pg_dialect
 import backend.normalized.upsert_engine as UPSERT_MODULE
 from backend.models.normalized import NormalizedOferta
 from backend.models.normalized import NormalizedOrdenCompra
+from backend.models.normalized import SilverNoticeTextAnn
 from backend.normalized.transform import build_oferta_payload
 from backend.normalized.transform import build_orden_compra_payload
 
@@ -166,6 +167,14 @@ class _PurchaseOrderLookupSession:
     def execute(self, _stmt: object) -> _DummyLookupResult:
         self.execute_calls += 1
         return _DummyLookupResult(self._existing_purchase_order_ids)
+
+
+class _DummySilverTextAnnModel:
+    __tablename__ = "silver_notice_text_ann"
+
+
+class _DummySilverFactModel:
+    __tablename__ = "silver_notice"
 
 
 @pytest.mark.parametrize(
@@ -359,6 +368,107 @@ def test_upsert_rows_reports_deduplicated_count_for_duplicate_keys() -> None:
 
     assert deduplicated == 2
     assert dummy.execute_calls == 1
+
+
+def test_complete_only_update_expr_for_text_keeps_existing_on_blank_input() -> None:
+    stmt = sa.dialects.postgresql.insert(NormalizedOrdenCompra).values(
+        [
+            {
+                "codigo_oc": "OC-1",
+                "nombre": "  ",
+                "source_file_id": uuid4(),
+                "row_hash_sha256": "h" * 64,
+            }
+        ]
+    )
+
+    expr = UPSERT_MODULE._build_complete_only_update_expr(  # type: ignore[attr-defined]
+        model=NormalizedOrdenCompra,
+        stmt=stmt,
+        field="nombre",
+    )
+    sql = str(expr.compile(dialect=pg_dialect())).lower()
+    assert "coalesce" in sql
+    assert "nullif" in sql
+    assert "btrim" in sql
+
+
+def test_complete_only_update_expr_for_numeric_keeps_existing_on_null_input() -> None:
+    stmt = sa.dialects.postgresql.insert(NormalizedOrdenCompra).values(
+        [
+            {
+                "codigo_oc": "OC-1",
+                "monto_total_oc": None,
+                "source_file_id": uuid4(),
+                "row_hash_sha256": "h" * 64,
+            }
+        ]
+    )
+
+    expr = UPSERT_MODULE._build_complete_only_update_expr(  # type: ignore[attr-defined]
+        model=NormalizedOrdenCompra,
+        stmt=stmt,
+        field="monto_total_oc",
+    )
+    sql = str(expr.compile(dialect=pg_dialect())).lower()
+    assert "coalesce" in sql
+    assert "nullif" not in sql
+    assert "normalized_ordenes_compra.monto_total_oc" in sql
+
+
+def test_complete_only_update_expr_for_json_preserves_existing_on_blank_payload() -> None:
+    stmt = sa.dialects.postgresql.insert(SilverNoticeTextAnn).values(
+        [
+            {
+                "notice_id": "N-1",
+                "nlp_version": "v1",
+                "corpus_scope": "scope",
+                "source_file_id": uuid4(),
+                "row_hash_sha256": "h" * 64,
+                "normalized_tokens_json": [],
+            }
+        ]
+    )
+
+    expr = UPSERT_MODULE._build_complete_only_update_expr(  # type: ignore[attr-defined]
+        model=SilverNoticeTextAnn,
+        stmt=stmt,
+        field="normalized_tokens_json",
+    )
+    sql = str(expr.compile(dialect=pg_dialect())).lower()
+    assert "coalesce" in sql
+    assert "jsonb_typeof" in sql
+    assert "'[]'::jsonb" in sql
+
+
+def test_guardrails_allow_blank_or_null_forbidden_fields_as_noop() -> None:
+    UPSERT_MODULE.validate_silver_feature_guardrails(
+        model=_DummySilverTextAnnModel,
+        payloads=[
+            {
+                "tfidf_artifact_ref": "   ",
+                "tfidf_vector": None,
+                "embedding_model_vector": "",
+            }
+        ],
+    )
+    UPSERT_MODULE.validate_silver_feature_guardrails(
+        model=_DummySilverFactModel,
+        payloads=[{"opportunity_score": None, "future_signal": "   "}],
+    )
+
+
+def test_guardrails_still_reject_material_forbidden_fields() -> None:
+    with pytest.raises(ValueError, match="serialized TF-IDF vector columns are forbidden"):
+        UPSERT_MODULE.validate_silver_feature_guardrails(
+            model=_DummySilverTextAnnModel,
+            payloads=[{"tfidf_vector": "[1,2]"}],
+        )
+    with pytest.raises(ValueError, match="forbidden feature columns"):
+        UPSERT_MODULE.validate_silver_feature_guardrails(
+            model=_DummySilverFactModel,
+            payloads=[{"opportunity_score": 0.1}],
+        )
 
 
 def test_resolve_start_after_id_uses_checkpoint_when_incremental() -> None:

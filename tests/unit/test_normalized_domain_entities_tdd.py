@@ -393,6 +393,48 @@ def test_annotation_guardrails_reject_serialized_tfidf_columns() -> None:
         )
 
 
+def test_annotation_guardrails_reject_embedding_fields_in_silver() -> None:
+    rows = [
+        {
+            "notice_id": "N-1",
+            "nlp_version": "silver_nlp_v1",
+            "corpus_scope": "notice_description",
+            "tfidf_artifact_ref": "tfidf://silver_notice/silver_nlp_v1/hash",
+            "embedding_vector": [0.1, 0.2, 0.3],
+        }
+    ]
+    dummy = _DummySession()
+
+    with pytest.raises(ValueError, match="embedding/vector fields are downstream-only"):
+        MODULE.upsert_rows(
+            dummy,
+            _require_model("SilverNoticeTextAnn"),
+            rows,
+            MODULE.SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS,
+        )
+
+
+def test_annotation_guardrails_reject_generic_vector_suffix_fields_in_silver() -> None:
+    rows = [
+        {
+            "notice_id": "N-1",
+            "nlp_version": "silver_nlp_v1",
+            "corpus_scope": "notice_description",
+            "tfidf_artifact_ref": "tfidf://silver_notice/silver_nlp_v1/hash",
+            "dense_sentence_vector": [0.1, 0.2],
+        }
+    ]
+    dummy = _DummySession()
+
+    with pytest.raises(ValueError, match="embedding/vector fields are downstream-only"):
+        MODULE.upsert_rows(
+            dummy,
+            _require_model("SilverNoticeTextAnn"),
+            rows,
+            MODULE.SILVER_NOTICE_TEXT_ANN_CONFLICT_FIELDS,
+        )
+
+
 def test_refresh_silver_notice_and_line_enrichments_updates_expected_fields() -> None:
     refresh = _require_callable("refresh_silver_notice_and_line_enrichments")
     session = _RecordingSession()

@@ -1,0 +1,14 @@
+{
+  "nlp_version": "silver_nlp_v1",
+  "canonical_model": "es_core_news_md",
+  "default_language": "es",
+  "low_confidence_language_label": "und",
+  "minimum_language_tokens": 2,
+  "supported_source_profiles": [
+    "csv_drop",
+    "api_json",
+    "open_data_snapshot"
+  ],
+  "max_annotation_tokens": 128,
+  "max_annotation_ngrams": 24
+}

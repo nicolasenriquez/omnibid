@@ -32,6 +32,7 @@ FROM app AS tools
 COPY --chown=app:app backend ./backend
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app tests ./tests
+COPY --chown=app:app config ./config
 
 RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \
     uv sync --frozen --extra dev
@@ -40,6 +41,7 @@ FROM app AS runtime
 
 COPY --chown=app:app backend ./backend
 COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app config ./config
 
 RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \
     uv sync --frozen --no-dev

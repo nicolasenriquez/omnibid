@@ -33,6 +33,22 @@ class Settings(BaseSettings):
         default=800 * 1024 * 1024,
         alias="MANUAL_UPLOAD_MAX_BYTES",
     )
+    ingestion_queue_max_attempts: int = Field(
+        default=2,
+        alias="INGESTION_QUEUE_MAX_ATTEMPTS",
+    )
+    ingestion_queue_retry_delay_seconds: int = Field(
+        default=120,
+        alias="INGESTION_QUEUE_RETRY_DELAY_SECONDS",
+    )
+    ingestion_queue_poll_seconds: float = Field(
+        default=5.0,
+        alias="INGESTION_QUEUE_POLL_SECONDS",
+    )
+    ingestion_dead_letter_retention_days: int = Field(
+        default=30,
+        alias="INGESTION_DEAD_LETTER_RETENTION_DAYS",
+    )
 
 
 def database_runtime_family(database_url: str) -> str:
@@ -73,8 +89,20 @@ def validate_database_runtime_contract(database_url: str, test_database_url: str
         raise ValueError("DATABASE_URL must not target a test database")
 
 
+def validate_ingestion_queue_contract(settings: Settings) -> None:
+    if settings.ingestion_queue_max_attempts < 1:
+        raise ValueError("INGESTION_QUEUE_MAX_ATTEMPTS must be >= 1")
+    if settings.ingestion_queue_retry_delay_seconds <= 0:
+        raise ValueError("INGESTION_QUEUE_RETRY_DELAY_SECONDS must be > 0")
+    if settings.ingestion_queue_poll_seconds <= 0:
+        raise ValueError("INGESTION_QUEUE_POLL_SECONDS must be > 0")
+    if settings.ingestion_dead_letter_retention_days < 1:
+        raise ValueError("INGESTION_DEAD_LETTER_RETENTION_DAYS must be >= 1")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
     validate_database_runtime_contract(settings.database_url, settings.test_database_url)
+    validate_ingestion_queue_contract(settings)
     return settings
