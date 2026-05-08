@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 LOCAL_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 DOCKER_DATABASE_HOSTS = {"db", "db_test"}
 TEST_DATABASE_SUFFIX = "_test"
+MERCADO_PUBLICO_DEFAULT_BASE_URL = "https://api.mercadopublico.cl/servicios/v1/publico"
 
 
 class Settings(BaseSettings):
@@ -48,6 +49,22 @@ class Settings(BaseSettings):
     ingestion_dead_letter_retention_days: int = Field(
         default=30,
         alias="INGESTION_DEAD_LETTER_RETENTION_DAYS",
+    )
+    mercado_publico_api_enabled: bool = Field(default=False, alias="MERCADO_PUBLICO_API_ENABLED")
+    mercado_publico_api_key: str = Field(default="", alias="MERCADO_PUBLICO_API_KEY")
+    mercado_publico_base_url: str = Field(
+        default=MERCADO_PUBLICO_DEFAULT_BASE_URL,
+        alias="MERCADO_PUBLICO_BASE_URL",
+    )
+    mercado_publico_timeout_seconds: float = Field(default=30.0, alias="MERCADO_PUBLICO_TIMEOUT_SECONDS")
+    mercado_publico_retry_budget: int = Field(default=2, alias="MERCADO_PUBLICO_RETRY_BUDGET")
+    mercado_publico_daily_request_limit: int = Field(
+        default=10000,
+        alias="MERCADO_PUBLICO_DAILY_REQUEST_LIMIT",
+    )
+    mercado_publico_cache_ttl_seconds: int = Field(
+        default=900,
+        alias="MERCADO_PUBLICO_CACHE_TTL_SECONDS",
     )
 
 
@@ -100,9 +117,29 @@ def validate_ingestion_queue_contract(settings: Settings) -> None:
         raise ValueError("INGESTION_DEAD_LETTER_RETENTION_DAYS must be >= 1")
 
 
+def validate_mercado_publico_contract(settings: Settings) -> None:
+    if settings.mercado_publico_timeout_seconds <= 0:
+        raise ValueError("MERCADO_PUBLICO_TIMEOUT_SECONDS must be > 0")
+    if settings.mercado_publico_retry_budget < 0:
+        raise ValueError("MERCADO_PUBLICO_RETRY_BUDGET must be >= 0")
+    if settings.mercado_publico_daily_request_limit < 1:
+        raise ValueError("MERCADO_PUBLICO_DAILY_REQUEST_LIMIT must be >= 1")
+    if settings.mercado_publico_cache_ttl_seconds < 0:
+        raise ValueError("MERCADO_PUBLICO_CACHE_TTL_SECONDS must be >= 0")
+
+    if not settings.mercado_publico_api_enabled:
+        return
+
+    if settings.mercado_publico_api_key.strip() == "":
+        raise ValueError("MERCADO_PUBLICO_API_ENABLED=true requires MERCADO_PUBLICO_API_KEY")
+    if settings.mercado_publico_base_url.strip() == "":
+        raise ValueError("MERCADO_PUBLICO_BASE_URL must be set when API sync is enabled")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
     validate_database_runtime_contract(settings.database_url, settings.test_database_url)
     validate_ingestion_queue_contract(settings)
+    validate_mercado_publico_contract(settings)
     return settings

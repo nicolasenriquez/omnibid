@@ -8,18 +8,23 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 
 - [`architecture/`](architecture)
   - system, data architecture, and data model references
+  - external API ingestion boundary: [`architecture/external_api_ingestion.md`](architecture/external_api_ingestion.md)
 - [`runbooks/`](runbooks)
   - local development, operations, CI, and implementation runbooks
   - Docker local runtime: [`runbooks/docker-local.md`](runbooks/docker-local.md)
+  - RTK Windows WSL hardening: [`runbooks/rtk-wsl-hardening.md`](runbooks/rtk-wsl-hardening.md)
   - GitHub Actions CI runtime: [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
+  - Mercado Publico API integration: [`runbooks/mercado_publico_api_integration.md`](runbooks/mercado_publico_api_integration.md)
 - [`product/`](product)
   - product vision and stage-gated delivery priorities
 - [`standards/`](standards)
   - engineering standards (typing, linting, testing, security, logging, SQL)
 - [`references/`](references)
   - SDD source registry and external technical references
+  - Mercado Publico API SDD: [`references/sdd-mercado-publico-api-2026-05-04.md`](references/sdd-mercado-publico-api-2026-05-04.md)
 - [`evidence/`](evidence)
   - validation artifacts, baselines, and runtime logs
+  - Mercado Publico API smoke evidence: [`evidence/mercado_publico_api_contract_smoke_2026-05-08.md`](evidence/mercado_publico_api_contract_smoke_2026-05-08.md)
 
 ## Priority Read Order
 
@@ -35,11 +40,12 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 
 ## Agent Routing Guide
 
-- Runtime and pipelines: `just docker-start`, `just docker-pipeline-full`, `just docker-smoke`.
+- Runtime and pipelines: `just compose-up`, `just docker-pipeline-full`, `just docker-smoke`.
 - CI workflows and governance: `.github/`, `docs/standards/github-actions-ci-cd-standard.md`, `docs/runbooks/github-actions-ci-container-first.md`.
 - Backend routes: `backend/api/routers/`.
 - Backend config/database/model work: `backend/core/`, `backend/db/`, `backend/models/`, `alembic/versions/`.
 - Data pipeline work: `backend/ingestion/`, `backend/normalized/`, `scripts/`.
+- External API ingestion work: `backend/integrations/mercado_publico/`, `backend/pipeline/application.py`, `scripts/fetch_mp_api.py`, `scripts/run_mp_api_daily_pipeline.py`.
 - Frontend work: `client/app/licitaciones/`, `client/src/features/opportunity-workspace/`, `client/src/lib/api/`.
 - Change artifacts: `openspec/changes/<change>/`.
 - Validation evidence: `docs/evidence/`.
@@ -51,8 +57,9 @@ The repository is past the Silver procurement-cycle foundation and now has read-
 - canonical procurement entities are implemented
 - deterministic enrichments are implemented
 - NLP semantic annotations are implemented (reference-only TF-IDF contract)
-- procurement line investigation APIs are implemented under `/investigations`
+- procurement line investigation APIs are documented as planned seams under `/investigations`, but are not currently wired in `backend/main.py`
 - opportunity read APIs and the `/licitaciones` frontend workspace are present
+- Mercado Publico notice sync is documented through `architecture/`, `runbooks/`, `references/`, and `evidence/`
 - Gold scoring/forecasting remains deferred
 
 For current implementation details, see:

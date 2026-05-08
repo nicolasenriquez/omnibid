@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.db.base import Base
-from backend.models import ingestion_jobs, normalized, operational, raw  # noqa: F401
+from backend.models import api_source, ingestion_jobs, normalized, operational, raw  # noqa: F401
 
 config = context.config
 

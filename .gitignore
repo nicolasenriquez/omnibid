@@ -5,7 +5,6 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
 # Virtual env
 .venv/
 
@@ -20,6 +19,7 @@ build/
 dist/
 *.egg-info/
 .docker-config/
+.docker/
 
 # Data outputs
 /data/profiling/*.json

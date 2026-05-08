@@ -59,6 +59,25 @@ The system SHALL expose the daily published notices through a normalized snapsho
 - **WHEN** an operator inspects the snapshot by date or notice code
 - **THEN** the result is readable without reopening raw response JSON.
 
+### Requirement: Current opportunities MUST use active discovery plus bounded refreshes
+The system SHALL treat `estado=activas` as the primary live-opportunity discovery mode, SHALL refresh a bounded rolling window of recent publication dates for late or changed notices, and SHALL reserve detail-by-code queries for candidate notices that need enrichment.
+
+#### Scenario: Live-opportunity discovery
+- **WHEN** the active-discovery job runs
+- **THEN** it queries published licitaciones with `estado=activas`
+- **AND** it persists request, payload, and snapshot lineage for the notices returned
+- **AND** it does not scan the entire historical corpus on every run.
+
+#### Scenario: Rolling refresh
+- **WHEN** the nightly refresh job runs
+- **THEN** it refreshes a bounded publication window such as `T`, `T-1`, `T-2`, and `T-3`
+- **AND** it captures late arrivals or status changes without relying on a full historical replay.
+
+#### Scenario: Candidate detail enrichment
+- **WHEN** a notice passes the candidate filter
+- **THEN** the client may query that notice by `codigo`
+- **AND** the response is used only for enrichment of that candidate notice.
+
 ### Requirement: Sync MUST honor upstream limits and bounded retries
 The system SHALL respect the official daily limit and shall use bounded retry/backoff for transient upstream failures.
 

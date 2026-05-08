@@ -174,7 +174,7 @@ For multi-label tasks:
 When fastText behavior changes in code, validate with the repository gates that match the impacted surface:
 
 ```bash
-rtk just docker-start
+rtk just compose-up
 rtk just docker-smoke
 rtk just ci-fast
 ```

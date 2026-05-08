@@ -9,6 +9,14 @@
 - `ingestion_batches`
 - `data_quality_issues`
 
+## External API Ingestion Operational Tables
+- `api_source_request`
+- `api_source_payload`
+- `mercado_publico_notice_snapshot`
+
+These tables preserve request, payload, and snapshot lineage for the Mercado Publico notice-sync lane.
+Daily sync+Silver runs also register a logical API snapshot artifact in `source_files` with `dataset_type=mercado_publico_api_notice` so downstream `source_file_id` contracts remain explicit.
+
 ## Raw
 - `raw_licitaciones`
 - `raw_ordenes_compra`
@@ -62,7 +70,7 @@ Annotation contract highlights:
 
 ## Current Read Models
 
-Implemented read-only API models sit on top of Silver and documented Normalized display joins:
+Documented read-only API models sit on top of Silver and documented Normalized display joins:
 
 - opportunity list/summary/detail contracts under `/opportunities`
 - procurement line investigation list/detail contracts under `/investigations/procurement-lines`

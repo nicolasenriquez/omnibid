@@ -4,6 +4,7 @@ Monorepo with modular backend:
 - backend/core: config, settings, logging
 - backend/db: engine, session, models
 - backend/ingestion: file discovery + registration
+- backend/integrations/mercado_publico: external API ingestion lane for Mercado Publico notice sync
 - backend/normalized: normalized entities
 - backend/models: operational, raw, normalized, and Silver ORM entities
 - backend/api: health, operations, and opportunities endpoints
@@ -11,11 +12,22 @@ Monorepo with modular backend:
 - scripts/: operator entrypoints for raw profiling, raw ingestion, and normalized/Silver builds
 - client/: Next.js Opportunity Workspace frontend
 
+## External API Ingestion Boundary
+
+The Mercado Publico notice-sync lane is operator-driven and Docker-first:
+
+- `backend/integrations/mercado_publico/`
+- `scripts/fetch_mp_api.py`
+- `backend/pipeline/application.py` (daily sync + Silver notice refresh orchestration)
+- `scripts/run_mp_api_daily_pipeline.py`
+
+The lane persists request, payload, and snapshot lineage in dedicated operational tables. See `docs/architecture/external_api_ingestion.md` for the detailed boundary, modes, and command surface.
+
 ## Runtime Boundary
 
 Local runtime is Docker-first:
 
-- `just docker-start` builds the backend image, boots PostgreSQL, runs migrations, and starts the API.
+- `just compose-up` builds the Compose stack and starts it in detached mode.
 - `just docker-pipeline-full` runs raw profiling/ingestion and normalized/Silver builds inside the backend container.
 - `just docker-smoke` checks Compose services and backend health.
 - `.env.docker` is the canonical local runtime env file.
