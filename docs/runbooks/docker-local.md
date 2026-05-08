@@ -10,7 +10,7 @@ Use this runbook when running `app-chilecompra` with Docker Desktop on Windows/L
 - No local Python or local PostgreSQL required on the host.
 - Dataset mounted read-only into `/datasets/mercado-publico`.
 
-For agents, this runbook is the first execution plan for backend, database, migration, pipeline, smoke, and quality work. Host-local `.venv` or `uv run` commands are fallback paths only when Docker/Compose is unavailable, blocked, or not relevant to the task.
+For agents, this runbook is the first execution plan for backend, database, pipeline, smoke, and quality work. Host-local `.venv` or `uv run` commands are fallback paths only when Docker/Compose is unavailable, blocked, or not relevant to the task.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ For agents, this runbook is the first execution plan for backend, database, migr
 ## Canonical Commands
 
 1. One-command startup (recommended):
-   - `just docker-start`
+   - `just compose-up`
 2. Open docs:
    - `http://localhost:8000/docs`
 
@@ -34,17 +34,13 @@ Low-level equivalent sequence:
 
 1. Build images:
    - `just docker-build`
-2. Bootstrap DB + migrations:
-   - `just docker-bootstrap`
-3. Start backend:
-   - `docker compose --env-file .env.docker -f docker-compose.yml up -d backend`
+2. Start the stack:
+   - `just compose-up`
 
 Equivalent direct Compose commands:
 
 - `docker compose --env-file .env.docker -f docker-compose.yml build`
-- `docker compose --env-file .env.docker -f docker-compose.yml up -d db`
-- `docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head`
-- `docker compose --env-file .env.docker -f docker-compose.yml up -d backend`
+- `docker compose --env-file .env.docker -f docker-compose.yml up --build -d`
 
 ## Pipeline Commands (Docker)
 
@@ -55,7 +51,7 @@ Equivalent direct Compose commands:
 
 When issuing commands as an agent and `rtk` is available, prefix workflow commands:
 
-- `rtk just docker-start`
+- `rtk just compose-up`
 - `rtk just docker-pipeline-full`
 - `rtk just docker-smoke`
 
@@ -63,7 +59,7 @@ If a container-backed command cannot be used, state the reason before using the 
 
 ## Frontend Pairing
 
-Run the frontend through the Docker stack after the backend is healthy:
+Run the frontend through the Docker stack after the backend is up:
 
 ```bash
 just dev

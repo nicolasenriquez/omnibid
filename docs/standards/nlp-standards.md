@@ -194,7 +194,7 @@ Minimum validation for any NLP change:
 
 Recommended gate order:
 
-1. `rtk just docker-start`
+1. `rtk just compose-up`
 2. `rtk just docker-smoke`
 3. targeted backend tests
 4. `rtk just ci-fast`

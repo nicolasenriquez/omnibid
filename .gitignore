@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.docker/
 
 # Virtual env
 .venv/
@@ -20,6 +21,7 @@ build/
 dist/
 *.egg-info/
 .docker-config/
+.docker/
 
 # Data outputs
 /data/profiling/*.json
@@ -31,6 +33,9 @@ dist/
 
 # Alembic local
 alembic/versions/__pycache__/
+
+# Docker artifacts
+{{DOCKER_CONFIG_DIR}}/
 
 # OS
 .DS_Store

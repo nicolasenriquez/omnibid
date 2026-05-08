@@ -1,18 +1,24 @@
 ## Context
 
-This change adds a notice-only Mercado Público API lane. It is backend-only, operator-driven, and separate from the existing CSV pipeline. The first slice ends at a queryable daily published-notice snapshot plus request/payload lineage. It does not try to remap the data into current Silver tables yet.
+This change adds a notice-only Mercado Público API lane. It is backend-only, operator-driven, and separate from the existing CSV pipeline. The first slice ends at a queryable published-notice snapshot plus request/payload lineage. It does not try to remap the data into current Silver tables yet.
 
 The repo already has reusable operational primitives:
 - `PipelineRun` and `PipelineRunStep` for job tracking
-- `httpx` already available in `pyproject.toml`
 - Docker-first `just` recipes for runtime and verification
 - structured config through `backend/core/config.py`
+- a Docker backend image that installs the runtime with `uv sync --frozen --no-dev`
+
+The operating model is API-first for live opportunities and CSV/manual for history:
+- API discovery is the live sensor for current opportunities.
+- CSV/manual loading stays the historical, backfill, and reconciliation path.
+- Current API work should stay notice-only and backend-only.
 
 That means this change can stay narrow:
 - no frontend work
 - no new public routes
 - no CSV pipeline rewrites
 - no direct Silver writes in the first slice
+- no new runtime dependency churn in the backend image
 
 ## Verified Official Sources
 
@@ -23,7 +29,7 @@ That means this change can stay narrow:
 3. `https://www.chilecompra.cl/wp-content/uploads/2026/03/Documentacion-API-Mercado-Publico-oc.pdf`
    - future-scope reference only; not used in this change.
 4. `docs/references/sdd-market-public-business-and-data-sources-2026-05-02.md`
-   - repo-local business/source framing already exists and is consistent with a notice-only API slice.
+   - repo-local business/source framing already exists and is consistent with an API-first live-opportunity lane.
 5. `docs/references/sdd-mercado-publico-api-2026-05-04.md`
    - planned repo-local decision note for this API lane.
 
@@ -31,57 +37,65 @@ That means this change can stay narrow:
 
 - Internal integration nouns stay technical: `request`, `payload`, `snapshot`, `notice`, and hash fields.
 - Any adjacent business copy should use Spanish procurement language with accents: `licitación`, `código externo`, `estado oficial`, `organismo comprador`, `unidad de compra`, `publicación`, `cierre`, `monto estimado`.
-- Do not surface raw backend field names as visible UI labels.
+- Do not surface raw internal field names as visible UI labels.
 
 ## Goals
 
-- Fetch published licitaciones daily from the official API.
+- Fetch published licitaciones from Mercado Público using live-opportunity discovery and bounded refreshes.
 - Persist raw request metadata, raw payload snapshots, and a queryable notice snapshot.
-- Fail fast when the API is enabled but ticket/config is invalid.
+- Fail fast when the API is enabled but the key or core settings are invalid.
 - Keep secret material out of logs and persisted telemetry.
 - Make the sync idempotent by request hash and payload hash.
-- Keep the existing CSV pipeline unchanged.
+- Keep CSV/manual flows as the historical and reconciliation path.
+- Keep the runtime dependency set stable by using the standard library HTTP client in the production slice.
 
 ## Non-Goals
 
 - OC, buyer, or supplier endpoints in this change.
 - Frontend calls to ChileCompra.
+- Replacing CSV/manual historical loading or reconciliation.
 - Writes into the current Silver procurement-cycle tables.
-- Replacing the current `/opportunities` read model.
-- Batch backfill of historical API data beyond the daily published-notice slice.
+- Batch backfill of historical API data through this slice alone.
+- Public dashboard, alerts, or notification delivery in this slice.
 
 ## Decisions
 
-1. Notice-only first slice.
+1. API-first for current opportunities, CSV/manual for historical backfill and reconciliation.
+   - Mercado Público APIs are the operational sensor for live licitaciones.
+   - CSV/manual remains the historical truth source and reconciliation path.
+
+2. Notice-only first slice.
    - The first implementation focuses on published licitaciones only.
    - OC and entity lookup endpoints are follow-up work, not hidden dependencies.
 
-2. Use dedicated API lineage tables.
+3. Use active discovery and bounded refreshes.
+   - `estado=activas` is the primary live-discovery query.
+   - A short rolling window (`T`, `T-1`, `T-2`, `T-3`) captures late arrivals and status changes.
+   - Code-based queries are reserved for candidate notices that deserve detail.
+
+4. Use dedicated API lineage tables.
    - Persist API request metadata and raw payloads separately from CSV lineage.
    - Do not reuse `SourceFile` for remote JSON responses in this slice.
 
-3. Use a queryable notice snapshot.
-   - Store one normalized row per published notice so operators can check daily results without parsing raw JSON.
+5. Use a queryable notice snapshot.
+   - Store one normalized row per published notice so operators can inspect daily and intra-day results without parsing raw JSON.
    - Keep the snapshot table separate from current Silver tables.
 
-4. Reuse operational run tracking.
-   - `PipelineRun` and `PipelineRunStep` can track the API sync job with a new dataset type such as `mercado_publico_api_notices`.
+6. Reuse operational run tracking.
+   - `PipelineRun` and `PipelineRunStep` can track the API sync job with a Mercado Público dataset type and clear step names for discovery, refresh, and enrichment.
    - This gives run/step lineage without new operational tables.
 
-5. Fail fast, do not guess.
-   - If the API is enabled and ticket is missing, start-up or client creation fails immediately.
+7. Fail fast, do not guess.
+   - If the API is enabled and the key is missing, start-up or client creation fails immediately.
    - If the upstream contract drifts, the job fails before partial persistence escapes the transaction.
 
-6. Use the official published-notice query shape.
-   - The daily job uses the licitaciones endpoint with date and state filters for `publicada`.
-   - `estado=activas` can remain a smoke check, but it is not the primary daily persistence path.
-
-7. Keep the sync backend-only.
+8. Keep the sync backend-only.
    - No frontend direct calls to ChileCompra.
    - No new UI work in this change.
 
-8. No new Python dependency risk.
-   - `httpx` is already present in the repo, so the change should not need package churn.
+9. Keep the runtime HTTP client dependency-free.
+   - Use the Python standard library in the production slice so the backend no-dev image does not need package churn.
+   - Tests can still use the existing dev toolchain, but production code should not depend on a new runtime package.
 
 ## Architecture
 
@@ -89,6 +103,7 @@ That means this change can stay narrow:
 
 ```text
 Mercado Público licitaciones endpoint
+  -> active discovery / rolling refresh / candidate detail-by-code
   -> MercadoPublicoClient
   -> api_source_request
   -> api_source_payload
@@ -101,9 +116,9 @@ Mercado Público licitaciones endpoint
 - `backend/integrations/mercado_publico/config.py`
   - settings access and validation glue.
 - `backend/integrations/mercado_publico/client.py`
-  - request builder, ticket injection, redaction, retry/backoff, response parsing.
+  - request builder, key injection, redaction, retry/backoff, response parsing.
 - `backend/integrations/mercado_publico/schemas.py`
-  - Pydantic models for the licitaciones response contract.
+  - models for the licitaciones response contract.
 - `backend/integrations/mercado_publico/enums.py`
   - notice state codes and text labels.
 - `backend/integrations/mercado_publico/errors.py`
@@ -115,9 +130,9 @@ Mercado Público licitaciones endpoint
 - `backend/integrations/mercado_publico/store.py`
   - persistence helpers for request, payload, and snapshot writes.
 - `scripts/fetch_mp_api.py`
-  - generic operator entrypoint for daily licitaciones sync.
+  - generic operator entrypoint for active discovery, rolling refresh, and candidate detail enrichment.
 - `justfile`
-  - recipes for smoke, daily sync, and focused validation.
+  - recipes for smoke, job-specific syncs, and focused validation.
 
 ## Data Model
 
@@ -178,7 +193,7 @@ Rules:
 ### `mercado_publico_notice_snapshot`
 
 Purpose:
-- query-friendly daily published-notice read model
+- query-friendly daily and intra-day published-notice read model
 
 Core fields:
 - `id`
@@ -204,13 +219,13 @@ Core fields:
 - `synced_at`
 
 Rules:
-- one row per notice in the daily published slice.
+- one row per notice in the published slice.
 - fields remain explicit `null` when the API omits them.
 - snapshot is queryable without reopening raw JSON.
 
 ## Failure Modes
 
-1. Missing ticket or disabled config.
+1. Missing key or disabled config.
    - Fail before request execution.
 
 2. Contract drift.
@@ -226,7 +241,7 @@ Rules:
    - Do not create duplicate semantic work for the same canonical request.
 
 5. Secret leakage.
-   - Ticket never logged, stored, or echoed in request diagnostics.
+   - The ticket never gets logged, stored, or echoed in request diagnostics.
 
 ## Blast Radius
 
@@ -244,10 +259,11 @@ Rules:
 - future change may map the notice snapshot into `silver_notice` and the existing `/opportunities` read model
 - future change may add `ordenesdecompra` and entity lookup endpoints
 - operations list will show a new `dataset_type` for API sync runs
+- future follow-up may add explicit API sync state tables if the operator cadence needs deeper observability
 
 ### Blocking vs non-blocking
 
-- Blocking: missing ticket handling, contract drift handling, and duplicate request hashing must be explicit before execution.
+- Blocking: missing key handling, contract drift handling, and duplicate request hashing must be explicit before execution.
 - Non-blocking by design: Silver convergence, OC integration, and buyer/supplier lookups are follow-up work.
 
 ## Validation Strategy

@@ -226,7 +226,7 @@ The Opportunity Workspace exposes read-only opportunity endpoints over Silver-fi
 
 Operator guidance:
 
-- Start backend with `just docker-start` (`rtk just docker-start` for agent-issued commands when available).
+- Start backend with `just compose-up` (`rtk just compose-up` for agent-issued commands when available).
 - Run `just docker-smoke` before frontend browser checks.
 - For agents, run backend/API checks through the container-backed `just` path first; use host-local `.venv` or `uv run` only as a fallback with the reason recorded.
 - Keep `/opportunities` at notice grain; do not join child rows into the list in a way that duplicates parent notices.
@@ -248,7 +248,7 @@ Contract:
 
 Recommended operator sequence:
 
-1. Start backend with `just docker-start`.
+1. Start backend with `just compose-up`.
 2. Open `/licitaciones`.
 3. Click `Cargar CSV`.
 4. Choose `Licitaciones` or `Ordenes de compra` explicitly.

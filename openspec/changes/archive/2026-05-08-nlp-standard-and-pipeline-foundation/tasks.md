@@ -39,15 +39,15 @@
 
 ## 4. Runtime and Validation
 
-- [ ] 4.1 Respect the repository `.env` and `.env.docker` database contract.
+- [x] 4.1 Respect the repository `.env` and `.env.docker` database contract.
   Notes: use `DATABASE_URL` and `TEST_DATABASE_URL` as defined by the repo, with Docker service DNS for containerized runs.
   Acceptance: tests and scripts behave the same way in local and Docker contexts.
-- [ ] 4.2 Add unit tests for normalization, language detection, and vectorizer behavior.
+- [x] 4.2 Add unit tests for normalization, language detection, and vectorizer behavior.
   Notes: keep the tests deterministic and independent of the full pipeline runner.
   Acceptance: the tests fail before the pipeline exists and pass once the contract is implemented.
-- [ ] 4.3 Add database-backed tests if the implementation writes Silver rows.
+- [x] 4.3 Add database-backed tests if the implementation writes Silver rows.
   Notes: test the exact write contract instead of relying on mocks only.
   Acceptance: the persistence behavior is verified against the test database.
-- [ ] 4.4 Run Docker-first quality gates.
-  Notes: use the smallest relevant gate first, then broaden only if needed.
+- [x] 4.4 Run Docker-first quality gates.
+  Notes: use the smallest relevant gate first, then broaden only if needed. Validation run: `rtk just docker-smoke`; Docker-backed unit suite: 79 passed; Docker-backed integration suite: 2 passed.
   Acceptance: validation evidence is captured before implementation is considered done.

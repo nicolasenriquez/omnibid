@@ -1,12 +1,33 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+import hashlib
+import json
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, cast
+from uuid import UUID
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from backend.integrations.mercado_publico import MercadoPublicoClient
+from backend.integrations.mercado_publico.sync import (
+    DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
+    STEP_NAME_BY_MODE,
+    SyncSummary,
+    execute_sync_mode,
+    rolling_window_dates,
+)
+from backend.models.api_source import ApiSourcePayload, ApiSourceRequest
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
+from backend.normalized.mp_api_notice_refresh import (
+    MP_API_NOTICE_SILVER_STEP_NAME,
+    MpApiNoticeSilverRefreshSummary,
+    refresh_silver_notice_from_mp_api_snapshots,
+    select_latest_notice_snapshots,
+)
 from backend.ingestion.contracts import normalize_dataset_type
 from backend.nlp.runtime import (
     IMPLEMENTED_SOURCE_PROFILE,
@@ -23,6 +44,294 @@ from scripts.ingest_raw import process_registered_file  # noqa: E402
 RAW_CHUNK_SIZE = 5_000
 NORMALIZED_FETCH_SIZE = 10_000
 NORMALIZED_CHUNK_SIZE = 500
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _dict_any(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    return dict(value)
+
+
+def _source_file_payload_id(snapshot: Any) -> UUID | None:
+    payload_id = snapshot.payload_id
+    if isinstance(payload_id, UUID):
+        return payload_id
+    return None
+
+
+def _source_file_request_id(snapshot: Any) -> UUID | None:
+    request_id = snapshot.request_id
+    if isinstance(request_id, UUID):
+        return request_id
+    return None
+
+
+def _sha256_json(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _create_pipeline_step(
+    session: Session,
+    *,
+    run_id: Any,
+    step_name: str,
+) -> PipelineRunStep:
+    started_at = _utc_now()
+    step = PipelineRunStep(
+        run_id=run_id,
+        step_name=step_name,
+        status="running",
+        started_at=started_at,
+        error_details={},
+    )
+    session.add(step)
+    session.flush()
+    return step
+
+
+def _mark_pipeline_step_completed(
+    step: PipelineRunStep,
+    *,
+    rows_in: int,
+    rows_out: int,
+    rows_rejected: int = 0,
+    details: dict[str, Any] | None = None,
+) -> None:
+    step_any = cast(Any, step)
+    step_any.status = "completed"
+    step_any.finished_at = _utc_now()
+    step_any.rows_in = rows_in
+    step_any.rows_out = rows_out
+    step_any.rows_rejected = rows_rejected
+    step_any.error_details = details or {}
+
+
+def _mark_pipeline_step_failed(step: PipelineRunStep, *, error_message: str) -> None:
+    step_any = cast(Any, step)
+    step_any.status = "failed"
+    step_any.finished_at = _utc_now()
+    step_any.error_details = {"error": error_message[:4000]}
+
+
+def _create_mp_api_daily_pipeline_run(
+    session: Session,
+    *,
+    target_date: date,
+    window_days: int,
+    estado: str | None,
+    refresh_only: bool,
+) -> PipelineRun:
+    started_at = _utc_now()
+    run = PipelineRun(
+        run_key=f"mercado-publico-api-daily:{target_date.isoformat()}:{started_at.isoformat()}",
+        dataset_type=DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
+        status="running",
+        started_at=started_at,
+        config={
+            "mode": "daily_notice_silver_refresh",
+            "target_date": target_date.isoformat(),
+            "window_days": window_days,
+            "estado": estado,
+            "refresh_only": refresh_only,
+        },
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def _mark_pipeline_run_failed(run: PipelineRun, *, error_message: str) -> None:
+    run_any = cast(Any, run)
+    run_any.status = "failed"
+    run_any.finished_at = _utc_now()
+    run_any.error_summary = error_message[:4000]
+
+
+def _mark_pipeline_run_completed(
+    run: PipelineRun,
+    *,
+    source_file_id: Any,
+    sync_summary: SyncSummary,
+    silver_summary: MpApiNoticeSilverRefreshSummary,
+) -> None:
+    run_any = cast(Any, run)
+    run_config: dict[str, Any] = _dict_any(cast(Mapping[str, Any] | None, run_any.config))
+    run_any.config = {
+        **run_config,
+        "sync_summary": {
+            "mode": sync_summary.mode,
+            "requests": sync_summary.requests,
+            "notices_seen": sync_summary.notices_seen,
+            "notices_skipped_missing_external_notice_code": (
+                sync_summary.notices_skipped_missing_external_notice_code
+            ),
+            "snapshots_upserted": sync_summary.snapshots_upserted,
+            "snapshots_inserted": sync_summary.snapshots_inserted,
+            "snapshots_updated": sync_summary.snapshots_updated,
+        },
+        "silver_refresh_summary": {
+            "notice_candidates": silver_summary.notice_candidates,
+            "upserted_notices": silver_summary.upserted_notices,
+        },
+        "source_file_id": str(source_file_id),
+    }
+    run_any.source_file_id = source_file_id
+    run_any.status = "completed"
+    run_any.finished_at = _utc_now()
+    run_any.error_summary = None
+
+
+def _serialize_payload_bytes(payload_json: Any) -> int:
+    if payload_json is None:
+        return 0
+    return len(
+        json.dumps(payload_json, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    )
+
+
+def _fetch_payload_rows_by_ids(session: Session, payload_ids: list[Any]) -> list[ApiSourcePayload]:
+    if not payload_ids:
+        return []
+    return cast(
+        list[ApiSourcePayload],
+        session.execute(sa.select(ApiSourcePayload).where(ApiSourcePayload.id.in_(payload_ids)))
+        .scalars()
+        .all(),
+    )
+
+
+def _fetch_request_rows_by_ids(session: Session, request_ids: list[Any]) -> list[ApiSourceRequest]:
+    if not request_ids:
+        return []
+    return cast(
+        list[ApiSourceRequest],
+        session.execute(sa.select(ApiSourceRequest).where(ApiSourceRequest.id.in_(request_ids)))
+        .scalars()
+        .all(),
+    )
+
+
+def _register_mp_api_snapshot_source_file(
+    session: Session,
+    *,
+    target_date: date,
+    window_days: int,
+    estado: str | None,
+    scope_pipeline_run_id: UUID | None,
+    window_dates: list[date],
+) -> SourceFile:
+    latest_snapshots = select_latest_notice_snapshots(
+        session,
+        pipeline_run_id=scope_pipeline_run_id,
+        window_dates=None if scope_pipeline_run_id is not None else window_dates,
+    )
+    payload_ids = sorted(
+        {
+            payload_id
+            for snapshot in latest_snapshots
+            if (payload_id := _source_file_payload_id(snapshot)) is not None
+        }
+    )
+    request_ids = sorted(
+        {
+            request_id
+            for snapshot in latest_snapshots
+            if (request_id := _source_file_request_id(snapshot)) is not None
+        }
+    )
+    payload_rows = _fetch_payload_rows_by_ids(session, payload_ids)
+    request_rows = _fetch_request_rows_by_ids(session, request_ids)
+
+    payload_hashes = sorted(
+        str(payload.payload_sha256)
+        for payload in payload_rows
+        if str(payload.payload_sha256 or "").strip() != ""
+    )
+    request_hashes = sorted(
+        str(request.request_hash)
+        for request in request_rows
+        if str(request.request_hash or "").strip() != ""
+    )
+    uri = (
+        "api://mercado-publico/licitaciones/rolling-window/"
+        f"{target_date.isoformat()}?window_days={window_days}&estado={estado or 'all'}"
+    )
+    hash_basis = {
+        "uri": uri,
+        "window_dates": [day.isoformat() for day in window_dates],
+        "payload_sha256": payload_hashes,
+        "request_hashes": request_hashes,
+    }
+    file_hash_sha256 = _sha256_json(hash_basis)
+    file_size_bytes = sum(_serialize_payload_bytes(payload.payload_json) for payload in payload_rows)
+    if file_size_bytes < 0:
+        file_size_bytes = 0
+
+    existing = session.execute(
+        sa.select(SourceFile).where(SourceFile.file_hash_sha256 == file_hash_sha256)
+    ).scalar_one_or_none()
+
+    source_meta = {
+        "source_kind": "api_snapshot",
+        "source_system": "mercado_publico",
+        "sync_mode": "rolling-window",
+        "target_date": target_date.isoformat(),
+        "window_days": window_days,
+        "estado": estado,
+        "window_dates": [day.isoformat() for day in window_dates],
+        "notice_count": len(latest_snapshots),
+        "request_count": len(request_hashes),
+        "payload_count": len(payload_hashes),
+        "request_hashes": request_hashes,
+        "payload_sha256": payload_hashes,
+        "snapshot_scope": "pipeline_run" if scope_pipeline_run_id is not None else "window_dates",
+        "pipeline_run_id": str(scope_pipeline_run_id) if scope_pipeline_run_id is not None else None,
+    }
+    source_modified_at = max((payload.fetched_at for payload in payload_rows), default=None)
+
+    if existing is not None:
+        existing_any = cast(Any, existing)
+        existing_meta: dict[str, Any] = _dict_any(cast(Mapping[str, Any] | None, existing_any.source_meta))
+        existing_any.file_name = f"mercado-publico-api-notice-{target_date.isoformat()}.json"
+        existing_any.file_path = uri
+        existing_any.file_size_bytes = file_size_bytes
+        existing_any.source_modified_at = source_modified_at
+        existing_any.status = "loaded"
+        existing_any.source_meta = {
+            **existing_meta,
+            **source_meta,
+        }
+        session.flush()
+        return existing
+
+    source_file = SourceFile(
+        dataset_type=DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
+        file_name=f"mercado-publico-api-notice-{target_date.isoformat()}.json",
+        file_path=uri,
+        file_size_bytes=file_size_bytes,
+        file_hash_sha256=file_hash_sha256,
+        source_modified_at=source_modified_at,
+        status="loaded",
+        source_meta=source_meta,
+    )
+    session.add(source_file)
+    session.flush()
+    return source_file
+
+
+@dataclass(frozen=True)
+class MpApiDailyPipelineSummary:
+    run_id: UUID
+    source_file_id: UUID
+    sync_summary: SyncSummary
+    silver_summary: MpApiNoticeSilverRefreshSummary
 
 
 def resolve_normalized_build_processor(dataset_type: str) -> Callable[..., dict[str, Any]]:
@@ -88,4 +397,126 @@ def run_normalized_build(
         "on_progress": on_progress,
     }
     return processor(**base_kwargs)
+
+
+def run_mp_api_daily_notice_pipeline(
+    session: Session,
+    *,
+    client: MercadoPublicoClient,
+    target_date: date,
+    window_days: int = 4,
+    estado: str | None = None,
+    refresh_only: bool = False,
+) -> MpApiDailyPipelineSummary:
+    run = _create_mp_api_daily_pipeline_run(
+        session,
+        target_date=target_date,
+        window_days=window_days,
+        estado=estado,
+        refresh_only=refresh_only,
+    )
+    rolling_step = _create_pipeline_step(
+        session,
+        run_id=run.id,
+        step_name=STEP_NAME_BY_MODE["rolling-window"],
+    )
+    window_dates = rolling_window_dates(anchor_day=target_date, window_days=window_days)
+
+    try:
+        if refresh_only:
+            sync_summary = SyncSummary(
+                mode="rolling-window",
+                requests=0,
+                notices_seen=0,
+                notices_skipped_missing_external_notice_code=0,
+                snapshots_upserted=0,
+                snapshots_inserted=0,
+                snapshots_updated=0,
+            )
+            _mark_pipeline_step_completed(
+                rolling_step,
+                rows_in=0,
+                rows_out=0,
+                rows_rejected=0,
+                details={"skipped": True, "reason": "refresh_only"},
+            )
+            sync_scope_pipeline_run_id: UUID | None = None
+        else:
+            sync_summary = execute_sync_mode(
+                session=session,
+                client=client,
+                pipeline_run_id=UUID(str(run.id)),
+                mode="rolling-window",
+                anchor_day=target_date,
+                window_days=window_days,
+                estado=estado,
+            )
+            _mark_pipeline_step_completed(
+                rolling_step,
+                rows_in=sync_summary.requests,
+                rows_out=sync_summary.snapshots_upserted,
+                rows_rejected=max(sync_summary.notices_seen - sync_summary.snapshots_upserted, 0),
+                details={
+                    "notices_skipped_missing_external_notice_code": (
+                        sync_summary.notices_skipped_missing_external_notice_code
+                    ),
+                    "snapshots_upserted": sync_summary.snapshots_upserted,
+                    "snapshots_inserted": sync_summary.snapshots_inserted,
+                    "snapshots_updated": sync_summary.snapshots_updated,
+                },
+            )
+            sync_scope_pipeline_run_id = UUID(str(run.id))
+
+        source_file = _register_mp_api_snapshot_source_file(
+            session,
+            target_date=target_date,
+            window_days=window_days,
+            estado=estado,
+            scope_pipeline_run_id=sync_scope_pipeline_run_id,
+            window_dates=window_dates,
+        )
+        run_any = cast(Any, run)
+        run_any.source_file_id = source_file.id
+
+        silver_step = _create_pipeline_step(
+            session,
+            run_id=run.id,
+            step_name=MP_API_NOTICE_SILVER_STEP_NAME,
+        )
+        try:
+            silver_summary = refresh_silver_notice_from_mp_api_snapshots(
+                session,
+                source_file_id=source_file.id,
+                pipeline_run_id=sync_scope_pipeline_run_id,
+                window_dates=None if sync_scope_pipeline_run_id is not None else window_dates,
+            )
+            _mark_pipeline_step_completed(
+                silver_step,
+                rows_in=silver_summary.notice_candidates,
+                rows_out=silver_summary.upserted_notices,
+                rows_rejected=max(silver_summary.notice_candidates - silver_summary.upserted_notices, 0),
+            )
+        except Exception as exc:
+            _mark_pipeline_step_failed(silver_step, error_message=str(exc))
+            _mark_pipeline_run_failed(run, error_message=str(exc))
+            raise
+
+        _mark_pipeline_run_completed(
+            run,
+            source_file_id=source_file.id,
+            sync_summary=sync_summary,
+            silver_summary=silver_summary,
+        )
+        return MpApiDailyPipelineSummary(
+            run_id=UUID(str(run.id)),
+            source_file_id=UUID(str(source_file.id)),
+            sync_summary=sync_summary,
+            silver_summary=silver_summary,
+        )
+    except Exception as exc:
+        rolling_step_any = cast(Any, rolling_step)
+        if str(rolling_step_any.status) == "running":
+            _mark_pipeline_step_failed(rolling_step, error_message=str(exc))
+        _mark_pipeline_run_failed(run, error_message=str(exc))
+        raise
 

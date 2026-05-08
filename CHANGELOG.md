@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mercado Publico API notice-ingestion lane (operator-driven, backend-only):
+  - API client + typed schema parsing for `licitaciones` in active discovery, rolling window, and detail-by-code modes
+  - persisted request/payload/snapshot lineage (`api_source_request`, `api_source_payload`, `mercado_publico_notice_snapshot`)
+  - run tracking through `PipelineRun`/`PipelineRunStep` with Mercado Publico API dataset type and explicit step names
+  - Docker-first operator recipes: `docker-mp-api-smoke`, `docker-mp-api-active`, `docker-mp-api-rolling`, `docker-mp-api-detail`
+  - SDD/reference/runbook/architecture/evidence documentation for the new API lane
 - Incremental ingestion foundation substrate:
   - durable `source_checkpoints` table persisted before queue eligibility
   - Postgres-backed `pipeline_jobs` queue with deterministic claim order (`priority`, `available_at`, `created_at`, `id`) and `FOR UPDATE SKIP LOCKED`

@@ -4,12 +4,14 @@ Canonical runtime is Docker-first. Use [`docker-local.md`](docker-local.md) as t
 
 Agents should treat the container path as the first execution plan for backend, database, migration, pipeline, and quality work. Use host-local `.venv`, `uv run`, or direct Python commands only as fallback validation when Docker/Compose is unavailable, sandbox-blocked, or irrelevant to a frontend-only task. Record the fallback reason when using host-local execution.
 
+If RTK on Windows keeps falling back to the proxy shim, use [`rtk-wsl-hardening.md`](rtk-wsl-hardening.md) for the persistent WSL pin and reversible cleanup flow.
+
 ## Quick Start
 
 1. `cp .env.example .env`
 2. Review `.env.docker` dataset mount/config values.
 3. Start full local stack:
-   - `just docker-start`
+   - `just compose-up`
 4. Open API docs:
    - `http://localhost:8000/docs`
 
@@ -24,9 +26,12 @@ Agents should treat the container path as the first execution plan for backend, 
 
 For agent-issued workflow commands, use the `rtk` prefix when available:
 
-- `rtk just docker-start`
+- `rtk just compose-up`
 - `rtk just docker-pipeline-full`
 - `rtk just quality`
+- `rtk just rtk-doctor`
+- `rtk just rtk-pin-wsl -- -Distro Ubuntu`
+- `rtk just rtk-unpin-wsl`
 
 Host-local equivalents such as `uv run pytest`, `.venv/bin/pytest`, or direct `python` commands are not the primary plan for agents. Prefer the matching container-backed `just` recipe first; fall back only with an explicit reason.
 
@@ -50,7 +55,7 @@ Host-local `client/` commands remain fallback only when the Docker path is unava
 Use this flow when you need to append one late or corrected CSV through the UI instead of replaying the dataset folder.
 
 1. Ensure backend is healthy first:
-   - `just docker-start`
+   - `just compose-up`
    - `just docker-smoke`
 2. Open `http://127.0.0.1:3000/licitaciones`
 3. Click `Cargar CSV`
@@ -92,5 +97,5 @@ Backend CORS explicitly allows the local frontend origins used by this runbook (
 
 ## Notes
 
-- `docker-start` is the canonical startup command (build + DB bootstrap + backend up).
+- `compose-up` is the canonical startup command (`docker compose up --build -d`).
 - Host-local runtime recipes are fallback/developer convenience paths. Keep docs and automation Docker-first unless a task is explicitly frontend-only.

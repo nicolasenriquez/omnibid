@@ -29,7 +29,7 @@ Current product direction:
 | Frontend | Next.js app in `client/` with `/licitaciones` workspace |
 | Database | PostgreSQL |
 | Data Layers | Raw + Normalized + Silver canonical entities |
-| API Surface | Health, operations, and opportunity read routes |
+| API Surface | Health, operations, manual upload, opportunity read routes, and Mercado Publico notice sync surfaces |
 | Local CLI | `just` recipes; Docker-first runtime |
 | OpenSpec Runtime | Active changes live under `openspec/changes/`; use `/prime` before routing work |
 | Version | `0.1.0` |
@@ -53,6 +53,9 @@ Current product direction:
   - structural counts
   - competition metrics
   - notice -> purchase order materialization metrics
+- notice-only Mercado Publico API ingestion lane:
+  - request/payload/snapshot lineage
+  - operator-driven notice sync commands
 - versioned NLP annotation entities:
   - `silver_notice_text_ann`
   - `silver_notice_line_text_ann`
@@ -106,6 +109,8 @@ flowchart TD
 │   ├── api/                      # FastAPI routers (health, operations, opportunities)
 │   ├── core/                     # config and runtime settings
 │   ├── db/                       # DB base/session wiring
+│   ├── integrations/             # external API integration lanes
+│   │   └── mercado_publico/      # Mercado Publico notice sync client, store, and orchestrator
 │   ├── ingestion/                # ingestion contracts and source registration
 │   ├── models/                   # operational/raw/normalized/silver ORM models
 │   ├── normalized/               # deterministic transform builders
@@ -133,13 +138,15 @@ Use this routing before making changes:
 
 - Backend/API: `backend/api/routers/`, `backend/core/`, `backend/db/`, `backend/models/`
 - Data transforms/pipeline: `backend/ingestion/`, `backend/normalized/`, `scripts/`
+- External API ingestion: `backend/integrations/mercado_publico/`, `scripts/fetch_mp_api.py`
 - Migrations/schema: `alembic/versions/` plus `backend/models/`; Alembic is source of truth
 - Frontend workspace: `client/app/licitaciones/`, `client/src/features/opportunity-workspace/`, `client/src/lib/api/`
 - Runtime docs: `docs/runbooks/docker-local.md` first, then `docs/runbooks/local_development.md`
+- Mercado Publico API docs: `docs/architecture/external_api_ingestion.md`, `docs/runbooks/mercado_publico_api_integration.md`, `docs/references/sdd-mercado-publico-api-2026-05-04.md`, `docs/evidence/mercado_publico_api_contract_smoke_2026-05-08.md`
 - Architecture/data docs: `docs/architecture/`
 - Change planning: `openspec/changes/<change>/`; run `/prime` before choosing `/plan`, `/execute`, `/validate`, or archive work
 
-This repo is Docker-first. Agents should plan to execute backend, database, migration, pipeline, and quality checks through the container runtime before considering host-local commands. Prefer `rtk just docker-start`, `rtk just docker-pipeline-full`, and `rtk just docker-smoke` when `rtk` is available. Host `uv` / `.venv` workflows are fallback paths only when the container route is unavailable, blocked, or the task is frontend-only.
+This repo is Docker-first. Agents should plan to execute backend, database, pipeline, and quality checks through the container runtime before considering host-local commands. Prefer `rtk just compose-up`, `rtk just docker-pipeline-full`, and `rtk just docker-smoke` when `rtk` is available. Host `uv` / `.venv` workflows are fallback paths only when the container route is unavailable, blocked, or the task is frontend-only.
 
 ## Getting Started
 
@@ -148,7 +155,7 @@ This repo is Docker-first. Agents should plan to execute backend, database, migr
 Use this path for reproducible local runtime:
 
 ```bash
-just docker-start
+just compose-up
 ```
 
 Open:
@@ -224,7 +231,7 @@ Targeted workflows:
 ## Unified CLI (`just`) Overview
 
 - Setup: `just uv-sync` (containerized; no host `uv` required)
-- Docker runtime: `docker-start`, `docker-build`, `docker-bootstrap`, `docker-pipeline-full`, `docker-smoke`
+- Docker runtime: `compose-up`, `docker-build`, `docker-pipeline-full`, `docker-smoke`
 - Quality and CI: `quality`, `ci-fast`, `ci`, plus lint/type/test/security recipes
 
 ## API Surface (Current)
@@ -251,6 +258,10 @@ Targeted workflows:
 - standards: [`docs/standards/`](docs/standards)
 - references: [`docs/references/`](docs/references)
 - evidence: [`docs/evidence/`](docs/evidence)
+- Mercado Publico API architecture: [`docs/architecture/external_api_ingestion.md`](docs/architecture/external_api_ingestion.md)
+- Mercado Publico API runbook: [`docs/runbooks/mercado_publico_api_integration.md`](docs/runbooks/mercado_publico_api_integration.md)
+- Mercado Publico API reference: [`docs/references/sdd-mercado-publico-api-2026-05-04.md`](docs/references/sdd-mercado-publico-api-2026-05-04.md)
+- Mercado Publico API evidence: [`docs/evidence/mercado_publico_api_contract_smoke_2026-05-08.md`](docs/evidence/mercado_publico_api_contract_smoke_2026-05-08.md)
 
 ## Delivery Rules
 

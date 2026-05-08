@@ -153,7 +153,7 @@ Use pandas after graph analysis, not as a hidden replacement for graph semantics
 Use the repository quality gates when NetworkX code is changed:
 
 ```bash
-rtk just docker-start
+rtk just compose-up
 rtk just docker-smoke
 rtk just ci-fast
 ```

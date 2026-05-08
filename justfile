@@ -10,12 +10,12 @@ NORMALIZED_CHUNK_SIZE := env_var_or_default("NORMALIZED_CHUNK_SIZE", "500")
 NORMALIZED_LIMIT_ROWS := env_var_or_default("NORMALIZED_LIMIT_ROWS", "0")
 NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runtime/normalized_build_state.json")
 NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
-DOCKER_CONFIG_DIR := env_var_or_default("DOCKER_CONFIG_DIR", ".docker-config")
+DOCKER_CONFIG_DIR := env_var_or_default("DOCKER_CONFIG_DIR", ".docker")
 LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
 DOCKER_COMPOSE := if os() == "windows" {
-    "$env:DOCKER_CONFIG='{{DOCKER_CONFIG_DIR}}'; docker compose --env-file .env.docker -f docker-compose.yml"
+    "$env:DOCKER_CONFIG='" + DOCKER_CONFIG_DIR + "'; docker compose --env-file .env --env-file .env.docker -f docker-compose.yml"
 } else {
-    "DOCKER_CONFIG={{DOCKER_CONFIG_DIR}} docker compose --env-file .env.docker -f docker-compose.yml"
+    "DOCKER_CONFIG=" + DOCKER_CONFIG_DIR + " docker compose --env-file .env --env-file .env.docker -f docker-compose.yml"
 }
 
 # ============================================================
@@ -24,7 +24,7 @@ DOCKER_COMPOSE := if os() == "windows" {
 
 [group('00 Dev')]
 [doc('Start the full local app: Docker DB, backend, and frontend')]
-dev: docker-start docker-client
+dev: compose-up docker-client
     @echo "Omnibid dev stack ready: http://127.0.0.1:3000"
 
 [group('01 Setup')]
@@ -42,10 +42,20 @@ uv-sync-host:
 rtk-doctor *args:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/rtk_doctor.ps1 {{args}}
 
+[group('01 Setup')]
+[doc('Persist RTK_WSL_DISTRO for the current user, with optional safe WSL default update')]
+rtk-pin-wsl *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/rtk_pin_wsl.ps1 {{args}}
+
+[group('01 Setup')]
+[doc('Remove the persistent RTK_WSL_DISTRO setting or clear only the current process')]
+rtk-unpin-wsl *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/rtk_unpin_wsl.ps1 {{args}}
+
 [group('02 Quality')]
 [doc('Format code with Ruff')]
 fmt:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ruff format backend tests scripts
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync ruff format backend tests scripts
 
 [group('02 Quality')]
 [doc('Format code with Ruff on the host (fallback)')]
@@ -55,7 +65,7 @@ fmt-host:
 [group('02 Quality')]
 [doc('Run Ruff lint checks')]
 lint:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync ruff check backend tests scripts
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync ruff check backend tests scripts
 
 [group('02 Quality')]
 [doc('Run Ruff lint checks on the host (fallback)')]
@@ -65,7 +75,7 @@ lint-host:
 [group('02 Quality')]
 [doc('Run MyPy type checks')]
 type:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync mypy backend scripts
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync mypy backend scripts
 
 [group('02 Quality')]
 [doc('Run MyPy type checks on the host (fallback)')]
@@ -75,7 +85,7 @@ type-host:
 [group('02 Quality')]
 [doc('Format code with Black')]
 black:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync black backend tests scripts
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync black backend tests scripts
 
 [group('02 Quality')]
 [doc('Format code with Black on the host (fallback)')]
@@ -85,7 +95,7 @@ black-host:
 [group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty)')]
 type-strict:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc 'uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend'
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc 'uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend'
 
 [group('02 Quality')]
 [doc('Run strict type gates (Pyright + ty) on the host (fallback)')]
@@ -96,7 +106,7 @@ type-strict-host:
 [group('02 Quality')]
 [doc('Run high-confidence/high-severity security checks')]
 security:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
 
 [group('02 Quality')]
 [doc('Run high-confidence/high-severity security checks on the host (fallback)')]
@@ -110,7 +120,7 @@ test: test-unit
 [group('02 Quality')]
 [doc('Run unit tests only')]
 test-unit:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync pytest -q -m "not integration"
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync pytest -q -m "not integration"
 
 [group('02 Quality')]
 [doc('Run unit tests only on the host (fallback)')]
@@ -126,13 +136,13 @@ test-unit-local:
 [private]
 [doc('Fail if TEST_DATABASE_URL is missing or equals DATABASE_URL')]
 test-db-check:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools uv run --no-sync python scripts/test_db_guard.py check
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools uv run --no-sync python scripts/test_db_guard.py check
 
 [group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL')]
 test-integration:
     {{DOCKER_COMPOSE}} --profile test up -d db_test
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc 'uv run --no-sync python scripts/test_db_guard.py check && uv run --no-sync python scripts/test_db_guard.py run-integration'
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc 'uv run --no-sync python scripts/test_db_guard.py check && uv run --no-sync python scripts/test_db_guard.py run-integration'
 
 [group('02 Quality')]
 [doc('Run integration tests against TEST_DATABASE_URL on the host (fallback)')]
@@ -152,7 +162,7 @@ quality: ci-fast
 [group('02 Quality')]
 [doc('Fast CI gate: lint + type + unit tests')]
 ci-fast:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration'"
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration'"
 
 [group('02 Quality')]
 [doc('Full CI gate: fast gate + strict type + security + integration')]
@@ -162,7 +172,7 @@ ci: ci-build ci-non-integration-no-build test-integration-no-build
 [private]
 [doc('Run all non-integration CI gates in one backend-tools container run')]
 ci-non-integration:
-    {{DOCKER_COMPOSE}} run --rm --build backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration' && uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend && uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high"
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend-tools sh -lc "uv run --no-sync ruff check backend tests scripts && uv run --no-sync mypy backend scripts && uv run --no-sync pytest -q -m 'not integration' && uv run --no-sync pyright backend scripts && uv run --no-sync ty check backend && uv run --no-sync bandit -c pyproject.toml -r backend --severity-level high --confidence-level high"
 
 [group('02 Quality')]
 [private]
@@ -193,64 +203,89 @@ ci-clean:
 [private]
 [doc('Build Docker images for local backend stack')]
 docker-build:
-    docker compose --env-file .env.docker -f docker-compose.yml build
+    {{DOCKER_COMPOSE}} build
 
 [group('03 Docker')]
 [private]
-[doc('Start Docker PostgreSQL service only')]
-docker-db-up:
-    docker compose --env-file .env.docker -f docker-compose.yml up -d db
+[doc('Start the PostgreSQL database container only')]
+db-up:
+    {{DOCKER_COMPOSE}} up -d db
 
 [group('03 Docker')]
 [private]
-[doc('Apply Alembic migrations in Docker backend container')]
-docker-migrate: docker-db-up
-    docker compose --env-file .env.docker -f docker-compose.yml run --rm backend uv run --no-sync alembic upgrade head
+[doc('Run Alembic migrations against the Docker database')]
+db-alembic-migrate: db-up
+    {{DOCKER_COMPOSE}} run --rm backend uv run --no-sync alembic upgrade head
 
 [group('03 Docker')]
 [private]
-[doc('Bootstrap Docker PostgreSQL + migrations')]
-docker-bootstrap: docker-db-up docker-migrate
+[doc('Bootstrap the database and migrations')]
+db-bootstrap: db-up db-alembic-migrate
 
 [group('03 Docker')]
-[doc('One-command startup: build image, bootstrap DB, and start backend in background')]
-docker-start: docker-build docker-bootstrap
-    docker compose --env-file .env.docker -f docker-compose.yml up -d backend
+[doc('One-command startup: build and start the Docker stack in detached mode')]
+compose-up:
+    {{DOCKER_COMPOSE}} up --build -d
 
 [group('03 Docker')]
 [doc('Start Next.js frontend in Docker with container-managed npm dependencies')]
 docker-client:
-    docker compose --env-file .env.docker -f docker-compose.yml up -d client
+    {{DOCKER_COMPOSE}} up -d client
 
 [group('03 Docker')]
 [doc('Run OpenSpec CLI inside the Dockerized container')]
 openspec *args:
-    {{DOCKER_COMPOSE}} run --rm --no-deps --build openspec openspec {{args}}
+    {{DOCKER_COMPOSE}} run --rm --no-deps openspec openspec {{args}}
 
 [group('04 Docker Ops')]
 [private]
-[doc('Run raw profile + ingest pipeline in Docker backend container')]
-docker-pipeline-raw: docker-db-up
-    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/profile_raw.py
-    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/ingest_raw.py --chunk-size "{{CHUNK_SIZE}}"
+[doc('Run the raw ingest pipeline in Docker backend container')]
+raw-ingest: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/profile_raw.py
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/ingest_raw.py --chunk-size "{{CHUNK_SIZE}}"
 
 [group('04 Docker Ops')]
 [private]
-[doc('Run normalized pipeline in Docker backend container')]
-docker-pipeline-normalized: docker-db-up
-    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/build_normalized.py --dataset "{{NORMALIZED_DATASET}}" --fetch-size "{{NORMALIZED_FETCH_SIZE}}" --chunk-size "{{NORMALIZED_CHUNK_SIZE}}" --limit-rows "{{NORMALIZED_LIMIT_ROWS}}" --state-path "{{NORMALIZED_STATE_PATH}}" --state-checkpoint-every-pages "{{NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES}}"
+[doc('Run the normalized build pipeline in Docker backend container')]
+normalized-build: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e PROGRESS_FORCE_TTY=1 backend uv run --no-sync python scripts/build_normalized.py --dataset "{{NORMALIZED_DATASET}}" --fetch-size "{{NORMALIZED_FETCH_SIZE}}" --chunk-size "{{NORMALIZED_CHUNK_SIZE}}" --limit-rows "{{NORMALIZED_LIMIT_ROWS}}" --state-path "{{NORMALIZED_STATE_PATH}}" --state-checkpoint-every-pages "{{NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES}}"
 
 [group('04 Docker Ops')]
 [doc('Run full Docker pipeline: raw then normalized')]
-docker-pipeline-full: docker-pipeline-raw docker-pipeline-normalized
+docker-pipeline-full: raw-ingest normalized-build
 
 [group('04 Docker Ops')]
 [doc('Smoke check Docker backend health and running services')]
 docker-smoke:
-    docker compose --env-file .env.docker -f docker-compose.yml ps
-    docker compose --env-file .env.docker -f docker-compose.yml exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read().decode())"
+    {{DOCKER_COMPOSE}} ps
+    {{DOCKER_COMPOSE}} exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read().decode())"
 
 [group('04 Docker Ops')]
-[doc('Run ingestion queue worker in Docker backend container')]
-docker-ingestion-worker *args: docker-db-up
-    docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps backend uv run --no-sync python scripts/run_ingestion_jobs.py {{args}}
+[doc('Run the ingestion queue worker in Docker backend container')]
+ingestion-worker *args: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/run_ingestion_jobs.py {{args}}
+
+[group('04 Docker Ops')]
+[doc('Smoke-check Mercado Publico API sync config without external calls')]
+mp-api-smoke: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode active-discovery --dry-run
+
+[group('04 Docker Ops')]
+[doc('Run Mercado Publico active-discovery sync')]
+mp-api-sync-active *args: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode active-discovery {{args}}
+
+[group('04 Docker Ops')]
+[doc('Run Mercado Publico rolling-window sync')]
+mp-api-sync-rolling *args: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode rolling-window {{args}}
+
+[group('04 Docker Ops')]
+[doc('Run Mercado Publico detail-by-codigo sync')]
+mp-api-sync-detail *args: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode detail-by-codigo {{args}}
+
+[group('04 Docker Ops')]
+[doc('Run Mercado Publico daily refresh: rolling sync plus Silver notice refresh')]
+mp-api-daily-refresh *args: db-up
+    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/run_mp_api_daily_pipeline.py {{args}}
