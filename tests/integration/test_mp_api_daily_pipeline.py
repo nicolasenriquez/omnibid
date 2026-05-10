@@ -23,21 +23,22 @@ from backend.pipeline import application
 
 
 def _prepare_schema(engine: sa.Engine) -> None:
+    tables = [
+        PipelineRun.__table__,
+        PipelineRunStep.__table__,
+        SourceFile.__table__,
+        ApiSourcePayload.__table__,
+        ApiSourceRequest.__table__,
+        MercadoPublicoNoticeSnapshot.__table__,
+        SilverNotice.__table__,
+    ]
     with engine.begin() as connection:
         connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
-    Base.metadata.create_all(
-        engine,
-        tables=[
-            PipelineRun.__table__,
-            PipelineRunStep.__table__,
-            SourceFile.__table__,
-            ApiSourcePayload.__table__,
-            ApiSourceRequest.__table__,
-            MercadoPublicoNoticeSnapshot.__table__,
-            SilverNotice.__table__,
-        ],
-    )
+    # Keep integration schema deterministic even when prior runs left stale table shapes.
+    # Drop all model-managed tables first so FK-dependent tables don't block cleanup.
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine, tables=tables)
 
 
 def _response_for_codes(*, publication_day: date, codes: list[str]) -> LicitacionesResponse:

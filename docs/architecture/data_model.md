@@ -16,6 +16,7 @@
 
 These tables preserve request, payload, and snapshot lineage for the Mercado Publico notice-sync lane.
 Daily sync+Silver runs also register a logical API snapshot artifact in `source_files` with `dataset_type=mercado_publico_api_notice` so downstream `source_file_id` contracts remain explicit.
+See `docs/architecture/external_api_ingestion.md` for the API lane runtime contract and `docs/architecture/system_architecture.md` for operator/runtime boundaries.
 
 ## Raw
 - `raw_licitaciones`

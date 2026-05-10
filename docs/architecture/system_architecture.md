@@ -36,6 +36,8 @@ Local runtime is Docker-first:
 
 Host `uv` commands are optional fallback/developer convenience, not canonical runtime.
 
+Supabase CLI readiness and cutover notes live in `docs/operations/supabase-readiness.md`. Keep the current Compose runtime as the baseline until that readiness lane is explicitly promoted.
+
 ## Opportunity Workspace Boundary
 
 The Opportunity Workspace keeps frontend and backend responsibilities explicit:
@@ -73,3 +75,4 @@ Investigation responses are derived from Silver procurement-cycle facts. They ma
 - Add pipeline behavior in `backend/ingestion/`, `backend/normalized/`, or `scripts/` based on existing ownership.
 - Add frontend UI/API integration in `client/`.
 - Keep proposal/task state under `openspec/changes/<change>/`.
+- Keep Supabase readiness work under `docs/operations/supabase-readiness.md` and the `supabase/` scaffold until a separate cutover change is approved.

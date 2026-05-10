@@ -1,0 +1,4 @@
+# Supabase CLI readiness scaffold.
+# Keep the existing Compose/Postgres baseline in place until the CLI-first cutover is explicitly approved.
+
+project_id = "omnibid"

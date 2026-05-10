@@ -11,7 +11,29 @@ from backend.integrations.mercado_publico.errors import (
     MercadoPublicoRequestError,
 )
 from backend.integrations.mercado_publico.schemas import parse_licitaciones_response
-from backend.integrations.mercado_publico.sync import execute_sync_mode, rolling_window_dates
+from backend.integrations.mercado_publico.sync import (
+    SyncSummary,
+    create_sync_run,
+    execute_sync_mode,
+    mark_sync_run_completed,
+    mark_sync_run_failed,
+    rolling_window_dates,
+)
+
+
+def _patch_runtime_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.integrations.mercado_publico.sync._acquire_scoped_lock",
+        lambda *_args, **_kwargs: 1,
+    )
+    monkeypatch.setattr(
+        "backend.integrations.mercado_publico.sync._release_scoped_lock",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "backend.integrations.mercado_publico.sync.reserve_request_budget",
+        lambda *_args, **_kwargs: None,
+    )
 
 
 def _response_with_codes(*codes: str):
@@ -46,13 +68,23 @@ def test_rolling_window_dates_returns_t_to_t_minus_n() -> None:
 
 def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
+    _patch_runtime_guards(monkeypatch)
+
+    class _SessionWithExecute:
+        def execute(self, *_args, **_kwargs):
+            return None
 
     class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
         def fetch_active_discovery(self):
             return _response_with_codes("100-1-LR26", "100-2-LR26")
 
         def build_active_discovery_params(self):
             return {"estado": "activas", "ticket": "secret"}
+
+        def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+            return f"https://example.invalid/{endpoint}?{params.get('estado', '')}"
 
     def fake_persist_notice_batch(*args, **kwargs):
         calls.append(kwargs)
@@ -66,7 +98,7 @@ def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pyte
     monkeypatch.setattr("backend.integrations.mercado_publico.sync.persist_notice_batch", fake_persist_notice_batch)
 
     summary = execute_sync_mode(
-        session=object(),  # type: ignore[arg-type]
+        session=_SessionWithExecute(),  # type: ignore[arg-type]
         client=FakeClient(),  # type: ignore[arg-type]
         pipeline_run_id=uuid4(),
         mode="active-discovery",
@@ -79,12 +111,16 @@ def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pyte
     assert summary.snapshots_inserted == 2
     assert summary.snapshots_updated == 0
     assert calls[0]["resource_key"] == "estado=activas"
+    assert calls[0]["requested_at"] is not None
 
 
 def test_execute_sync_mode_rolling_window_handles_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:
     call_count = {"value": 0}
+    _patch_runtime_guards(monkeypatch)
 
     class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
         def fetch_rolling_window(self, *, day: date, estado: str | None = None):
             _ = day, estado
             call_count["value"] += 1
@@ -95,6 +131,9 @@ def test_execute_sync_mode_rolling_window_handles_empty_result(monkeypatch: pyte
             if estado is not None:
                 params["estado"] = estado
             return params
+
+        def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+            return f"https://example.invalid/{endpoint}?{params.get('fecha', '')}"
 
     def fake_persist_notice_batch(*args, **kwargs):
         _ = args, kwargs
@@ -138,14 +177,20 @@ def test_execute_sync_mode_detail_by_codigo_requires_codes() -> None:
 
 def test_execute_sync_mode_detail_by_codigo_iterates_codes(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
+    _patch_runtime_guards(monkeypatch)
 
     class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
         def fetch_detail_by_codigo(self, *, codigo: str):
             seen.append(codigo)
             return _response_with_codes(codigo)
 
         def build_detail_by_codigo_params(self, *, codigo: str):
             return {"codigo": codigo, "ticket": "secret"}
+
+        def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+            return f"https://example.invalid/{endpoint}?{params.get('codigo', '')}"
 
     def fake_persist_notice_batch(*args, **kwargs):
         _ = args, kwargs
@@ -177,10 +222,19 @@ def test_execute_sync_mode_detail_by_codigo_iterates_codes(monkeypatch: pytest.M
 
 def test_execute_sync_mode_propagates_retry_exhaustion_error() -> None:
     class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
+        def build_active_discovery_params(self):
+            return {"estado": "activas", "ticket": "secret"}
+
+        def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+            return f"https://example.invalid/{endpoint}?{params.get('estado', '')}"
+
         def fetch_active_discovery(self):
             raise MercadoPublicoRequestError("retry budget exhausted")
 
-    with pytest.raises(MercadoPublicoRequestError, match="retry budget exhausted"):
+    with pytest.raises(MercadoPublicoRequestError, match="retry budget exhausted"), pytest.MonkeyPatch.context() as mp:
+        _patch_runtime_guards(mp)
         execute_sync_mode(
             session=object(),  # type: ignore[arg-type]
             client=FakeClient(),  # type: ignore[arg-type]
@@ -191,13 +245,129 @@ def test_execute_sync_mode_propagates_retry_exhaustion_error() -> None:
 
 def test_execute_sync_mode_propagates_contract_drift_error() -> None:
     class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
+        def build_active_discovery_params(self):
+            return {"estado": "activas", "ticket": "secret"}
+
+        def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+            return f"https://example.invalid/{endpoint}?{params.get('estado', '')}"
+
         def fetch_active_discovery(self):
             raise MercadoPublicoContractDriftError("unexpected shape")
 
-    with pytest.raises(MercadoPublicoContractDriftError, match="unexpected shape"):
+    with pytest.raises(MercadoPublicoContractDriftError, match="unexpected shape"), pytest.MonkeyPatch.context() as mp:
+        _patch_runtime_guards(mp)
         execute_sync_mode(
             session=object(),  # type: ignore[arg-type]
             client=FakeClient(),  # type: ignore[arg-type]
             pipeline_run_id=uuid4(),
             mode="active-discovery",
         )
+
+
+class _FakeLifecycleSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+
+    def add(self, value: object) -> None:
+        self.added.append(value)
+
+    def flush(self) -> None:
+        for value in self.added:
+            if getattr(value, "id", None) is None:
+                setattr(value, "id", uuid4())
+
+
+def test_create_sync_run_sets_running_lifecycle_metadata() -> None:
+    session = _FakeLifecycleSession()
+    run, step = create_sync_run(
+        session,  # type: ignore[arg-type]
+        mode="rolling-window",
+        requested_by="github_actions",
+        run_parameters={"window_days": 4},
+        config={"window_days": 4},
+    )
+
+    assert run.status == "running"
+    assert run.provider == "mercado_publico"
+    assert run.run_mode == "rolling-window"
+    assert run.requested_by == "github_actions"
+    assert run.run_stats_json["final_status"] == "running"
+    assert step.status == "running"
+    assert step.step_name == "mp_api_rolling_refresh"
+
+
+def test_mark_sync_run_completed_sets_succeeded_stats() -> None:
+    run = SimpleNamespace(
+        status="running",
+        config={"window_days": 4},
+        run_stats_json={},
+        error_summary=None,
+    )
+    step = SimpleNamespace(status="running", rows_in=0, rows_out=0, rows_rejected=0, error_details=None)
+    summary = SyncSummary(
+        mode="rolling-window",
+        requests=4,
+        notices_seen=8,
+        notices_skipped_missing_external_notice_code=1,
+        snapshots_upserted=7,
+        snapshots_inserted=5,
+        snapshots_updated=2,
+    )
+
+    mark_sync_run_completed(run=run, step=step, summary=summary)
+
+    assert run.status == "completed"
+    assert run.run_stats_json["final_status"] == "succeeded"
+    assert run.config["sync_summary"]["mode"] == "rolling-window"
+    assert step.status == "completed"
+    assert step.rows_in == 4
+    assert step.rows_out == 7
+    assert step.rows_rejected == 1
+
+
+def test_mark_sync_run_failed_sets_failed_stats() -> None:
+    run = SimpleNamespace(status="running", run_stats_json={}, error_summary=None)
+    step = SimpleNamespace(status="running", error_details=None)
+
+    mark_sync_run_failed(run=run, step=step, error_message="lock contention")
+
+    assert run.status == "failed"
+    assert run.run_stats_json["final_status"] == "failed"
+    assert run.error_summary == "lock contention"
+    assert step.status == "failed"
+    assert step.error_details["error"] == "lock contention"
+
+
+def test_execute_sync_mode_fails_fast_on_lock_contention(monkeypatch: pytest.MonkeyPatch) -> None:
+    fetch_calls = {"value": 0}
+
+    class _SessionWithExecute:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    class FakeClient:
+        settings = SimpleNamespace(daily_request_limit=10000)
+
+        def build_active_discovery_params(self):
+            return {"estado": "activas", "ticket": "secret"}
+
+        def fetch_active_discovery(self):
+            fetch_calls["value"] += 1
+            return _response_with_codes("100-1-LR26")
+
+    def _raise_lock(*_args, **_kwargs) -> int:
+        raise RuntimeError("scoped advisory lock not available for key=mercado_publico:active_discovery")
+
+    monkeypatch.setattr("backend.integrations.mercado_publico.sync._acquire_scoped_lock", _raise_lock)
+
+    with pytest.raises(RuntimeError, match="scoped advisory lock not available"):
+        execute_sync_mode(
+            session=_SessionWithExecute(),  # type: ignore[arg-type]
+            client=FakeClient(),  # type: ignore[arg-type]
+            pipeline_run_id=uuid4(),
+            mode="active-discovery",
+        )
+
+    assert fetch_calls["value"] == 0

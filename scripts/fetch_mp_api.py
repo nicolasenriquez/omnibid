@@ -14,7 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.core.config import get_settings  # noqa: E402
+from backend.core.config import (  # noqa: E402
+    get_settings,
+    validate_production_database_safety,
+)
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.integrations.mercado_publico import (  # noqa: E402
     MercadoPublicoClient,
@@ -50,6 +53,18 @@ def _parser() -> argparse.ArgumentParser:
         help="Anchor date in YYYY-MM-DD for rolling-window mode (defaults to today)",
     )
     parser.add_argument(
+        "--start-date",
+        type=_parse_date,
+        default=None,
+        help="Explicit start date (YYYY-MM-DD) for rolling-window mode",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=_parse_date,
+        default=None,
+        help="Explicit end date (YYYY-MM-DD) for rolling-window mode",
+    )
+    parser.add_argument(
         "--window-days",
         type=int,
         default=4,
@@ -71,6 +86,17 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate config and args without API calls or DB writes",
     )
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=None,
+        help="Optional max number of upstream requests allowed in this run",
+    )
+    parser.add_argument(
+        "--requested-by",
+        default="local_cli",
+        help="Operator provenance label persisted in run metadata",
+    )
     return parser
 
 
@@ -82,8 +108,40 @@ def _resolve_mode(value: str) -> SyncMode:
 
 def _build_client_settings() -> MercadoPublicoSettings:
     app_settings = get_settings()
+    validate_production_database_safety(app_settings.app_env, app_settings.database_url)
     mp_settings = from_app_settings(app_settings)
     return mp_settings
+
+
+def _validate_production_database_safety(*, app_env: str, database_url: str) -> None:
+    validate_production_database_safety(app_env, database_url)
+
+
+def _resolve_rolling_window(
+    *,
+    mode: SyncMode,
+    target_date: date | None,
+    window_days: int,
+    start_date: date | None,
+    end_date: date | None,
+) -> tuple[date | None, int]:
+    if mode != "rolling-window":
+        if start_date is not None or end_date is not None:
+            raise ValueError("--start-date/--end-date only apply to --mode rolling-window")
+        return target_date, window_days
+
+    if window_days < 1:
+        raise ValueError("--window-days must be >= 1")
+
+    if start_date is None and end_date is None:
+        return target_date, window_days
+    if start_date is None or end_date is None:
+        raise ValueError("--start-date and --end-date must be provided together")
+    if end_date < start_date:
+        raise ValueError("--end-date must be >= --start-date")
+
+    derived_window_days = (end_date.toordinal() - start_date.toordinal()) + 1
+    return end_date, derived_window_days
 
 
 def _validate_runtime_mode(settings: MercadoPublicoSettings, *, dry_run: bool) -> None:
@@ -123,15 +181,28 @@ def _execute_with_tracking(
     window_days: int,
     estado: str | None,
     codigos: Sequence[str],
+    requested_by: str = "local_cli",
+    max_requests: int | None = None,
 ) -> int:
     run, step = create_sync_run(
         session,
         mode=mode,
+        requested_by=requested_by,
+        run_parameters={
+            "target_date": str(target_date) if target_date is not None else None,
+            "window_days": window_days,
+            "estado": estado,
+            "codigos": list(codigos),
+            "requested_by": requested_by,
+            "max_requests": max_requests,
+        },
         config={
             "target_date": str(target_date) if target_date is not None else None,
             "window_days": window_days,
             "estado": estado,
             "codigos": list(codigos),
+            "requested_by": requested_by,
+            "max_requests": max_requests,
         },
     )
     try:
@@ -144,6 +215,7 @@ def _execute_with_tracking(
             window_days=window_days,
             estado=estado,
             codigos=codigos,
+            max_requests=max_requests,
         )
         mark_sync_run_completed(run=run, step=step, summary=summary)
         session.commit()
@@ -171,13 +243,22 @@ def _execute_with_tracking(
 def main() -> int:
     args = _parser().parse_args()
     mode = _resolve_mode(args.mode)
+    target_date, window_days = _resolve_rolling_window(
+        mode=mode,
+        target_date=args.target_date,
+        window_days=args.window_days,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
     settings = _build_client_settings()
     _validate_runtime_mode(settings, dry_run=args.dry_run)
 
     if args.dry_run:
         print(
             "[mp-api-sync] dry-run ok "
-            f"mode={mode} base_url={settings.normalized_base_url} window_days={args.window_days}"
+            f"mode={mode} base_url={settings.normalized_base_url} "
+            f"target_date={target_date.isoformat() if target_date is not None else 'none'} "
+            f"window_days={window_days} max_requests={args.max_requests} requested_by={args.requested_by}"
         )
         return 0
 
@@ -187,10 +268,12 @@ def main() -> int:
             session,
             client=client,
             mode=mode,
-            target_date=args.target_date,
-            window_days=args.window_days,
+            target_date=target_date,
+            window_days=window_days,
             estado=args.estado,
             codigos=args.codigo,
+            requested_by=args.requested_by,
+            max_requests=args.max_requests,
         )
 
 

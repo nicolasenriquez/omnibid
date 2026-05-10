@@ -10,6 +10,9 @@ LOCAL_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 DOCKER_DATABASE_HOSTS = {"db", "db_test"}
 TEST_DATABASE_SUFFIX = "_test"
 MERCADO_PUBLICO_DEFAULT_BASE_URL = "https://api.mercadopublico.cl/servicios/v1/publico"
+SUPABASE_DB_POOL_MODES = {"session", "transaction"}
+SUPABASE_DEFAULT_DB_POOL_MODE = "transaction"
+PRODUCTION_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class Settings(BaseSettings):
@@ -24,6 +27,14 @@ class Settings(BaseSettings):
     # still fails fast if either setting is missing or empty.
     database_url: str = Field(default="", alias="DATABASE_URL")
     test_database_url: str = Field(default="", alias="TEST_DATABASE_URL")
+    # Readiness-only Supabase CLI transition settings. Docker Compose remains
+    # the canonical runtime baseline until a deliberate cutover.
+    supabase_db_url: str = Field(default="", alias="SUPABASE_DB_URL")
+    supabase_project_ref: str = Field(default="", alias="SUPABASE_PROJECT_REF")
+    supabase_db_pool_mode: str = Field(
+        default=SUPABASE_DEFAULT_DB_POOL_MODE,
+        alias="SUPABASE_DB_POOL_MODE",
+    )
 
     dataset_root: Path | None = Field(default=None, alias="DATASET_ROOT")
     manual_upload_root: Path = Field(
@@ -136,10 +147,33 @@ def validate_mercado_publico_contract(settings: Settings) -> None:
         raise ValueError("MERCADO_PUBLICO_BASE_URL must be set when API sync is enabled")
 
 
+def validate_supabase_contract(settings: Settings) -> None:
+    pool_mode = settings.supabase_db_pool_mode.strip().lower()
+    if pool_mode not in SUPABASE_DB_POOL_MODES:
+        raise ValueError("SUPABASE_DB_POOL_MODE must be 'session' or 'transaction'")
+
+
+def validate_production_database_safety(app_env: str, database_url: str) -> None:
+    normalized_env = app_env.strip().lower()
+    if normalized_env not in {"prod", "production"}:
+        return
+
+    parsed = urlparse(database_url.strip())
+    host = (parsed.hostname or "").strip().lower()
+    user = (parsed.username or "").strip().lower()
+    password = (parsed.password or "").strip()
+
+    if host in PRODUCTION_DATABASE_HOSTS:
+        raise ValueError("APP_ENV=production requires a non-local DATABASE_URL host")
+    if user == "postgres" and password == "postgres":
+        raise ValueError("APP_ENV=production rejects default postgres credentials in DATABASE_URL")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
     validate_database_runtime_contract(settings.database_url, settings.test_database_url)
     validate_ingestion_queue_contract(settings)
     validate_mercado_publico_contract(settings)
+    validate_supabase_contract(settings)
     return settings

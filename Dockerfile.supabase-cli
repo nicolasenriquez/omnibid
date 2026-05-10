@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS supabase-cli
+
+ENV SUPABASE_TELEMETRY_DISABLED=1 \
+    npm_config_fund=false \
+    npm_config_update_notifier=false
+
+WORKDIR /workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm init -y >/dev/null \
+    && npm install --save-dev supabase \
+    && npm cache clean --force
+
+CMD ["./node_modules/.bin/supabase", "--help"]

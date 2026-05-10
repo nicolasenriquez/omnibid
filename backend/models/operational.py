@@ -56,13 +56,20 @@ class PipelineRun(Base):
     dataset_type = sa.Column(sa.Text, nullable=False)
     source_file_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("source_files.id"))
     status = sa.Column(sa.Text, nullable=False, server_default=sa.text("'running'"))
+    provider = sa.Column(sa.Text)
+    run_mode = sa.Column(sa.Text)
+    requested_by = sa.Column(sa.Text)
     started_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
     finished_at = sa.Column(sa.DateTime(timezone=True))
     config = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+    run_parameters_json = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+    run_stats_json = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     error_summary = sa.Column(sa.Text)
 
     __table_args__ = (
         sa.Index("ix_pipeline_runs_status", "status"),
+        sa.Index("ix_pipeline_runs_provider_mode_started_at", "provider", "run_mode", "started_at"),
+        sa.Index("ix_pipeline_runs_requested_by_started_at", "requested_by", "started_at"),
     )
 
 

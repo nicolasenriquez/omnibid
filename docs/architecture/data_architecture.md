@@ -5,6 +5,8 @@
 ## Raw
 Raw source ingestion with lineage and source metadata.
 
+The Mercado Publico API operational lane is documented in `docs/architecture/external_api_ingestion.md` and maps to the operational tables listed in `docs/architecture/data_model.md`.
+
 ## Silver (Normalized implementation)
 Deterministic canonicalization and relational domain contracts.
 

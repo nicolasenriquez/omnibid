@@ -19,6 +19,17 @@ Define the architecture boundary for external API ingestion, starting with Merca
 
 ## Components
 
+## Current-to-Target Hardening Contract
+
+The hardening phase is additive to the existing Mercado Publico lane and keeps current persisted surfaces as the contract baseline:
+
+- logical `pipeline_run` -> current `pipeline_runs`
+- logical `api_request_ledger` -> current `api_source_request`
+- logical `raw_payload_archive` -> current `api_source_payload`
+- logical `mp_notice_snapshot` -> current `mercado_publico_notice_snapshot`
+
+This mapping is the default for `harden-mercado-publico-api-pipeline`; no parallel ingestion stack is introduced in this slice.
+
 ### Configuration
 
 - `backend/core/config.py`
@@ -96,3 +107,9 @@ All recipes are Docker-first and build-aware so command execution uses current i
 - Daily request budget guard.
 - Secret ticket excluded from canonical request hash and redacted in safe URL/logging paths.
 - Clear error propagation for upstream exhaustion and contract drift.
+
+## Related Architecture Docs
+
+- runtime and module boundaries: `docs/architecture/system_architecture.md`
+- data layers and read-model boundaries: `docs/architecture/data_architecture.md`
+- operational table inventory and lineage context: `docs/architecture/data_model.md`

@@ -48,6 +48,9 @@ just mp-api-sync-rolling --target-date YYYY-MM-DD --window-days 4
 
 Optional:
 - `--estado <value>`
+- `--requested-by <label>`
+- `--max-requests <n>`
+- `--start-date YYYY-MM-DD --end-date YYYY-MM-DD` (explicit range; derives `window-days`)
 
 ### 3) Detail by code
 
@@ -59,6 +62,10 @@ Command:
 ```bash
 just mp-api-sync-detail --codigo <code1> --codigo <code2>
 ```
+
+Optional:
+- `--requested-by <label>`
+- `--max-requests <n>`
 
 ## Daily Canonical Notice Lane
 
@@ -76,6 +83,8 @@ just mp-api-daily-refresh --target-date YYYY-MM-DD --window-days 4
 Optional:
 
 - `--estado <value>`
+- `--requested-by <label>`
+- `--max-requests <n>`
 
 Replay without upstream API calls:
 
@@ -95,6 +104,26 @@ just mp-api-smoke
 
 Expected signal:
 - `dry-run ok`
+- the printed plan includes resolved mode/window plus `requested_by` and `max_requests`.
+
+## Persistent Budget and Lock Strategy
+
+Request-budget enforcement is persistent and restart-safe:
+
+- budget reservations are written to `api_source_request` before upstream API calls.
+- daily limits are enforced by `source_system + rate_limit_day` and canonical request hash.
+- repeated same-day canonical requests reuse the reserved ledger identity instead of charging again.
+
+Scoped lock behavior is per logical work unit (not global):
+
+- `active-discovery`: lock key by mode + UTC day.
+- `rolling-window`: lock key by mode + date + window + `estado`.
+- `detail-by-codigo`: lock key by mode + external notice code.
+
+Operational intent:
+
+- prevent concurrent duplicate execution on the same work unit.
+- allow independent work units to run in parallel.
 
 ## Fail-Fast Behavior
 
@@ -103,6 +132,7 @@ Execution stops with clear errors when:
 - API lane is disabled but run requested.
 - API key is missing while enabled.
 - timeout/retry/daily-limit config values are invalid.
+- `APP_ENV=production` uses unsafe database defaults (`localhost`/`127.0.0.1`/`::1` host or `postgres:postgres` credentials).
 - response contract parsing fails.
 - retry budget is exhausted on transient upstream failures.
 - the daily request budget reaches its configured limit.

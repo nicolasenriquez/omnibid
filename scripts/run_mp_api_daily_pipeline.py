@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.core.config import get_settings  # noqa: E402
+from backend.core.config import (  # noqa: E402
+    get_settings,
+    validate_production_database_safety,
+)
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.integrations.mercado_publico import (  # noqa: E402
     MercadoPublicoClient,
@@ -57,6 +60,17 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate config and args without API calls or DB writes",
     )
+    parser.add_argument(
+        "--requested-by",
+        default="local_cli",
+        help="Operator provenance label persisted in run metadata",
+    )
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=None,
+        help="Optional max number of upstream requests allowed in this run",
+    )
     return parser
 
 
@@ -94,13 +108,16 @@ def main() -> int:
         raise SystemExit("--window-days must be >= 1")
 
     app_settings = get_settings()
+    validate_production_database_safety(app_settings.app_env, app_settings.database_url)
     mp_settings = from_app_settings(app_settings)
 
     if args.dry_run:
         print(
             "[mp-api-daily] dry-run ok "
             f"target_date={args.target_date.isoformat()} window_days={args.window_days} "
-            f"refresh_only={str(args.refresh_only).lower()} base_url={mp_settings.normalized_base_url}"
+            f"refresh_only={str(args.refresh_only).lower()} "
+            f"max_requests={args.max_requests} requested_by={args.requested_by} "
+            f"base_url={mp_settings.normalized_base_url}"
         )
         return 0
 
@@ -117,6 +134,8 @@ def main() -> int:
                 window_days=args.window_days,
                 estado=args.estado,
                 refresh_only=args.refresh_only,
+                requested_by=args.requested_by,
+                max_requests=args.max_requests,
             )
             session.commit()
             _print_summary(

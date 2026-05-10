@@ -23,6 +23,15 @@ if _SPEC is None or _SPEC.loader is None:
 fetch_mp_api = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(fetch_mp_api)
 
+DAILY_SCRIPT_PATH = REPO_ROOT / "scripts" / "run_mp_api_daily_pipeline.py"
+DAILY_MODULE_NAME = "run_mp_api_daily_pipeline_script_module"
+
+_DAILY_SPEC = importlib.util.spec_from_file_location(DAILY_MODULE_NAME, DAILY_SCRIPT_PATH)
+if _DAILY_SPEC is None or _DAILY_SPEC.loader is None:
+    raise RuntimeError(f"Unable to load module from {DAILY_SCRIPT_PATH}")
+run_mp_api_daily_pipeline = importlib.util.module_from_spec(_DAILY_SPEC)
+_DAILY_SPEC.loader.exec_module(run_mp_api_daily_pipeline)
+
 
 class _FakeSession:
     def __init__(self) -> None:
@@ -133,3 +142,129 @@ def test_execute_with_tracking_marks_failed_on_errors(
     assert session.commits == 1
     assert "failed" in captured
     assert "completed" not in captured
+
+
+def test_validate_production_database_safety_rejects_default_postgres_credentials() -> None:
+    with pytest.raises(ValueError, match="rejects default postgres credentials"):
+        fetch_mp_api._validate_production_database_safety(  # noqa: SLF001
+            app_env="production",
+            database_url="postgresql+psycopg://postgres:postgres@db:5432/chilecompra",
+        )
+
+
+def test_validate_production_database_safety_rejects_localhost_in_production() -> None:
+    with pytest.raises(ValueError, match="requires a non-local DATABASE_URL host"):
+        fetch_mp_api._validate_production_database_safety(  # noqa: SLF001
+            app_env="prod",
+            database_url="postgresql+psycopg://app_user:strong@localhost:5432/chilecompra",
+        )
+
+
+def test_main_dry_run_does_not_open_db_session(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = SimpleNamespace(
+        mode="active-discovery",
+        target_date=None,
+        start_date=None,
+        end_date=None,
+        window_days=4,
+        estado=None,
+        codigo=[],
+        dry_run=True,
+        max_requests=25,
+        requested_by="unit_test",
+    )
+    parser = SimpleNamespace(parse_args=lambda: args)
+    settings = SimpleNamespace(enabled=False, normalized_base_url="https://example.invalid")
+
+    monkeypatch.setattr(fetch_mp_api, "_parser", lambda: parser)
+    monkeypatch.setattr(fetch_mp_api, "_build_client_settings", lambda: settings)
+    monkeypatch.setattr(fetch_mp_api, "_validate_runtime_mode", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        fetch_mp_api,
+        "SessionLocal",
+        lambda: (_ for _ in ()).throw(AssertionError("SessionLocal should not be used in dry-run")),
+    )
+    monkeypatch.setattr(
+        fetch_mp_api,
+        "_execute_with_tracking",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("_execute_with_tracking should not run in dry-run")
+        ),
+    )
+
+    exit_code = fetch_mp_api.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "dry-run ok" in output
+
+
+def test_daily_pipeline_dry_run_does_not_open_db_session(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = SimpleNamespace(
+        target_date=date(2026, 5, 10),
+        window_days=4,
+        estado=None,
+        refresh_only=False,
+        dry_run=True,
+        requested_by="unit_test",
+        max_requests=3,
+    )
+    parser = SimpleNamespace(parse_args=lambda: args)
+    app_settings = SimpleNamespace(
+        app_env="local",
+        database_url="postgresql+psycopg://app:pw@localhost:5432/chilecompra",
+    )
+    mp_settings = SimpleNamespace(enabled=False, normalized_base_url="https://example.invalid")
+
+    monkeypatch.setattr(run_mp_api_daily_pipeline, "_parser", lambda: parser)
+    monkeypatch.setattr(run_mp_api_daily_pipeline, "get_settings", lambda: app_settings)
+    monkeypatch.setattr(run_mp_api_daily_pipeline, "from_app_settings", lambda _settings: mp_settings)
+    monkeypatch.setattr(
+        run_mp_api_daily_pipeline,
+        "SessionLocal",
+        lambda: (_ for _ in ()).throw(AssertionError("SessionLocal should not be used in dry-run")),
+    )
+    monkeypatch.setattr(
+        run_mp_api_daily_pipeline,
+        "run_mp_api_daily_notice_pipeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("pipeline should not run in dry-run")
+        ),
+    )
+
+    exit_code = run_mp_api_daily_pipeline.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "dry-run ok" in output
+
+
+def test_daily_pipeline_rejects_weak_production_database_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = SimpleNamespace(
+        target_date=date(2026, 5, 10),
+        window_days=4,
+        estado=None,
+        refresh_only=False,
+        dry_run=True,
+        requested_by="unit_test",
+        max_requests=3,
+    )
+    parser = SimpleNamespace(parse_args=lambda: args)
+    app_settings = SimpleNamespace(
+        app_env="production",
+        database_url="postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra",
+    )
+
+    monkeypatch.setattr(run_mp_api_daily_pipeline, "_parser", lambda: parser)
+    monkeypatch.setattr(run_mp_api_daily_pipeline, "get_settings", lambda: app_settings)
+
+    with pytest.raises(ValueError, match="requires a non-local DATABASE_URL host"):
+        run_mp_api_daily_pipeline.main()
