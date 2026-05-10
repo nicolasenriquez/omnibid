@@ -125,19 +125,39 @@ def _create_mp_api_daily_pipeline_run(
     window_days: int,
     estado: str | None,
     refresh_only: bool,
+    requested_by: str,
+    max_requests: int | None,
 ) -> PipelineRun:
     started_at = _utc_now()
     run = PipelineRun(
         run_key=f"mercado-publico-api-daily:{target_date.isoformat()}:{started_at.isoformat()}",
         dataset_type=DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
+        provider="mercado_publico",
+        run_mode="daily_notice_silver_refresh",
+        requested_by=requested_by,
         status="running",
         started_at=started_at,
+        run_parameters_json={
+            "target_date": target_date.isoformat(),
+            "window_days": window_days,
+            "estado": estado,
+            "refresh_only": refresh_only,
+            "requested_by": requested_by,
+            "max_requests": max_requests,
+        },
+        run_stats_json={
+            "final_status": "running",
+            "requested_by": requested_by,
+            "max_requests": max_requests,
+        },
         config={
             "mode": "daily_notice_silver_refresh",
             "target_date": target_date.isoformat(),
             "window_days": window_days,
             "estado": estado,
             "refresh_only": refresh_only,
+            "requested_by": requested_by,
+            "max_requests": max_requests,
         },
     )
     session.add(run)
@@ -150,6 +170,10 @@ def _mark_pipeline_run_failed(run: PipelineRun, *, error_message: str) -> None:
     run_any.status = "failed"
     run_any.finished_at = _utc_now()
     run_any.error_summary = error_message[:4000]
+    run_any.run_stats_json = {
+        "final_status": "failed",
+        "error_message": error_message[:4000],
+    }
 
 
 def _mark_pipeline_run_completed(
@@ -184,6 +208,24 @@ def _mark_pipeline_run_completed(
     run_any.status = "completed"
     run_any.finished_at = _utc_now()
     run_any.error_summary = None
+    run_any.run_stats_json = {
+        "final_status": "succeeded",
+        "sync": {
+            "mode": sync_summary.mode,
+            "requests": sync_summary.requests,
+            "notices_seen": sync_summary.notices_seen,
+            "notices_skipped_missing_external_notice_code": (
+                sync_summary.notices_skipped_missing_external_notice_code
+            ),
+            "snapshots_upserted": sync_summary.snapshots_upserted,
+            "snapshots_inserted": sync_summary.snapshots_inserted,
+            "snapshots_updated": sync_summary.snapshots_updated,
+        },
+        "silver_refresh": {
+            "notice_candidates": silver_summary.notice_candidates,
+            "upserted_notices": silver_summary.upserted_notices,
+        },
+    }
 
 
 def _serialize_payload_bytes(payload_json: Any) -> int:
@@ -407,6 +449,8 @@ def run_mp_api_daily_notice_pipeline(
     window_days: int = 4,
     estado: str | None = None,
     refresh_only: bool = False,
+    requested_by: str = "local_cli",
+    max_requests: int | None = None,
 ) -> MpApiDailyPipelineSummary:
     run = _create_mp_api_daily_pipeline_run(
         session,
@@ -414,6 +458,8 @@ def run_mp_api_daily_notice_pipeline(
         window_days=window_days,
         estado=estado,
         refresh_only=refresh_only,
+        requested_by=requested_by,
+        max_requests=max_requests,
     )
     rolling_step = _create_pipeline_step(
         session,
@@ -450,6 +496,7 @@ def run_mp_api_daily_notice_pipeline(
                 anchor_day=target_date,
                 window_days=window_days,
                 estado=estado,
+                max_requests=max_requests,
             )
             _mark_pipeline_step_completed(
                 rolling_step,

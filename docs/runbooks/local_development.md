@@ -4,6 +4,8 @@ Canonical runtime is Docker-first. Use [`docker-local.md`](docker-local.md) as t
 
 Agents should treat the container path as the first execution plan for backend, database, migration, pipeline, and quality work. Use host-local `.venv`, `uv run`, or direct Python commands only as fallback validation when Docker/Compose is unavailable, sandbox-blocked, or irrelevant to a frontend-only task. Record the fallback reason when using host-local execution.
 
+Supabase CLI readiness is additive and documented separately in [`../operations/supabase-readiness.md`](../operations/supabase-readiness.md); it does not replace the current Compose baseline yet.
+
 If RTK on Windows keeps falling back to the proxy shim, use [`rtk-wsl-hardening.md`](rtk-wsl-hardening.md) for the persistent WSL pin and reversible cleanup flow.
 
 ## Quick Start

@@ -40,6 +40,8 @@ class ApiSourceRequest(Base):
     endpoint_name = sa.Column(sa.Text, nullable=False)
     resource_type = sa.Column(sa.Text, nullable=False)
     resource_key = sa.Column(sa.Text)
+    request_method = sa.Column(sa.Text, nullable=False, server_default=sa.text("'GET'"))
+    request_url_safe = sa.Column(sa.Text)
     request_params_json = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     request_hash = sa.Column(sa.String(64), nullable=False)
     requested_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
@@ -48,6 +50,9 @@ class ApiSourceRequest(Base):
     success = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     error_type = sa.Column(sa.Text)
     error_message = sa.Column(sa.Text)
+    cost_units = sa.Column(sa.Integer, nullable=False, server_default=sa.text("1"))
+    response_hash = sa.Column(sa.String(64))
+    request_metadata = sa.Column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
     response_payload_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("api_source_payload.id"))
     cache_hit = sa.Column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     rate_limit_day = sa.Column(sa.Date)
@@ -55,8 +60,14 @@ class ApiSourceRequest(Base):
     __table_args__ = (
         sa.Index("ix_api_source_request_pipeline_run_id", "pipeline_run_id"),
         sa.Index("ix_api_source_request_request_hash", "request_hash"),
+        sa.Index("ix_api_source_request_source_day_requested_at", "source_system", "rate_limit_day", "requested_at"),
         sa.Index("ix_api_source_request_resource", "resource_type", "resource_key"),
-        sa.UniqueConstraint("request_hash", name="uq_api_source_request_request_hash"),
+        sa.UniqueConstraint(
+            "source_system",
+            "rate_limit_day",
+            "request_hash",
+            name="uq_api_source_request_source_day_hash",
+        ),
     )
 
 
@@ -68,6 +79,7 @@ class MercadoPublicoNoticeSnapshot(Base):
     request_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("api_source_request.id"), nullable=False)
     payload_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("api_source_payload.id"), nullable=False)
     endpoint_name = sa.Column(sa.Text, nullable=False)
+    source_mode = sa.Column(sa.Text)
     resource_key = sa.Column(sa.Text)
     notice_id = sa.Column(sa.Text)
     external_notice_code = sa.Column(sa.Text, nullable=False)
@@ -82,14 +94,27 @@ class MercadoPublicoNoticeSnapshot(Base):
     buyer_unit_name = sa.Column(sa.Text)
     currency_code = sa.Column(sa.Text)
     estimated_amount = sa.Column(sa.Numeric(20, 2))
+    payload_sha256 = sa.Column(sa.String(64), nullable=False)
     snapshot_date = sa.Column(sa.Date, nullable=False)
+    observed_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
     synced_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
 
     __table_args__ = (
         sa.Index("ix_mp_notice_snapshot_pipeline_run_id", "pipeline_run_id"),
         sa.Index("ix_mp_notice_snapshot_snapshot_date", "snapshot_date"),
         sa.Index("ix_mp_notice_snapshot_external_notice_code", "external_notice_code"),
+        sa.Index(
+            "ix_mp_notice_snapshot_external_notice_code_snapshot_date",
+            "external_notice_code",
+            "snapshot_date",
+        ),
+        sa.Index("ix_mp_notice_snapshot_payload_sha256", "payload_sha256"),
         sa.Index("ix_mp_notice_snapshot_status_code", "official_status_code"),
+        sa.UniqueConstraint(
+            "external_notice_code",
+            "payload_sha256",
+            name="uq_mp_notice_snapshot_external_code_payload_hash",
+        ),
         sa.UniqueConstraint(
             "payload_id",
             "external_notice_code",

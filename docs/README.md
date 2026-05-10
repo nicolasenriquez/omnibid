@@ -15,6 +15,10 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
   - RTK Windows WSL hardening: [`runbooks/rtk-wsl-hardening.md`](runbooks/rtk-wsl-hardening.md)
   - GitHub Actions CI runtime: [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
   - Mercado Publico API integration: [`runbooks/mercado_publico_api_integration.md`](runbooks/mercado_publico_api_integration.md)
+- [`operations/`](operations)
+  - readiness and cutover notes for platform transitions
+  - Supabase CLI readiness: [`operations/supabase-readiness.md`](operations/supabase-readiness.md)
+  - Supabase cutover plan: [`operations/supabase-cutover-plan.md`](operations/supabase-cutover-plan.md)
 - [`product/`](product)
   - product vision and stage-gated delivery priorities
 - [`standards/`](standards)
@@ -22,6 +26,8 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 - [`references/`](references)
   - SDD source registry and external technical references
   - Mercado Publico API SDD: [`references/sdd-mercado-publico-api-2026-05-04.md`](references/sdd-mercado-publico-api-2026-05-04.md)
+  - Mercado Publico API pipeline hardening SDD: [`references/sdd-mercado-publico-api-pipeline-hardening-2026-05-09.md`](references/sdd-mercado-publico-api-pipeline-hardening-2026-05-09.md)
+  - Supabase readiness SDD: [`references/sdd-supabase-readiness-2026-05-09.md`](references/sdd-supabase-readiness-2026-05-09.md)
 - [`evidence/`](evidence)
   - validation artifacts, baselines, and runtime logs
   - Mercado Publico API smoke evidence: [`evidence/mercado_publico_api_contract_smoke_2026-05-08.md`](evidence/mercado_publico_api_contract_smoke_2026-05-08.md)
@@ -36,7 +42,8 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 6. [`architecture/data_architecture.md`](architecture/data_architecture.md)
 7. [`architecture/data_model.md`](architecture/data_model.md)
 8. [`runbooks/operations.md`](runbooks/operations.md)
-9. [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
+9. [`operations/supabase-readiness.md`](operations/supabase-readiness.md)
+10. [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
 
 ## Agent Routing Guide
 

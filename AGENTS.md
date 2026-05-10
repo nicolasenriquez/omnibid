@@ -20,10 +20,13 @@ This file defines repository behavior guidance for coding agents in `omnibid`.
 
 ## Core Principles
 
+- Good practices in this repo include:
+  - TDD-first when changing behavior.
+  - Fail-fast on schema drift, invalid config, malformed source files, or broken contracts.
+  - Keep changes minimal and surgical.
+  - State assumptions explicitly when requirements or behavior are unclear.
 - KISS and YAGNI.
 - SDD-first for framework/library behavior: consult official docs first and record the source used in `docs/references/`.
-- TDD-first when changing behavior.
-- Fail-fast on schema drift, invalid config, malformed source files, or broken contracts.
 - No silent fallbacks for required dependencies (database, migrations, required columns).
 - Keep data lineage explicit: source file -> ingestion batch -> run -> step -> target table.
 

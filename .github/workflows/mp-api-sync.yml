@@ -1,0 +1,96 @@
+name: Mercado Publico API Sync
+
+on:
+  schedule:
+    - cron: "20 9 * * *"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Anchor date YYYY-MM-DD (optional; defaults to today)"
+        required: false
+        type: string
+      window_days:
+        description: "Rolling window size in days"
+        required: false
+        default: "4"
+        type: string
+      estado:
+        description: "Optional estado filter"
+        required: false
+        type: string
+      refresh_only:
+        description: "Skip upstream sync and refresh Silver from snapshots"
+        required: false
+        default: false
+        type: boolean
+      max_requests:
+        description: "Optional max upstream requests"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: mp-api-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-sync:
+    name: Run Scheduled/Manual Sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate required secrets
+        env:
+          MP_API_DATABASE_URL: ${{ secrets.MP_API_DATABASE_URL }}
+          MERCADO_PUBLICO_API_KEY: ${{ secrets.MERCADO_PUBLICO_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${MP_API_DATABASE_URL}" || { echo "Missing secret: MP_API_DATABASE_URL"; exit 1; }
+          test -n "${MERCADO_PUBLICO_API_KEY}" || { echo "Missing secret: MERCADO_PUBLICO_API_KEY"; exit 1; }
+
+      - name: Build backend image
+        run: docker compose --env-file .env.docker -f docker-compose.yml build backend
+
+      - name: Run Mercado Publico daily sync pipeline
+        env:
+          MP_API_DATABASE_URL: ${{ secrets.MP_API_DATABASE_URL }}
+          MERCADO_PUBLICO_API_KEY: ${{ secrets.MERCADO_PUBLICO_API_KEY }}
+          TARGET_DATE_INPUT: ${{ github.event.inputs.target_date }}
+          WINDOW_DAYS_INPUT: ${{ github.event.inputs.window_days }}
+          ESTADO_INPUT: ${{ github.event.inputs.estado }}
+          REFRESH_ONLY_INPUT: ${{ github.event.inputs.refresh_only }}
+          MAX_REQUESTS_INPUT: ${{ github.event.inputs.max_requests }}
+        run: |
+          set -euo pipefail
+          cmd=(python scripts/run_mp_api_daily_pipeline.py --requested-by github_actions)
+
+          if [ -n "${TARGET_DATE_INPUT:-}" ]; then
+            cmd+=(--target-date "${TARGET_DATE_INPUT}")
+          fi
+
+          if [ -n "${WINDOW_DAYS_INPUT:-}" ]; then
+            cmd+=(--window-days "${WINDOW_DAYS_INPUT}")
+          fi
+
+          if [ -n "${ESTADO_INPUT:-}" ]; then
+            cmd+=(--estado "${ESTADO_INPUT}")
+          fi
+
+          if [ "${REFRESH_ONLY_INPUT:-false}" = "true" ]; then
+            cmd+=(--refresh-only)
+          fi
+
+          if [ -n "${MAX_REQUESTS_INPUT:-}" ]; then
+            cmd+=(--max-requests "${MAX_REQUESTS_INPUT}")
+          fi
+
+          docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps \
+            -e DATABASE_URL="${MP_API_DATABASE_URL}" \
+            -e MERCADO_PUBLICO_API_ENABLED=true \
+            -e MERCADO_PUBLICO_API_KEY="${MERCADO_PUBLICO_API_KEY}" \
+            backend uv run --no-sync "${cmd[@]}"

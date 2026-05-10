@@ -181,6 +181,9 @@ APP_NAME=app-chilecompra
 APP_PORT=8000
 DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/chilecompra
 TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@db_test:5432/chilecompra_test
+SUPABASE_DB_URL=
+SUPABASE_PROJECT_REF=
+SUPABASE_DB_POOL_MODE=transaction
 LOG_LEVEL=INFO
 DATASET_ROOT=../dataset-mercado-publico
 ```
@@ -188,6 +191,7 @@ DATASET_ROOT=../dataset-mercado-publico
 Use a sibling dataset path such as `../dataset-mercado-publico` when the repo lives in WSL.
 
 For Docker, edit `.env.docker` and mount the host dataset read-only through `DATASET_HOST_PATH` (for example `../dataset-mercado-publico` when the repo lives in WSL). Container-internal PostgreSQL hosts must be service DNS names (`db`, `db_test`), not `localhost`.
+Supabase readiness variables are optional during the current Compose-first baseline. Keep `DATABASE_URL` and `TEST_DATABASE_URL` as the live runtime contract until the CLI-first transition is explicitly cut over.
 
 ### Run Pipelines and Backend
 

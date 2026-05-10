@@ -12,6 +12,7 @@ NORMALIZED_STATE_PATH := env_var_or_default("NORMALIZED_STATE_PATH", "data/runti
 NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES := env_var_or_default("NORMALIZED_STATE_CHECKPOINT_EVERY_PAGES", "1")
 LOCAL_VENV_PYTHON := if os() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
 DOCKER_COMPOSE := "docker compose --env-file .env --env-file .env.docker -f docker-compose.yml"
+SUPABASE_CLI_IMAGE := env_var_or_default("SUPABASE_CLI_IMAGE", "omnibid-supabase-cli")
 
 # ============================================================
 # Canonical Commands (Docker-first)
@@ -284,3 +285,15 @@ mp-api-sync-detail *args: db-up
 [doc('Run Mercado Publico daily refresh: rolling sync plus Silver notice refresh')]
 mp-api-daily-refresh *args: db-up
     {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/run_mp_api_daily_pipeline.py {{args}}
+
+[group('04 Docker Ops')]
+[doc('Build and smoke-test the Supabase CLI container image')]
+supabase-cli-smoke:
+    docker build -f Dockerfile.supabase-cli -t {{SUPABASE_CLI_IMAGE}} .
+    docker run --rm {{SUPABASE_CLI_IMAGE}} sh -lc 'set -eu; tmpdir=$(mktemp -d); cd "$tmpdir"; /workspace/node_modules/.bin/supabase --version; /workspace/node_modules/.bin/supabase init --force >/tmp/supabase-init.log; /workspace/node_modules/.bin/supabase migration new smoke_test >/tmp/supabase-migration.log; test -f supabase/config.toml; ls supabase/migrations/*.sql >/dev/null'
+
+[group('04 Docker Ops')]
+[doc('Smoke-test Supabase CLI start/stop against the Docker socket')]
+supabase-start-smoke:
+    docker build -f Dockerfile.supabase-cli -t {{SUPABASE_CLI_IMAGE}} .
+    docker run --rm --network host -e DOCKER_HOST=unix:///var/run/docker.sock -v /var/run/docker.sock:/var/run/docker.sock -v .:/repo -w /repo {{SUPABASE_CLI_IMAGE}} /bin/sh /repo/scripts/supabase_start_smoke.sh

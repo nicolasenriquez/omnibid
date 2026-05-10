@@ -27,6 +27,14 @@ This registry defines the preferred official sources for this repository stack.
 - Alembic: https://alembic.sqlalchemy.org/en/latest/
 - PostgreSQL 16: https://www.postgresql.org/docs/16/
 
+## Supabase CLI and Deployment
+
+- Supabase CLI getting started: https://supabase.com/docs/guides/local-development/cli/getting-started
+- Supabase local development with schema migrations: https://supabase.com/docs/guides/cli/local-development
+- Supabase config and secrets: https://supabase.com/docs/guides/local-development/managing-config
+- Supabase database migrations: https://supabase.com/docs/guides/deployment/database-migrations
+- Supabase Postgres connection strings and pooler modes: https://supabase.com/docs/guides/database/connecting-to-postgres/serverless-drivers
+
 ## NLP, Text Processing, and Settings
 
 - spaCy API architecture: https://spacy.io/api/

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from backend.core.config import Settings, validate_database_runtime_contract, validate_mercado_publico_contract
+from backend.core.config import (
+    Settings,
+    validate_database_runtime_contract,
+    validate_mercado_publico_contract,
+    validate_production_database_safety,
+    validate_supabase_contract,
+)
 
 
 @pytest.mark.parametrize(
@@ -80,3 +86,47 @@ def test_validate_mercado_publico_contract_accepts_disabled_without_key() -> Non
     )
 
     validate_mercado_publico_contract(settings)
+
+
+@pytest.mark.parametrize("pool_mode", ["transaction", "session"])
+def test_validate_supabase_contract_accepts_known_pool_modes(pool_mode: str) -> None:
+    settings = Settings.model_construct(supabase_db_pool_mode=pool_mode)
+
+    validate_supabase_contract(settings)
+
+
+def test_validate_supabase_contract_rejects_unknown_pool_mode() -> None:
+    settings = Settings.model_construct(supabase_db_pool_mode="pool")
+
+    with pytest.raises(ValueError, match="SUPABASE_DB_POOL_MODE must be 'session' or 'transaction'"):
+        validate_supabase_contract(settings)
+
+
+def test_validate_production_database_safety_rejects_default_postgres_credentials() -> None:
+    with pytest.raises(ValueError, match="rejects default postgres credentials"):
+        validate_production_database_safety(
+            "production",
+            "postgresql+psycopg://postgres:postgres@db:5432/chilecompra",
+        )
+
+
+def test_validate_production_database_safety_rejects_localhost_in_production() -> None:
+    with pytest.raises(ValueError, match="requires a non-local DATABASE_URL host"):
+        validate_production_database_safety(
+            "prod",
+            "postgresql+psycopg://app_user:strong@localhost:5432/chilecompra",
+        )
+
+
+def test_validate_production_database_safety_allows_non_production_env() -> None:
+    validate_production_database_safety(
+        "local",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/chilecompra",
+    )
+
+
+def test_validate_production_database_safety_password_check_is_case_sensitive() -> None:
+    validate_production_database_safety(
+        "production",
+        "postgresql+psycopg://postgres:Postgres@db.internal:5432/chilecompra",
+    )
