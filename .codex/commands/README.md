@@ -25,6 +25,7 @@ $openspec-propose "<change-name>"
 /self-heal-ci [optional target/using]
 /validate
 /commit-local [optional intent]
+/design-review [optional target]             # optional frontend UX/technical quality pass
 ```
 
 Mental model:
@@ -38,6 +39,7 @@ Mental model:
 - `/review-fix` = convert review findings into a minimal fix plan in `/explain` structure
 - `/explain` = explain task slices before coding (read-only)
 - `/execute` = implement task slices with explicit validation
+- `/design-review` = optional comprehensive frontend UX audit/critique + automated improvement pipeline
 - `/self-heal-ci` = iterate minimal fixes until local CI gates converge or a real blocker is confirmed (`target=fast|full`, `using=back|front|all`)
 - `/validate` = report what actually passes, fails, or is blocked
 - `/commit-local` = create a local commit and stop before push
@@ -270,6 +272,30 @@ Examples:
 /execute openspec/changes/add-pdf-ingestion-without-persistence/tasks.md 3.* preflight=off
 ```
 
+### `/design-review`
+
+Use when:
+- you want a comprehensive frontend design quality pass before shipping
+- you need both UX critique (heuristics, anti-patterns, personas) and technical audit (a11y, perf, responsive, theming)
+- you want automated fix sequencing through impeccable skills rather than manual command chaining
+
+What it does:
+- runs critique (UX heuristics + deterministic anti-pattern scan) and audit (5-dimension technical quality) as parallel isolated assessments
+- synthesizes findings into a unified report with P0-P3 severity rankings
+- asks targeted questions tied to specific findings before executing any changes
+- auto-executes fix and enhancement commands in dependency order (optimize → harden → clarify → adapt → typeset → layout → colorize → animate → polish)
+- ends with before/after score comparison
+
+Examples:
+
+```text
+/design-review
+/design-review client/app/licitaciones
+/design-review client/src/features/opportunity-workspace scope=minimal
+/design-review scope=evaluate-only
+/design-review preflight=off
+```
+
 ### `/self-heal-ci`
 
 Use when:
@@ -343,6 +369,7 @@ Examples:
 - Use `/explain` when you want to review a slice before coding it.
 - Keep `/execute` runs task-scoped and validation-backed.
 - Use `/validate` for reality-based status, not optimistic status.
+- Use `/design-review` when you want a comprehensive frontend UX/technical quality pass with automated fix sequencing through impeccable skills.
 - Use `/commit-local` when the commit should be created now but pushing will be manual.
 
 ## Notes

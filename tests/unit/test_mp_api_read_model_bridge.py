@@ -46,6 +46,12 @@ def test_select_detail_enrichment_candidates_prefers_missing_or_stale_details() 
                     ("B-1-LR26", datetime(2026, 4, 20, 10, 0, 0)),
                 ]
             ),
+            _RowsResult(
+                [
+                    ("A-1-LR26", datetime(2026, 5, 18, 0, 0, 0)),
+                    ("B-1-LR26", datetime(2026, 4, 30, 0, 0, 0)),
+                ]
+            ),
         ]
     )
 
@@ -60,6 +66,38 @@ def test_select_detail_enrichment_candidates_prefers_missing_or_stale_details() 
     assert summary.notice_candidates == 3
     assert summary.detail_candidates == 2
     assert summary.selected_codes == ("B-1-LR26",)
+
+
+def test_select_detail_enrichment_candidates_prioritizes_open_notices_even_when_recent() -> None:
+    session = _QueuedSession(
+        [
+            _ScalarIterableResult(["OPEN-1", "CLOSED-1"]),
+            _RowsResult(
+                [
+                    ("OPEN-1", datetime(2026, 5, 10, 10, 0, 0)),
+                    ("CLOSED-1", datetime(2026, 5, 10, 10, 0, 0)),
+                ]
+            ),
+            _RowsResult(
+                [
+                    ("OPEN-1", datetime(2026, 5, 16, 0, 0, 0)),
+                    ("CLOSED-1", datetime(2026, 5, 8, 0, 0, 0)),
+                ]
+            ),
+        ]
+    )
+
+    summary = bridge.select_detail_enrichment_candidates(
+        session,  # type: ignore[arg-type]
+        target_date=date(2026, 5, 11),
+        pipeline_run_id=uuid4(),
+        backfill_interval_days=7,
+        max_candidates=None,
+    )
+
+    assert summary.notice_candidates == 2
+    assert summary.detail_candidates == 1
+    assert summary.selected_codes == ("OPEN-1",)
 
 
 def test_canonicalize_payloads_uses_detail_last_and_expected_conflict_keys(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Copy, ExternalLink, X } from "lucide-react";
 
 import {
@@ -29,6 +29,11 @@ type OfferControls = {
   noticeId: string | null;
   viewMode: "summary" | "all";
   itemFilter: string;
+};
+
+type CopyFeedback = {
+  noticeId: string;
+  message: string;
 };
 
 const CHILECOMPRA_NOTICE_URL =
@@ -87,13 +92,14 @@ export function WorkspaceDetailPane({
   detailState: RemoteDetailState;
   onClose: () => void;
   onRetry: () => void;
-  onCopyNoticeCode: (externalNoticeCode: string | null) => Promise<void> | void;
+  onCopyNoticeCode: (externalNoticeCode: string | null) => Promise<boolean> | boolean;
 }) {
   const [offerControls, setOfferControls] = useState<OfferControls>({
     noticeId: null,
     viewMode: "summary",
     itemFilter: "all",
   });
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
 
   const orderedOffers = useMemo(() => {
     if (detailState.status !== "success") {
@@ -164,6 +170,18 @@ export function WorkspaceDetailPane({
     [filteredOffers],
   );
 
+  useEffect(() => {
+    if (!copyFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopyFeedback(null);
+    }, 2400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [copyFeedback]);
+
   if (!selectedNoticeId) {
     return null;
   }
@@ -215,8 +233,21 @@ export function WorkspaceDetailPane({
           <div className="workspace-detail__actions" aria-label="Acciones de solo lectura">
             <Button
               leadingIcon={<Copy size={15} aria-hidden="true" />}
-              onClick={() => {
-                void onCopyNoticeCode(detailState.data.externalNoticeCode);
+              onClick={async () => {
+                try {
+                  const copied = await onCopyNoticeCode(detailState.data.externalNoticeCode);
+                  setCopyFeedback({
+                    noticeId: selectedNoticeId ?? "",
+                    message: copied
+                      ? "Código copiado al portapapeles."
+                      : "No se pudo copiar el código.",
+                  });
+                } catch {
+                  setCopyFeedback({
+                    noticeId: selectedNoticeId ?? "",
+                    message: "No se pudo copiar el código.",
+                  });
+                }
               }}
               disabled={!detailState.data.externalNoticeCode}
             >
@@ -234,6 +265,11 @@ export function WorkspaceDetailPane({
               >
                 Abrir licitación
               </Button>
+            ) : null}
+            {copyFeedback && copyFeedback.noticeId === selectedNoticeId ? (
+              <span className="workspace-detail__copy-feedback" role="status" aria-live="polite">
+                {copyFeedback.message}
+              </span>
             ) : null}
           </div>
 

@@ -9,7 +9,7 @@ import {
 } from "@/src/lib/url-state/workspace";
 import type { OpportunityWorkspaceQueryState } from "@/src/types/opportunities";
 
-export function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState): boolean {
+function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState): boolean {
   return Boolean(
     state.q.trim() ||
       state.officialStatus ||
@@ -31,7 +31,7 @@ export function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState)
   );
 }
 
-export function buildExplorerScopeKey(state: OpportunityWorkspaceQueryState): string {
+function buildExplorerScopeKey(state: OpportunityWorkspaceQueryState): string {
   return [
     state.tab,
     state.q.trim(),

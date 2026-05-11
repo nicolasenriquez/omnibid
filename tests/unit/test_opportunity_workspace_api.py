@@ -5,6 +5,9 @@ from decimal import Decimal
 from typing import Any
 
 from backend.api.routers.opportunities import (
+    DETAIL_SQL,
+    LIST_SQL,
+    SUMMARY_SQL,
     get_opportunities_summary,
     get_opportunity_detail,
     list_opportunities,
@@ -267,3 +270,17 @@ def test_opportunities_accepts_extended_filters() -> None:
     assert params["max_amount"] == Decimal("100")
     assert params["procurement_type"] == "public"
     assert params["less_than_100_utm"] is True
+
+
+def test_opportunities_queries_coalesce_display_fields_with_normalized_fallback() -> None:
+    list_sql = LIST_SQL.text
+    detail_sql = DETAIL_SQL.text
+    summary_sql = SUMMARY_SQL.text
+
+    assert "coalesce(sn.notice_title, bi.normalized_title) as title" in list_sql
+    assert "coalesce(sn.notice_status_name, bi.normalized_official_status) as official_status" in list_sql
+    assert "coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount" in list_sql
+    assert "coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date" in list_sql
+    assert "coalesce(sn.close_date, bi.normalized_close_date) as close_date" in list_sql
+    assert "coalesce(sn.notice_status_name, bi.normalized_official_status)" in detail_sql
+    assert "coalesce(sn.close_date, nl.fecha_cierre)" in summary_sql

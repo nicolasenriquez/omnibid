@@ -313,6 +313,18 @@ def _serialize_payload_bytes(payload_json: Any) -> int:
     )
 
 
+def _resolve_rolling_window_days_for_sync(*, window_days: int, max_requests: int | None) -> int:
+    if window_days < 1:
+        raise ValueError("window_days must be >= 1")
+    if max_requests is None:
+        return window_days
+
+    capped_requests = max(int(max_requests), 1)
+    if capped_requests <= 1:
+        return 1
+    return min(window_days, capped_requests - 1)
+
+
 def _fetch_payload_rows_by_ids(session: Session, payload_ids: list[Any]) -> list[ApiSourcePayload]:
     if not payload_ids:
         return []
@@ -586,10 +598,9 @@ def run_mp_api_daily_notice_pipeline(
             )
             sync_scope_pipeline_run_id: UUID | None = None
         else:
-            rolling_window_days_for_sync = (
-                window_days
-                if max_requests is None
-                else min(window_days, max(int(max_requests), 1))
+            rolling_window_days_for_sync = _resolve_rolling_window_days_for_sync(
+                window_days=window_days,
+                max_requests=max_requests,
             )
             sync_summary = execute_sync_mode(
                 session=session,

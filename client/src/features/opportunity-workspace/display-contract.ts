@@ -27,9 +27,3 @@ export const PROCUREMENT_TYPE_LABELS = {
   private: "Privada",
   service: "Servicios",
 } as const;
-
-export const READ_ONLY_ACTION_LABELS = {
-  copyCode: "Copiar código",
-  openNotice: "Abrir licitación",
-  viewDetail: "Abrir detalle",
-} as const;

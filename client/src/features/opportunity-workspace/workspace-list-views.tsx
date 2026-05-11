@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, type RefObject } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -164,12 +164,18 @@ export function WorkspaceExplorerTable({
   selectedNoticeId,
   expandedNoticeId,
   watchlistNoticeIds,
+  selectedNoticeIds,
   sortBy,
   sortOrder,
   onSort,
   onOpenDetail,
   onToggleExpanded,
   onToggleWatchlistNotice,
+  onToggleSelectedNotice,
+  onToggleAllSelectedNotices,
+  onClearSelectedNoticeIds,
+  onAddSelectedToWatchlist,
+  onRemoveSelectedFromWatchlist,
   explorerLoadMoreRef,
   isLoadingMoreExplorer,
   loadMoreErrorMessage,
@@ -180,24 +186,83 @@ export function WorkspaceExplorerTable({
   selectedNoticeId: string | null;
   expandedNoticeId: string | null;
   watchlistNoticeIds: string[];
+  selectedNoticeIds: string[];
   sortBy: OpportunitySortField;
   sortOrder: OpportunitySortDirection;
   onSort: (field: OpportunitySortField) => void;
   onOpenDetail: (noticeId: string) => void;
   onToggleExpanded: (noticeId: string) => void;
   onToggleWatchlistNotice: (noticeId: string) => void;
+  onToggleSelectedNotice: (noticeId: string) => void;
+  onToggleAllSelectedNotices: (checked: boolean) => void;
+  onClearSelectedNoticeIds: () => void;
+  onAddSelectedToWatchlist: () => void;
+  onRemoveSelectedFromWatchlist: () => void;
   explorerLoadMoreRef: RefObject<HTMLDivElement | null>;
   isLoadingMoreExplorer: boolean;
   loadMoreErrorMessage: string | null;
   onRetryLoadMore: () => void;
   canAutoLoadMore: boolean;
 }) {
+  const selectedNoticeIdSet = useMemo(() => new Set(selectedNoticeIds), [selectedNoticeIds]);
+  const watchlistNoticeIdSet = useMemo(() => new Set(watchlistNoticeIds), [watchlistNoticeIds]);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const allVisibleSelected = listItems.length > 0 && selectedNoticeIds.length === listItems.length;
+  const selectedInRadarCount = selectedNoticeIds.filter((noticeId) =>
+    watchlistNoticeIdSet.has(noticeId),
+  ).length;
+  const selectedOutsideRadarCount = selectedNoticeIds.length - selectedInRadarCount;
+
+  useEffect(() => {
+    if (!selectAllRef.current) {
+      return;
+    }
+    selectAllRef.current.indeterminate =
+      selectedNoticeIds.length > 0 && selectedNoticeIds.length < listItems.length;
+  }, [listItems.length, selectedNoticeIds.length]);
+
   return (
     <>
+      {selectedNoticeIds.length > 0 ? (
+        <div className="workspace-bulk-actions" aria-label="Acciones masivas de la tabla">
+          <Chip className="workspace-bulk-actions__count">
+            {selectedNoticeIds.length === 1
+              ? "1 licitación seleccionada"
+              : `${selectedNoticeIds.length} licitaciones seleccionadas`}
+          </Chip>
+          <Button
+            variant="primary"
+            disabled={selectedOutsideRadarCount === 0}
+            onClick={onAddSelectedToWatchlist}
+          >
+            Agregar al radar
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={selectedInRadarCount === 0}
+            onClick={onRemoveSelectedFromWatchlist}
+          >
+            Quitar del radar
+          </Button>
+          <Button variant="ghost" onClick={onClearSelectedNoticeIds}>
+            Limpiar selección
+          </Button>
+        </div>
+      ) : null}
       <TableWrap>
         <Table aria-label="Tabla de licitaciones">
           <thead>
             <tr>
+              <th scope="col" className="ui-table-cell-select">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  className="table-select-all__checkbox"
+                  aria-label="Seleccionar todas las licitaciones cargadas"
+                  checked={allVisibleSelected}
+                  onChange={(event) => onToggleAllSelectedNotices(event.target.checked)}
+                />
+              </th>
               <th scope="col"><span className="sr-only">Expandir</span></th>
               <th scope="col"><SortHeader label="Código" /></th>
               <th scope="col"><SortHeader label="Licitación" /></th>
@@ -252,15 +317,31 @@ export function WorkspaceExplorerTable({
           <tbody>
             {listItems.map((item) => {
               const isExpanded = expandedNoticeId === item.noticeId;
-              const isWatchlisted = watchlistNoticeIds.includes(item.noticeId);
+              const isWatchlisted = watchlistNoticeIdSet.has(item.noticeId);
+              const isSelected = selectedNoticeIdSet.has(item.noticeId);
               return (
                 <Fragment key={item.noticeId}>
                   <tr
                     key={item.noticeId}
                     className={
-                      item.noticeId === selectedNoticeId ? "ui-table-row-active" : undefined
+                      isSelected
+                        ? item.noticeId === selectedNoticeId
+                          ? "ui-table-row-active ui-table-row-selected"
+                          : "ui-table-row-selected"
+                        : item.noticeId === selectedNoticeId
+                          ? "ui-table-row-active"
+                          : undefined
                     }
                   >
+                    <td className="ui-table-cell-select">
+                      <input
+                        type="checkbox"
+                        className="table-row-select__checkbox"
+                        aria-label={`Seleccionar ${item.title}`}
+                        checked={isSelected}
+                        onChange={() => onToggleSelectedNotice(item.noticeId)}
+                      />
+                    </td>
                     <td className="ui-table-cell-control">
                       <IconButton
                         icon={
@@ -334,7 +415,7 @@ export function WorkspaceExplorerTable({
                   </tr>
                   {isExpanded ? (
                     <tr key={`${item.noticeId}-expanded`} className="ui-table-expanded-row">
-                      <td colSpan={13}>
+                      <td colSpan={14}>
                         <div className="table-evidence-panel">
                           <div className="table-evidence-panel__hero">
                             <div className="table-evidence-panel__hero-copy">

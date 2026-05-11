@@ -80,6 +80,7 @@ Purpose:
   - canonicalization bridge into existing Normalized + Silver tables
   - Silver postprocess refresh
 - Preserve API lineage end-to-end even when downstream canonicalization fails.
+- Keep changes additive/backend-only; this lane does not alter the read-only frontend contract.
 
 Command:
 
@@ -92,6 +93,10 @@ Optional:
 - `--estado <value>`
 - `--requested-by <label>`
 - `--max-requests <n>`
+
+Budgeting behavior:
+- When `--max-requests` is set and greater than `1`, the daily pipeline reserves at least one request slot for `detail-by-codigo` enrichment instead of spending the entire budget on rolling-window calls.
+- This prevents silent read-model sparsity where `silver_notice` rows exist but Normalized fallback fields never get refreshed.
 
 Replay without upstream API calls:
 

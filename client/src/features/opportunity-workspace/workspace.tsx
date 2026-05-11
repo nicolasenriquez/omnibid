@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   CalendarDays,
   CheckCircle2,
@@ -8,6 +8,7 @@ import {
   CircleDollarSign,
   FileSpreadsheet,
   FilterX,
+  Printer,
   RefreshCw,
   Search,
   ServerCrash,
@@ -33,6 +34,7 @@ import {
   formatCount,
   formatStage,
 } from "@/src/lib/formatters/opportunities";
+import { ThemeToggle } from "@/src/components/theme-toggle";
 import { WorkspaceDetailPane } from "@/src/features/opportunity-workspace/workspace-detail-pane";
 import {
   WorkspaceExplorerTable,
@@ -46,7 +48,8 @@ import {
   useUploadWorkflowState,
 } from "@/src/features/opportunity-workspace/upload-workflow-state";
 import {
-  getActiveFilterLabels,
+  buildOpportunityWorkspaceCsv,
+  getActiveFilterChips,
   getSortLabel,
   HEADER_METRIC_FALLBACKS,
   MANUAL_UPLOAD_DATASET_OPTIONS,
@@ -99,6 +102,13 @@ type RemoteState<T> =
   | { status: "idle" | "loading" }
   | { status: "success"; data: T }
   | { status: "error"; message: string; statusCode: number | null };
+
+const TODAY_LABEL_PLACEHOLDER = "Hoy --/--/----";
+const SUBSCRIBE_NOOP = () => () => undefined;
+
+function getTodayLabelSnapshot(): string {
+  return `Hoy ${formatToday(new Date())}`;
+}
 
 function NoDataState({
   title,
@@ -186,6 +196,7 @@ export function OpportunityWorkspace() {
     }
   });
   const [watchlistOnly, setWatchlistOnly] = useState(false);
+  const [selectedExplorerNoticeIds, setSelectedExplorerNoticeIds] = useState<string[]>([]);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [isUploadSheetOpen, setIsUploadSheetOpen] = useState(false);
   const [uploadDatasetType, setUploadDatasetType] = useState<ManualUploadDatasetType | "">("");
@@ -197,6 +208,11 @@ export function OpportunityWorkspace() {
   const [uploadConsoleEntries, setUploadConsoleEntries] = useState<UploadConsoleEntry[]>([
     UPLOAD_CONSOLE_SEED,
   ]);
+  const todayLabel = useSyncExternalStore(
+    SUBSCRIBE_NOOP,
+    getTodayLabelSnapshot,
+    () => TODAY_LABEL_PLACEHOLDER,
+  );
   const uploadAbortRef = useRef<AbortController | null>(null);
   const previousUploadPreflightStatus = useRef(uploadPreflightState.status);
   const previousUploadJobStatus = useRef(uploadJobState.status);
@@ -206,6 +222,7 @@ export function OpportunityWorkspace() {
   const loadMoreTriggerLockRef = useRef(false);
   const explorerLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const explorerScopeKeyRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const uploadRunningJobId =
     uploadJobState.status === "running" ? uploadJobState.data.job_id : null;
   const uploadRunningConsoleKey =
@@ -228,6 +245,7 @@ export function OpportunityWorkspace() {
       } else {
         skipSummaryFetchRef.current = true;
       }
+      setSelectedExplorerNoticeIds([]);
       replaceQuery(patch);
     },
     [replaceQuery],
@@ -373,7 +391,7 @@ export function OpportunityWorkspace() {
         appendUploadConsoleEntries([
           {
             level: "done",
-            text: `Validación previa completada: ${formatCount(uploadPreflightState.data.row_count)} filas, hash ${uploadPreflightState.data.file_hash_sha256.slice(0, 12)}...`,
+            text: `Validación previa completada: ${formatCount(uploadPreflightState.data.row_count)} filas, hash ${uploadPreflightState.data.file_hash_sha256.slice(0, 12)}…`,
           },
           {
             level: "muted",
@@ -395,7 +413,7 @@ export function OpportunityWorkspace() {
     if (uploadJobState.status === "loading") {
       queueMicrotask(() => {
         appendUploadConsoleEntries([
-          { level: "running", text: "Procesando archivo..." },
+          { level: "running", text: "Procesando archivo…" },
           { level: "muted", text: "Esto puede tardar varios minutos en CSV grandes." },
         ]);
       });
@@ -533,16 +551,7 @@ export function OpportunityWorkspace() {
     };
     }, [appendUploadConsoleEntries, uploadRunningJobId]);
 
-    useEffect(() => {
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === "Escape" && queryState.selectedNoticeId) {
-          setDetailState({ status: "idle" });
-          replaceQuery({ selectedNoticeId: null });
-        }
-      };
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [queryState.selectedNoticeId, replaceQuery]);
+
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -590,13 +599,14 @@ export function OpportunityWorkspace() {
     const watchlistSet = new Set(watchlistNoticeIds);
     return baseListItems.filter((item) => watchlistSet.has(item.noticeId));
   }, [baseListItems, watchlistNoticeIds, watchlistOnly]);
+
   const metrics = useMemo(
     () => (summaryState.status === "success" ? summaryState.data.metrics : []),
     [summaryState],
   );
   const pulseMetrics = metrics.filter((metric) => PRIMARY_METRIC_KEYS.has(metric.key));
   const economyMetrics = metrics.filter((metric) => !PRIMARY_METRIC_KEYS.has(metric.key));
-  const activeFilterLabels = getActiveFilterLabels(queryState);
+  const activeFilterChips = getActiveFilterChips(queryState);
   const headerMetrics = useMemo(() => {
     const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
     return HEADER_METRIC_FALLBACKS.map((fallback) => byKey.get(fallback.key) ?? fallback);
@@ -769,12 +779,64 @@ export function OpportunityWorkspace() {
     });
   };
 
-  const handleCopyNoticeCode = async (externalNoticeCode: string | null) => {
-    if (!externalNoticeCode || !navigator.clipboard) {
+  const handleCloseDetail = useCallback(() => {
+    setDetailState({ status: "idle" });
+    replaceQuery({ selectedNoticeId: null });
+  }, [replaceQuery]);
+
+  const handleCopyNoticeCode = useCallback(
+    async (externalNoticeCode: string | null): Promise<boolean> => {
+      if (!externalNoticeCode || !navigator.clipboard) {
+        return false;
+      }
+
+      try {
+        await navigator.clipboard.writeText(externalNoticeCode);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
+  const handleToggleSelectedNotice = useCallback((noticeId: string) => {
+    setSelectedExplorerNoticeIds((current) =>
+      current.includes(noticeId)
+        ? current.filter((id) => id !== noticeId)
+        : [...current, noticeId],
+    );
+  }, []);
+
+  const handleToggleAllSelectedNotices = useCallback(
+    (checked: boolean) => {
+      setSelectedExplorerNoticeIds(checked ? listItems.map((item) => item.noticeId) : []);
+    },
+    [listItems],
+  );
+
+  const handleClearSelectedNoticeIds = useCallback(() => {
+    setSelectedExplorerNoticeIds([]);
+  }, []);
+
+  const handleAddSelectedToWatchlist = useCallback(() => {
+    if (selectedExplorerNoticeIds.length === 0) {
       return;
     }
-    await navigator.clipboard.writeText(externalNoticeCode);
-  };
+
+    setWatchlistNoticeIds((current) =>
+      Array.from(new Set([...current, ...selectedExplorerNoticeIds])),
+    );
+  }, [selectedExplorerNoticeIds]);
+
+  const handleRemoveSelectedFromWatchlist = useCallback(() => {
+    if (selectedExplorerNoticeIds.length === 0) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedExplorerNoticeIds);
+    setWatchlistNoticeIds((current) => current.filter((id) => !selectedSet.has(id)));
+  }, [selectedExplorerNoticeIds]);
 
   const toggleWatchlistNotice = useCallback((noticeId: string) => {
     setWatchlistNoticeIds((current) =>
@@ -784,6 +846,104 @@ export function OpportunityWorkspace() {
     );
   }, []);
 
+  const handleExportVisibleItemsCsv = useCallback(() => {
+    if (listState.status !== "success" || listItems.length === 0) {
+      return;
+    }
+
+    const csv = buildOpportunityWorkspaceCsv(listItems, watchlistNoticeIds);
+    const fileName = `oportunidades-${new Date().toISOString().slice(0, 10)}.csv`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 0);
+  }, [listItems, listState.status, watchlistNoticeIds]);
+
+  const handlePrintVisibleSnapshot = useCallback(() => {
+    if (listState.status !== "success") {
+      return;
+    }
+    window.print();
+  }, [listState.status]);
+
+  const closeUploadSheet = useCallback(() => {
+    setIsUploadSheetOpen(false);
+    setIsUploadDragActive(false);
+  }, []);
+
+  const handleWorkspaceShortcutKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if (key === "escape") {
+        if (isUploadSheetOpen) {
+          event.preventDefault();
+          closeUploadSheet();
+          return;
+        }
+        if (queryState.selectedNoticeId) {
+          event.preventDefault();
+          handleCloseDetail();
+        }
+        return;
+      }
+
+      const hasModifier = event.ctrlKey || event.metaKey;
+      if (!hasModifier) {
+        return;
+      }
+
+      if (key === "f" && !event.shiftKey) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (event.shiftKey && key === "e") {
+        event.preventDefault();
+        handleExportVisibleItemsCsv();
+        return;
+      }
+
+      if (event.shiftKey && key === "p") {
+        event.preventDefault();
+        handlePrintVisibleSnapshot();
+      }
+    },
+    [
+      closeUploadSheet,
+      handleCloseDetail,
+      handleExportVisibleItemsCsv,
+      handlePrintVisibleSnapshot,
+      isUploadSheetOpen,
+      queryState.selectedNoticeId,
+    ],
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleWorkspaceShortcutKeyDown);
+    return () => window.removeEventListener("keydown", handleWorkspaceShortcutKeyDown);
+  }, [handleWorkspaceShortcutKeyDown]);
+
   const abortActiveUpload = useCallback(() => {
     uploadAbortRef.current?.abort();
     uploadAbortRef.current = null;
@@ -792,11 +952,6 @@ export function OpportunityWorkspace() {
   const resetUploadProgress = useCallback(() => {
     setUploadPreflightState({ status: "idle" });
     setUploadJobState({ status: "idle" });
-  }, []);
-
-  const closeUploadSheet = useCallback(() => {
-    setIsUploadSheetOpen(false);
-    setIsUploadDragActive(false);
   }, []);
 
   const handleUploadFileSelected = useCallback(
@@ -929,21 +1084,21 @@ export function OpportunityWorkspace() {
               </div>
               <h1 className="workspace-title">Espacio de oportunidades</h1>
               <p className="workspace-subtitle">
-                Prioriza licitaciones por etapa, cierre, monto y evidencia. El Centro de Ingesta
-                queda aislado en un flujo aparte, sin mutar las acciones de revisión.
+                Filtra, revisa y comparte la vista sin salir de aquí. El radar funciona como una
+                lista local de seguimiento y el Centro de Ingesta sigue separado.
               </p>
               <div className="workspace-header__meta" aria-label="Estado del espacio">
                 <Badge>{queryState.tab === "radar" ? "Radar activo" : "Lista activa"}</Badge>
                 <span>{activeFilters ? "Filtros aplicados" : "Vista base"}</span>
                 <span>{apiStatusLabel}</span>
-                <span suppressHydrationWarning>{`Hoy ${formatToday()}`}</span>
+                <span>{todayLabel}</span>
               </div>
             </div>
             <div className="workspace-header__aside">
-              <section className="workspace-mode" aria-label="Snapshot operativo">
+              <section className="workspace-mode" aria-label="Vista rápida">
                 <div className="workspace-mode__topline">
-                  <span className="workspace-mode__label">Snapshot operativo</span>
-                  <span>{`${activeFilters ? activeFilterLabels.length : 0} filtros`}</span>
+                  <span className="workspace-mode__label">Vista rápida</span>
+                  <span>{`${activeFilters ? activeFilterChips.length : 0} filtros`}</span>
                 </div>
                 <div className="workspace-mode__hero" aria-label="Resumen operativo">
                   <div>
@@ -1008,6 +1163,25 @@ export function OpportunityWorkspace() {
                   {watchlistOnly ? "Ver todo" : "Solo radar"}
                 </Button>
               </div>
+              <div className="workspace-toolbar__actions" aria-label="Exportar, imprimir y tema">
+                <ThemeToggle />
+                <Button
+                  variant="ghost"
+                  leadingIcon={<FileSpreadsheet size={14} aria-hidden="true" />}
+                  onClick={handleExportVisibleItemsCsv}
+                  disabled={listState.status !== "success" || listItems.length === 0}
+                >
+                  Exportar CSV
+                </Button>
+                <Button
+                  variant="ghost"
+                  leadingIcon={<Printer size={14} aria-hidden="true" />}
+                  onClick={handlePrintVisibleSnapshot}
+                  disabled={listState.status !== "success"}
+                >
+                  Imprimir
+                </Button>
+              </div>
               <div className="workspace-pagination" aria-label="Estado de paginación">
                 <Badge>{`Página ${queryState.page}`}</Badge>
                 {queryState.tab === "explorer" ? (
@@ -1024,8 +1198,8 @@ export function OpportunityWorkspace() {
               <span className="workspace-kicker">Pulso de oportunidades</span>
               <p>
                 {summaryState.status === "success"
-                  ? "Lectura viva por etapa, monto y evidencia disponible."
-                  : "Resumen disponible cuando responde la API de oportunidades."}
+                  ? "Resumen simple por etapa, monto y señales disponibles."
+                  : "El resumen aparece cuando responde la API de oportunidades."}
               </p>
             </div>
             {summaryState.status === "loading" ? (
@@ -1042,7 +1216,7 @@ export function OpportunityWorkspace() {
             ) : null}
             {summaryState.status === "success" && pulseMetrics.length === 0 ? (
               <div className="pulse-strip__unavailable" role="status">
-                La API no entrego metricas de pulso para los filtros actuales.
+                La API no entregó métricas de pulso para los filtros actuales.
               </div>
             ) : null}
             {summaryState.status === "success" && pulseMetrics.length > 0 ? (
@@ -1084,13 +1258,14 @@ export function OpportunityWorkspace() {
             <div className="filter-panel__header">
               <div>
                 <span className="workspace-kicker">Filtros</span>
-                <h2 className="section-title">Enfoca el análisis sin ruido</h2>
+                <h2 className="section-title">Busca y filtra sin ruido</h2>
                 <p className="section-subtitle">
-                  Búsqueda, etapas y rangos clave al frente. El resto queda como contexto.
+                  Busca lo esencial al frente. Lo avanzado queda a un clic y el resto se
+                  mantiene como contexto.
                 </p>
               </div>
               <div className="filter-panel__tools">
-                <Chip>{`${activeFilterLabels.length} activos`}</Chip>
+                <Chip>{`${activeFilterChips.length} activos`}</Chip>
                 <Button
                   variant="ghost"
                   leadingIcon={<SlidersHorizontal size={14} aria-hidden="true" />}
@@ -1098,6 +1273,40 @@ export function OpportunityWorkspace() {
                 >
                   Aplicar
                 </Button>
+                <details className="workspace-help">
+                  <summary>Ayuda rápida</summary>
+                  <div className="workspace-help__content">
+                    <div>
+                      <strong>Atajos</strong>
+                      <ul>
+                        <li>
+                          <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>F</kbd> enfoca la búsqueda.
+                        </li>
+                        <li>
+                          <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> exporta CSV.
+                        </li>
+                        <li>
+                          <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> abre impresión.
+                        </li>
+                        <li>
+                          <kbd>Esc</kbd> cierra el detalle o el centro de ingesta.
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>Glosario</strong>
+                      <ul>
+                        <li>
+                          <strong>Radar</strong>: tu lista local de seguimiento.
+                        </li>
+                        <li>
+                          <strong>Certeza de relación</strong>: señal de qué tan claro es el
+                          vínculo entre registros.
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
               </div>
             </div>
             <div className="filter-grid">
@@ -1108,6 +1317,7 @@ export function OpportunityWorkspace() {
                 <div className="input-with-icon">
                   <Search size={15} aria-hidden="true" />
                   <Input
+                    ref={searchInputRef}
                     id="workspace-search"
                     value={queryState.q}
                     placeholder="Código, nombre, comprador o categoría"
@@ -1141,28 +1351,6 @@ export function OpportunityWorkspace() {
                   <option value="public">Pública</option>
                   <option value="private">Privada</option>
                   <option value="service">Servicios</option>
-                </Select>
-              </div>
-
-              <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-status">
-                  Estado oficial
-                </label>
-                <Select
-                  id="workspace-status"
-                  value={queryState.officialStatus}
-                  onChange={(event) =>
-                    refreshList({
-                      officialStatus: event.target.value,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                >
-                  <option value="">Todos</option>
-                  <option value="abierta">Abierta</option>
-                  <option value="cerrada">Cerrada</option>
-                  <option value="adjudicada">Adjudicada</option>
                 </Select>
               </div>
 
@@ -1219,9 +1407,31 @@ export function OpportunityWorkspace() {
             <details className="advanced-filters">
               <summary>
                 <span>Filtros avanzados</span>
-                <Chip>{activeFilterLabels.length > 0 ? "Revisar estado" : "Opcional"}</Chip>
+                <Chip>{activeFilterChips.length > 0 ? "Revisar filtros" : "Opcional"}</Chip>
               </summary>
               <div className="filter-grid filter-grid--advanced">
+                <div className="filter-field">
+                  <label className="ui-label" htmlFor="workspace-status">
+                    Estado oficial
+                  </label>
+                  <Select
+                    id="workspace-status"
+                    value={queryState.officialStatus}
+                    onChange={(event) =>
+                      refreshList({
+                        officialStatus: event.target.value,
+                        page: 1,
+                        selectedNoticeId: null,
+                      })
+                    }
+                  >
+                    <option value="">Todos</option>
+                    <option value="abierta">Abierta</option>
+                    <option value="cerrada">Cerrada</option>
+                    <option value="adjudicada">Adjudicada</option>
+                  </Select>
+                </div>
+
                 <div className="filter-field">
                   <label className="ui-label" htmlFor="workspace-page-size">
                     Tamaño de página
@@ -1365,10 +1575,21 @@ export function OpportunityWorkspace() {
             </details>
 
             <div className="active-filter-row" aria-label="Filtros activos">
-              {activeFilterLabels.length === 0 ? (
+              {activeFilterChips.length === 0 ? (
                 <span>Sin filtros activos. Parte por búsqueda, etapa o menor a 100 UTM.</span>
               ) : (
-                activeFilterLabels.map((label) => <Chip key={label}>{label}</Chip>)
+                activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    className="active-filter-chip"
+                    aria-label={`Quitar filtro ${chip.label}`}
+                    onClick={() => refreshList(chip.patch)}
+                  >
+                    <span>{chip.label}</span>
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                ))
               )}
             </div>
 
@@ -1452,12 +1673,18 @@ export function OpportunityWorkspace() {
               selectedNoticeId={queryState.selectedNoticeId}
               expandedNoticeId={expandedNoticeId}
               watchlistNoticeIds={watchlistNoticeIds}
+              selectedNoticeIds={selectedExplorerNoticeIds}
               sortBy={queryState.sortBy}
               sortOrder={queryState.sortOrder}
               onSort={handleSort}
               onOpenDetail={(noticeId) => openDetail("explorer", noticeId)}
               onToggleExpanded={handleToggleExpanded}
               onToggleWatchlistNotice={toggleWatchlistNotice}
+              onToggleSelectedNotice={handleToggleSelectedNotice}
+              onToggleAllSelectedNotices={handleToggleAllSelectedNotices}
+              onClearSelectedNoticeIds={handleClearSelectedNoticeIds}
+              onAddSelectedToWatchlist={handleAddSelectedToWatchlist}
+              onRemoveSelectedFromWatchlist={handleRemoveSelectedFromWatchlist}
               explorerLoadMoreRef={explorerLoadMoreRef}
               isLoadingMoreExplorer={isLoadingMoreExplorer}
               loadMoreErrorMessage={loadMoreErrorMessage}
@@ -1705,7 +1932,7 @@ export function OpportunityWorkspace() {
                       </div>
                       <div>
                         <dt>Hash SHA-256</dt>
-                        <dd>{uploadPreflightState.data.file_hash_sha256.slice(0, 16)}...</dd>
+                        <dd>{uploadPreflightState.data.file_hash_sha256.slice(0, 16)}…</dd>
                       </div>
                       <div>
                         <dt>Tamaño</dt>
@@ -1744,7 +1971,11 @@ export function OpportunityWorkspace() {
                         <Badge>{`${uploadJobProgress.percent}%`}</Badge>
                       </div>
                       <div className="upload-progress__bar" aria-hidden="true">
-                        <span style={{ width: `${uploadJobProgress.percent}%` }} />
+                        <span
+                          style={{
+                            transform: `scaleX(${uploadJobProgress.percent / 100})`,
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
@@ -1891,10 +2122,7 @@ export function OpportunityWorkspace() {
           selectedNoticeId={queryState.selectedNoticeId}
           tab={queryState.tab}
           detailState={detailState}
-          onClose={() => {
-            setDetailState({ status: "idle" });
-            replaceQuery({ selectedNoticeId: null });
-          }}
+          onClose={handleCloseDetail}
           onRetry={() => {
             setDetailState({ status: "loading" });
             setDetailRefreshNonce((current) => current + 1);
