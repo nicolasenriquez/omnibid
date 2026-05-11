@@ -16,6 +16,11 @@
 
 These tables preserve request, payload, and snapshot lineage for the Mercado Publico notice-sync lane.
 Daily sync+Silver runs also register a logical API snapshot artifact in `source_files` with `dataset_type=mercado_publico_api_notice` so downstream `source_file_id` contracts remain explicit.
+The daily read-model propagation DAG then materializes API payload rows into existing `normalized_*` and `silver_*` tables (not a parallel schema) and records ordered pipeline steps:
+- `mp_api_rolling_refresh`
+- `mp_api_detail_enrichment`
+- `mp_api_payload_canonicalization`
+- `mp_api_silver_postprocess`
 See `docs/architecture/external_api_ingestion.md` for the API lane runtime contract and `docs/architecture/system_architecture.md` for operator/runtime boundaries.
 
 ## Raw

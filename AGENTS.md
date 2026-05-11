@@ -98,6 +98,14 @@ This file defines repository behavior guidance for coding agents in `omnibid`.
 
 - For multi-step tasks, state a brief plan and pair each step with a verification check.
 
+## Commit Hygiene
+
+- Prefer small, frequent commits that capture one coherent change set at a time.
+- When an OpenSpec task is completed, create a localized commit for that task before moving on to the next task.
+- Keep OpenSpec task commits local unless the user explicitly asks to push.
+- Write commit messages in a professional style: concise, imperative, and scoped to the actual change.
+- Avoid bundling unrelated work into a commit just to reduce commit count.
+
 ## Docker Local Runtime Policy
 
 - Canonical Docker runtime uses `docker-compose.yml` + `.env.docker`.

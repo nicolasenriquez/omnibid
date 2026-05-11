@@ -289,15 +289,15 @@ Include:
 - whether `CHANGELOG.md` must be updated now
 - spec/delta alignment checks as relevant
 
-### 9) Recommended Next Command
+### 10) Recommended Next Command
 - one exact next command
 - one fallback command
 
-### 10) Confidence
+### 11) Confidence
 - `High` | `Medium` | `Low`
 - short reason
 
-### 11) Open Questions
+### 12) Open Questions
 - only blockers requiring user input
 
 ## Definition of Done

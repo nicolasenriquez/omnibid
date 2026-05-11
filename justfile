@@ -269,22 +269,22 @@ mp-api-smoke: db-up
 [group('04 Docker Ops')]
 [doc('Run Mercado Publico active-discovery sync')]
 mp-api-sync-active *args: db-up
-    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode active-discovery {{args}}
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode active-discovery {{args}}
 
 [group('04 Docker Ops')]
 [doc('Run Mercado Publico rolling-window sync')]
 mp-api-sync-rolling *args: db-up
-    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode rolling-window {{args}}
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode rolling-window {{args}}
 
 [group('04 Docker Ops')]
 [doc('Run Mercado Publico detail-by-codigo sync')]
 mp-api-sync-detail *args: db-up
-    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/fetch_mp_api.py --mode detail-by-codigo {{args}}
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode detail-by-codigo {{args}}
 
 [group('04 Docker Ops')]
 [doc('Run Mercado Publico daily refresh: rolling sync plus Silver notice refresh')]
 mp-api-daily-refresh *args: db-up
-    {{DOCKER_COMPOSE}} run --rm --no-deps backend uv run --no-sync python scripts/run_mp_api_daily_pipeline.py {{args}}
+    {{DOCKER_COMPOSE}} run --rm --no-deps -e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/run_mp_api_daily_pipeline.py {{args}}
 
 [group('04 Docker Ops')]
 [doc('Build and smoke-test the Supabase CLI container image')]

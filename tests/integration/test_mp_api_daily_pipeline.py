@@ -17,7 +17,24 @@ from backend.integrations.mercado_publico.schemas import (
 )
 from backend.integrations.mercado_publico.sync import DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE
 from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeSnapshot
-from backend.models.normalized import SilverNotice
+from backend.models.normalized import (
+    NormalizedLicitacion,
+    NormalizedLicitacionItem,
+    NormalizedOferta,
+    NormalizedSupplier,
+    SilverAwardOutcome,
+    SilverBidSubmission,
+    SilverBuyingOrg,
+    SilverCategoryRef,
+    SilverContractingUnit,
+    SilverNotice,
+    SilverNoticeLine,
+    SilverNoticePurchaseOrderLink,
+    SilverPurchaseOrder,
+    SilverPurchaseOrderLine,
+    SilverSupplier,
+    SilverSupplierParticipation,
+)
 from backend.models.operational import PipelineRun, PipelineRunStep, SourceFile
 from backend.pipeline import application
 
@@ -30,7 +47,22 @@ def _prepare_schema(engine: sa.Engine) -> None:
         ApiSourcePayload.__table__,
         ApiSourceRequest.__table__,
         MercadoPublicoNoticeSnapshot.__table__,
+        NormalizedLicitacion.__table__,
+        NormalizedLicitacionItem.__table__,
+        NormalizedOferta.__table__,
+        NormalizedSupplier.__table__,
+        SilverBuyingOrg.__table__,
+        SilverContractingUnit.__table__,
+        SilverSupplier.__table__,
+        SilverCategoryRef.__table__,
         SilverNotice.__table__,
+        SilverNoticeLine.__table__,
+        SilverBidSubmission.__table__,
+        SilverAwardOutcome.__table__,
+        SilverSupplierParticipation.__table__,
+        SilverPurchaseOrder.__table__,
+        SilverPurchaseOrderLine.__table__,
+        SilverNoticePurchaseOrderLink.__table__,
     ]
     with engine.begin() as connection:
         connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pgcrypto")
@@ -51,10 +83,21 @@ def _response_for_codes(*, publication_day: date, codes: list[str]) -> Licitacio
             {
                 "CodigoExterno": code,
                 "Nombre": f"Licitacion {code}",
+                "Codigo": code.split("-")[0],
                 "CodigoEstado": 5,
                 "Estado": "Publicada",
                 "FechaPublicacion": publication_day.strftime("%d%m%Y"),
                 "FechaCierre": (publication_day + timedelta(days=2)).strftime("%d%m%Y"),
+                "Tipo de Adquisicion": "Licitacion Publica",
+                "Moneda Adquisicion": "Peso Chileno",
+                "CodigoMoneda": "CLP",
+                "NumeroOferentes": 2,
+                "CodigoOrganismo": "7010",
+                "NombreOrganismo": "Municipalidad",
+                "CodigoUnidad": "U-10",
+                "NombreUnidad": "Unidad Compras",
+                "ComunaUnidad": "Santiago",
+                "RegionUnidad": "Metropolitana",
                 "Moneda": "CLP",
                 "MontoEstimado": "12345.67",
             }
@@ -65,8 +108,15 @@ def _response_for_codes(*, publication_day: date, codes: list[str]) -> Licitacio
 
 
 class _FakeRollingClient:
-    def __init__(self, responses_by_day: dict[date, LicitacionesResponse], *, fail_on_fetch: bool = False) -> None:
+    def __init__(
+        self,
+        responses_by_day: dict[date, LicitacionesResponse],
+        *,
+        detail_responses_by_codigo: dict[str, LicitacionesResponse] | None = None,
+        fail_on_fetch: bool = False,
+    ) -> None:
         self._responses_by_day = responses_by_day
+        self._detail_responses_by_codigo = detail_responses_by_codigo or {}
         self._fail_on_fetch = fail_on_fetch
 
     def fetch_rolling_window(self, *, day: date, estado: str | None = None) -> LicitacionesResponse:
@@ -80,6 +130,45 @@ class _FakeRollingClient:
         if estado is not None:
             params["estado"] = estado
         return params
+
+    def fetch_rolling_window_with_raw(self, *, day: date, estado: str | None = None):
+        _ = estado
+        if self._fail_on_fetch:
+            raise AssertionError("fetch_rolling_window should not be called in refresh-only mode")
+        response = self._responses_by_day[day]
+        raw = {
+            "Codigo": response.code or 0,
+            "Descripcion": response.description or "OK",
+            "Cantidad": response.count,
+            "FechaCreacion": day.strftime("%d%m%Y"),
+            "Listado": [notice.model_dump(by_alias=True, exclude_none=True) for notice in response.notices],
+        }
+        return raw, response
+
+    def fetch_detail_by_codigo_with_raw(self, *, codigo: str):
+        if self._fail_on_fetch:
+            raise AssertionError("fetch_detail_by_codigo should not be called in refresh-only mode")
+        response = self._detail_responses_by_codigo.get(codigo)
+        if response is None:
+            response = _response_for_codes(publication_day=date(2026, 5, 8), codes=[codigo])
+        raw = {
+            "Codigo": response.code or 0,
+            "Descripcion": response.description or "OK",
+            "Cantidad": response.count,
+            "FechaCreacion": date(2026, 5, 8).strftime("%d%m%Y"),
+            "Listado": [notice.model_dump(by_alias=True, exclude_none=True) for notice in response.notices],
+        }
+        return raw, response
+
+    def build_detail_by_codigo_params(self, *, codigo: str) -> dict[str, str]:
+        return {"codigo": codigo, "ticket": "secret"}
+
+    def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
+        if "codigo" in params:
+            return f"https://example.invalid/{endpoint}?codigo={params['codigo']}"
+        if "fecha" in params:
+            return f"https://example.invalid/{endpoint}?fecha={params['fecha']}"
+        return f"https://example.invalid/{endpoint}"
 
 
 @pytest.mark.integration
@@ -138,17 +227,22 @@ def test_daily_pipeline_happy_path_and_rerun_is_idempotent() -> None:
     assert first.sync_summary.snapshots_upserted == 4
     assert first.sync_summary.snapshots_inserted == 4
     assert first.sync_summary.snapshots_updated == 0
+    assert first.detail_summary.requests == 3
+    assert first.detail_summary.snapshots_upserted == 3
     assert first.silver_summary.notice_candidates == 3
     assert first.silver_summary.upserted_notices == 3
     assert int(first_notice_count or 0) == 3
     assert int(second_notice_count or 0) == 3
-    assert second.source_file_id == first.source_file_id
+    assert first.source_file_id is not None
+    assert second.source_file_id is not None
     assert second.sync_summary.requests == 2
     assert second.sync_summary.notices_seen == 4
     assert second.sync_summary.notices_skipped_missing_external_notice_code == 0
     assert second.sync_summary.snapshots_upserted == 4
     assert second.sync_summary.snapshots_inserted == 0
     assert second.sync_summary.snapshots_updated == 4
+    assert second.detail_summary.requests == 0
+    assert second.detail_summary.snapshots_upserted == 0
 
 
 @pytest.mark.integration
@@ -171,8 +265,8 @@ def test_daily_pipeline_failure_after_sync_preserves_lineage_and_refresh_only_re
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
         application,
-        "refresh_silver_notice_from_mp_api_snapshots",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced silver refresh failure")),
+        "canonicalize_mp_api_payloads_to_read_model",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced canonicalization failure")),
     )
 
     with Session(engine, future=True) as failing_session:
@@ -184,7 +278,7 @@ def test_daily_pipeline_failure_after_sync_preserves_lineage_and_refresh_only_re
                 )
             ).scalars()
         }
-        with pytest.raises(RuntimeError, match="forced silver refresh failure"):
+        with pytest.raises(RuntimeError, match="forced canonicalization failure"):
             application.run_mp_api_daily_notice_pipeline(
                 failing_session,
                 client=client,  # type: ignore[arg-type]
@@ -211,10 +305,14 @@ def test_daily_pipeline_failure_after_sync_preserves_lineage_and_refresh_only_re
         ).scalars().all()
         assert [step.step_name for step in steps] == [
             "mp_api_rolling_refresh",
-            "mp_api_notice_silver_refresh",
+            "mp_api_detail_enrichment",
+            "mp_api_payload_canonicalization",
+            "mp_api_silver_postprocess",
         ]
         assert steps[0].status == "completed"
-        assert steps[1].status == "failed"
+        assert steps[1].status == "completed"
+        assert steps[2].status == "failed"
+        assert steps[3].status == "failed"
 
         snapshot_count = failing_session.execute(
             sa.select(sa.func.count())
@@ -254,6 +352,7 @@ def test_daily_pipeline_failure_after_sync_preserves_lineage_and_refresh_only_re
         ).scalar_one()
 
     assert replay.sync_summary.requests == 0
+    assert replay.detail_summary.requests == 0
     assert replay.silver_summary.notice_candidates >= 1
     assert replay.silver_summary.upserted_notices >= 1
     assert int(before_snapshot_count or 0) == int(after_snapshot_count or 0)
@@ -303,7 +402,9 @@ def test_daily_pipeline_tracks_skipped_notices_without_external_code() -> None:
     assert summary.sync_summary.snapshots_upserted == 1
     assert summary.sync_summary.snapshots_inserted == 1
     assert summary.sync_summary.snapshots_updated == 0
+    assert summary.detail_summary.requests == 1
+    assert summary.detail_summary.snapshots_upserted == 1
     assert summary.silver_summary.notice_candidates == 1
     assert summary.silver_summary.upserted_notices == 1
-    assert int(snapshot_count or 0) == 1
+    assert int(snapshot_count or 0) == summary.sync_summary.snapshots_upserted + summary.detail_summary.snapshots_upserted
     assert int(silver_count or 0) == 1

@@ -1,3 +1,4 @@
+export { Card } from "@/src/components/ui/card";
 export { Badge } from "@/src/components/ui/badge";
 export { Button, IconButton } from "@/src/components/ui/button";
 export { Chip } from "@/src/components/ui/chip";

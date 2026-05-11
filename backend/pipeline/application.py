@@ -23,10 +23,14 @@ from backend.integrations.mercado_publico.sync import (
 from backend.models.api_source import ApiSourcePayload, ApiSourceRequest
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
 from backend.normalized.mp_api_notice_refresh import (
-    MP_API_NOTICE_SILVER_STEP_NAME,
-    MpApiNoticeSilverRefreshSummary,
-    refresh_silver_notice_from_mp_api_snapshots,
     select_latest_notice_snapshots,
+)
+from backend.normalized.mp_api_read_model_bridge import (
+    MpApiCanonicalizationSummary,
+    MpApiSilverPostprocessSummary,
+    canonicalize_mp_api_payloads_to_read_model,
+    run_mp_api_silver_postprocess,
+    select_detail_enrichment_candidates,
 )
 from backend.ingestion.contracts import normalize_dataset_type
 from backend.nlp.runtime import (
@@ -44,6 +48,8 @@ from scripts.ingest_raw import process_registered_file  # noqa: E402
 RAW_CHUNK_SIZE = 5_000
 NORMALIZED_FETCH_SIZE = 10_000
 NORMALIZED_CHUNK_SIZE = 500
+MP_API_CANONICALIZATION_STEP_NAME = "mp_api_payload_canonicalization"
+MP_API_SILVER_POSTPROCESS_STEP_NAME = "mp_api_silver_postprocess"
 
 
 def _utc_now() -> datetime:
@@ -181,7 +187,9 @@ def _mark_pipeline_run_completed(
     *,
     source_file_id: Any,
     sync_summary: SyncSummary,
-    silver_summary: MpApiNoticeSilverRefreshSummary,
+    detail_summary: SyncSummary,
+    silver_summary: MpApiCanonicalizationSummary,
+    postprocess_summary: MpApiSilverPostprocessSummary,
 ) -> None:
     run_any = cast(Any, run)
     run_config: dict[str, Any] = _dict_any(cast(Mapping[str, Any] | None, run_any.config))
@@ -198,6 +206,42 @@ def _mark_pipeline_run_completed(
             "snapshots_inserted": sync_summary.snapshots_inserted,
             "snapshots_updated": sync_summary.snapshots_updated,
         },
+        "detail_summary": {
+            "mode": detail_summary.mode,
+            "requests": detail_summary.requests,
+            "notices_seen": detail_summary.notices_seen,
+            "notices_skipped_missing_external_notice_code": (
+                detail_summary.notices_skipped_missing_external_notice_code
+            ),
+            "snapshots_upserted": detail_summary.snapshots_upserted,
+            "snapshots_inserted": detail_summary.snapshots_inserted,
+            "snapshots_updated": detail_summary.snapshots_updated,
+        },
+        "canonicalization_summary": {
+            "payload_rows_seen": silver_summary.payload_rows_seen,
+            "payload_rows_used": silver_summary.payload_rows_used,
+            "notice_candidates": silver_summary.notice_candidates,
+            "upserted_notices": silver_summary.upserted_notices,
+            "upserted_normalized_licitaciones": silver_summary.upserted_normalized_licitaciones,
+            "upserted_normalized_licitacion_items": silver_summary.upserted_normalized_licitacion_items,
+            "upserted_normalized_ofertas": silver_summary.upserted_normalized_ofertas,
+            "upserted_normalized_suppliers": silver_summary.upserted_normalized_suppliers,
+            "upserted_silver_notice": silver_summary.upserted_silver_notice,
+            "upserted_silver_notice_line": silver_summary.upserted_silver_notice_line,
+            "upserted_silver_bid_submission": silver_summary.upserted_silver_bid_submission,
+            "upserted_silver_award_outcome": silver_summary.upserted_silver_award_outcome,
+            "upserted_silver_buying_org": silver_summary.upserted_silver_buying_org,
+            "upserted_silver_contracting_unit": silver_summary.upserted_silver_contracting_unit,
+            "upserted_silver_supplier": silver_summary.upserted_silver_supplier,
+            "upserted_silver_category_ref": silver_summary.upserted_silver_category_ref,
+            "upserted_silver_supplier_participation": silver_summary.upserted_silver_supplier_participation,
+        },
+        "silver_postprocess_summary": {
+            "notice_purchase_order_links_inserted": (
+                postprocess_summary.notice_purchase_order_links_inserted
+            ),
+        },
+        # Backward-compatible summary key used by older operator/reporting surfaces.
         "silver_refresh_summary": {
             "notice_candidates": silver_summary.notice_candidates,
             "upserted_notices": silver_summary.upserted_notices,
@@ -221,9 +265,40 @@ def _mark_pipeline_run_completed(
             "snapshots_inserted": sync_summary.snapshots_inserted,
             "snapshots_updated": sync_summary.snapshots_updated,
         },
-        "silver_refresh": {
+        "detail": {
+            "mode": detail_summary.mode,
+            "requests": detail_summary.requests,
+            "notices_seen": detail_summary.notices_seen,
+            "notices_skipped_missing_external_notice_code": (
+                detail_summary.notices_skipped_missing_external_notice_code
+            ),
+            "snapshots_upserted": detail_summary.snapshots_upserted,
+            "snapshots_inserted": detail_summary.snapshots_inserted,
+            "snapshots_updated": detail_summary.snapshots_updated,
+        },
+        "canonicalization": {
+            "payload_rows_seen": silver_summary.payload_rows_seen,
+            "payload_rows_used": silver_summary.payload_rows_used,
             "notice_candidates": silver_summary.notice_candidates,
             "upserted_notices": silver_summary.upserted_notices,
+            "upserted_normalized_licitaciones": silver_summary.upserted_normalized_licitaciones,
+            "upserted_normalized_licitacion_items": silver_summary.upserted_normalized_licitacion_items,
+            "upserted_normalized_ofertas": silver_summary.upserted_normalized_ofertas,
+            "upserted_normalized_suppliers": silver_summary.upserted_normalized_suppliers,
+            "upserted_silver_notice": silver_summary.upserted_silver_notice,
+            "upserted_silver_notice_line": silver_summary.upserted_silver_notice_line,
+            "upserted_silver_bid_submission": silver_summary.upserted_silver_bid_submission,
+            "upserted_silver_award_outcome": silver_summary.upserted_silver_award_outcome,
+            "upserted_silver_buying_org": silver_summary.upserted_silver_buying_org,
+            "upserted_silver_contracting_unit": silver_summary.upserted_silver_contracting_unit,
+            "upserted_silver_supplier": silver_summary.upserted_silver_supplier,
+            "upserted_silver_category_ref": silver_summary.upserted_silver_category_ref,
+            "upserted_silver_supplier_participation": silver_summary.upserted_silver_supplier_participation,
+        },
+        "silver_postprocess": {
+            "notice_purchase_order_links_inserted": (
+                postprocess_summary.notice_purchase_order_links_inserted
+            ),
         },
     }
 
@@ -373,7 +448,9 @@ class MpApiDailyPipelineSummary:
     run_id: UUID
     source_file_id: UUID
     sync_summary: SyncSummary
-    silver_summary: MpApiNoticeSilverRefreshSummary
+    detail_summary: SyncSummary
+    silver_summary: MpApiCanonicalizationSummary
+    postprocess_summary: MpApiSilverPostprocessSummary
 
 
 def resolve_normalized_build_processor(dataset_type: str) -> Callable[..., dict[str, Any]]:
@@ -466,6 +543,11 @@ def run_mp_api_daily_notice_pipeline(
         run_id=run.id,
         step_name=STEP_NAME_BY_MODE["rolling-window"],
     )
+    detail_step = _create_pipeline_step(
+        session,
+        run_id=run.id,
+        step_name=STEP_NAME_BY_MODE["detail-by-codigo"],
+    )
     window_dates = rolling_window_dates(anchor_day=target_date, window_days=window_days)
 
     try:
@@ -486,15 +568,36 @@ def run_mp_api_daily_notice_pipeline(
                 rows_rejected=0,
                 details={"skipped": True, "reason": "refresh_only"},
             )
+            detail_summary = SyncSummary(
+                mode="detail-by-codigo",
+                requests=0,
+                notices_seen=0,
+                notices_skipped_missing_external_notice_code=0,
+                snapshots_upserted=0,
+                snapshots_inserted=0,
+                snapshots_updated=0,
+            )
+            _mark_pipeline_step_completed(
+                detail_step,
+                rows_in=0,
+                rows_out=0,
+                rows_rejected=0,
+                details={"skipped": True, "reason": "refresh_only"},
+            )
             sync_scope_pipeline_run_id: UUID | None = None
         else:
+            rolling_window_days_for_sync = (
+                window_days
+                if max_requests is None
+                else min(window_days, max(int(max_requests), 1))
+            )
             sync_summary = execute_sync_mode(
                 session=session,
                 client=client,
                 pipeline_run_id=UUID(str(run.id)),
                 mode="rolling-window",
                 anchor_day=target_date,
-                window_days=window_days,
+                window_days=rolling_window_days_for_sync,
                 estado=estado,
                 max_requests=max_requests,
             )
@@ -513,6 +616,96 @@ def run_mp_api_daily_notice_pipeline(
                 },
             )
             sync_scope_pipeline_run_id = UUID(str(run.id))
+            remaining_requests = (
+                None
+                if max_requests is None
+                else max(0, int(max_requests) - int(sync_summary.requests))
+            )
+            if remaining_requests == 0:
+                detail_candidates = select_detail_enrichment_candidates(
+                    session,
+                    target_date=target_date,
+                    pipeline_run_id=sync_scope_pipeline_run_id,
+                    backfill_interval_days=7,
+                    max_candidates=1,
+                )
+                detail_summary = SyncSummary(
+                    mode="detail-by-codigo",
+                    requests=0,
+                    notices_seen=0,
+                    notices_skipped_missing_external_notice_code=0,
+                    snapshots_upserted=0,
+                    snapshots_inserted=0,
+                    snapshots_updated=0,
+                )
+                _mark_pipeline_step_completed(
+                    detail_step,
+                    rows_in=detail_candidates.notice_candidates,
+                    rows_out=0,
+                    rows_rejected=detail_candidates.notice_candidates,
+                    details={
+                        "detail_candidates": detail_candidates.detail_candidates,
+                        "selected_codes": 0,
+                        "skipped": True,
+                        "reason": "max_requests_exhausted_by_rolling",
+                    },
+                )
+            else:
+                detail_candidates = select_detail_enrichment_candidates(
+                    session,
+                    target_date=target_date,
+                    pipeline_run_id=sync_scope_pipeline_run_id,
+                    backfill_interval_days=7,
+                    max_candidates=remaining_requests if remaining_requests and remaining_requests > 0 else None,
+                )
+                if len(detail_candidates.selected_codes) == 0:
+                    detail_summary = SyncSummary(
+                        mode="detail-by-codigo",
+                        requests=0,
+                        notices_seen=0,
+                        notices_skipped_missing_external_notice_code=0,
+                        snapshots_upserted=0,
+                        snapshots_inserted=0,
+                        snapshots_updated=0,
+                    )
+                    _mark_pipeline_step_completed(
+                        detail_step,
+                        rows_in=detail_candidates.notice_candidates,
+                        rows_out=0,
+                        rows_rejected=detail_candidates.notice_candidates,
+                        details={
+                            "detail_candidates": detail_candidates.detail_candidates,
+                            "selected_codes": 0,
+                            "skipped": True,
+                            "reason": "no_candidates",
+                        },
+                    )
+                else:
+                    detail_summary = execute_sync_mode(
+                        session=session,
+                        client=client,
+                        pipeline_run_id=UUID(str(run.id)),
+                        mode="detail-by-codigo",
+                        codigos=list(detail_candidates.selected_codes),
+                        max_requests=remaining_requests,
+                    )
+                    _mark_pipeline_step_completed(
+                        detail_step,
+                        rows_in=detail_candidates.notice_candidates,
+                        rows_out=detail_summary.snapshots_upserted,
+                        rows_rejected=max(
+                            detail_candidates.notice_candidates - detail_summary.snapshots_upserted,
+                            0,
+                        ),
+                        details={
+                            "detail_candidates": detail_candidates.detail_candidates,
+                            "selected_codes": len(detail_candidates.selected_codes),
+                            "requests": detail_summary.requests,
+                            "snapshots_upserted": detail_summary.snapshots_upserted,
+                            "snapshots_inserted": detail_summary.snapshots_inserted,
+                            "snapshots_updated": detail_summary.snapshots_updated,
+                        },
+                    )
 
         source_file = _register_mp_api_snapshot_source_file(
             session,
@@ -525,26 +718,78 @@ def run_mp_api_daily_notice_pipeline(
         run_any = cast(Any, run)
         run_any.source_file_id = source_file.id
 
-        silver_step = _create_pipeline_step(
+        canonical_step = _create_pipeline_step(
             session,
             run_id=run.id,
-            step_name=MP_API_NOTICE_SILVER_STEP_NAME,
+            step_name=MP_API_CANONICALIZATION_STEP_NAME,
+        )
+        postprocess_step = _create_pipeline_step(
+            session,
+            run_id=run.id,
+            step_name=MP_API_SILVER_POSTPROCESS_STEP_NAME,
         )
         try:
-            silver_summary = refresh_silver_notice_from_mp_api_snapshots(
+            silver_summary = canonicalize_mp_api_payloads_to_read_model(
                 session,
                 source_file_id=source_file.id,
                 pipeline_run_id=sync_scope_pipeline_run_id,
                 window_dates=None if sync_scope_pipeline_run_id is not None else window_dates,
             )
             _mark_pipeline_step_completed(
-                silver_step,
-                rows_in=silver_summary.notice_candidates,
-                rows_out=silver_summary.upserted_notices,
-                rows_rejected=max(silver_summary.notice_candidates - silver_summary.upserted_notices, 0),
+                canonical_step,
+                rows_in=silver_summary.payload_rows_seen,
+                rows_out=(
+                    silver_summary.upserted_normalized_licitaciones
+                    + silver_summary.upserted_normalized_licitacion_items
+                    + silver_summary.upserted_normalized_ofertas
+                    + silver_summary.upserted_normalized_suppliers
+                    + silver_summary.upserted_silver_notice
+                    + silver_summary.upserted_silver_notice_line
+                    + silver_summary.upserted_silver_bid_submission
+                    + silver_summary.upserted_silver_award_outcome
+                    + silver_summary.upserted_silver_buying_org
+                    + silver_summary.upserted_silver_contracting_unit
+                    + silver_summary.upserted_silver_supplier
+                    + silver_summary.upserted_silver_category_ref
+                    + silver_summary.upserted_silver_supplier_participation
+                ),
+                rows_rejected=max(silver_summary.payload_rows_seen - silver_summary.payload_rows_used, 0),
+                details={
+                    "payload_rows_used": silver_summary.payload_rows_used,
+                    "notice_candidates": silver_summary.notice_candidates,
+                    "upserted_notices": silver_summary.upserted_notices,
+                    "upserted_normalized_licitaciones": (
+                        silver_summary.upserted_normalized_licitaciones
+                    ),
+                    "upserted_normalized_licitacion_items": (
+                        silver_summary.upserted_normalized_licitacion_items
+                    ),
+                    "upserted_normalized_ofertas": silver_summary.upserted_normalized_ofertas,
+                    "upserted_normalized_suppliers": silver_summary.upserted_normalized_suppliers,
+                    "upserted_silver_notice_line": silver_summary.upserted_silver_notice_line,
+                    "upserted_silver_bid_submission": silver_summary.upserted_silver_bid_submission,
+                    "upserted_silver_award_outcome": silver_summary.upserted_silver_award_outcome,
+                },
+            )
+            postprocess_summary = run_mp_api_silver_postprocess(session)
+            _mark_pipeline_step_completed(
+                postprocess_step,
+                rows_in=silver_summary.upserted_notices,
+                rows_out=postprocess_summary.notice_purchase_order_links_inserted,
+                rows_rejected=0,
+                details={
+                    "notice_purchase_order_links_inserted": (
+                        postprocess_summary.notice_purchase_order_links_inserted
+                    ),
+                },
             )
         except Exception as exc:
-            _mark_pipeline_step_failed(silver_step, error_message=str(exc))
+            canonical_step_any = cast(Any, canonical_step)
+            if str(canonical_step_any.status) == "running":
+                _mark_pipeline_step_failed(canonical_step, error_message=str(exc))
+            postprocess_step_any = cast(Any, postprocess_step)
+            if str(postprocess_step_any.status) == "running":
+                _mark_pipeline_step_failed(postprocess_step, error_message=str(exc))
             _mark_pipeline_run_failed(run, error_message=str(exc))
             raise
 
@@ -552,18 +797,25 @@ def run_mp_api_daily_notice_pipeline(
             run,
             source_file_id=source_file.id,
             sync_summary=sync_summary,
+            detail_summary=detail_summary,
             silver_summary=silver_summary,
+            postprocess_summary=postprocess_summary,
         )
         return MpApiDailyPipelineSummary(
             run_id=UUID(str(run.id)),
             source_file_id=UUID(str(source_file.id)),
             sync_summary=sync_summary,
+            detail_summary=detail_summary,
             silver_summary=silver_summary,
+            postprocess_summary=postprocess_summary,
         )
     except Exception as exc:
         rolling_step_any = cast(Any, rolling_step)
         if str(rolling_step_any.status) == "running":
             _mark_pipeline_step_failed(rolling_step, error_message=str(exc))
+        detail_step_any = cast(Any, detail_step)
+        if str(detail_step_any.status) == "running":
+            _mark_pipeline_step_failed(detail_step, error_message=str(exc))
         _mark_pipeline_run_failed(run, error_message=str(exc))
         raise
 

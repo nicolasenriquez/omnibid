@@ -106,22 +106,39 @@ class MercadoPublicoClient:
         raise MercadoPublicoRequestError("Mercado Publico request failed")
 
     def fetch_active_discovery(self) -> LicitacionesResponse:
+        _payload, response = self.fetch_active_discovery_with_raw()
+        return response
+
+    def fetch_active_discovery_with_raw(self) -> tuple[dict[str, Any], LicitacionesResponse]:
         payload = self._fetch_json(
             endpoint=LICITACIONES_ENDPOINT,
             params=self.build_active_discovery_params(),
         )
-        return parse_licitaciones_response(payload)
+        return payload, parse_licitaciones_response(payload)
 
     def fetch_rolling_window(self, *, day: date, estado: str | None = None) -> LicitacionesResponse:
+        _payload, response = self.fetch_rolling_window_with_raw(day=day, estado=estado)
+        return response
+
+    def fetch_rolling_window_with_raw(
+        self,
+        *,
+        day: date,
+        estado: str | None = None,
+    ) -> tuple[dict[str, Any], LicitacionesResponse]:
         payload = self._fetch_json(
             endpoint=LICITACIONES_ENDPOINT,
             params=self.build_rolling_window_params(day=day, estado=estado),
         )
-        return parse_licitaciones_response(payload)
+        return payload, parse_licitaciones_response(payload)
 
     def fetch_detail_by_codigo(self, *, codigo: str) -> LicitacionesResponse:
+        _payload, response = self.fetch_detail_by_codigo_with_raw(codigo=codigo)
+        return response
+
+    def fetch_detail_by_codigo_with_raw(self, *, codigo: str) -> tuple[dict[str, Any], LicitacionesResponse]:
         payload = self._fetch_json(
             endpoint=LICITACIONES_ENDPOINT,
             params=self.build_detail_by_codigo_params(codigo=codigo),
         )
-        return parse_licitaciones_response(payload)
+        return payload, parse_licitaciones_response(payload)

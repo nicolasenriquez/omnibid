@@ -4,6 +4,7 @@ import pytest
 
 from backend.core.config import (
     Settings,
+    normalize_app_env,
     validate_database_runtime_contract,
     validate_mercado_publico_contract,
     validate_production_database_safety,
@@ -57,6 +58,30 @@ def test_validate_database_runtime_contract_rejects_runtime_test_database() -> N
 def test_validate_database_runtime_contract_rejects_blank_database_url() -> None:
     with pytest.raises(ValueError, match="DATABASE_URL is not set"):
         validate_database_runtime_contract("   ", "postgresql+psycopg://postgres:postgres@localhost:5433/chilecompra_test")
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("development", "development"),
+        ("DEVELOPMENT", "development"),
+        (" dev ", "development"),
+        ("local", "development"),
+        ("production", "production"),
+        ("PROD", "production"),
+        (" prod ", "production"),
+    ],
+)
+def test_normalize_app_env_accepts_canonical_and_legacy_aliases(
+    raw_value: str,
+    expected: str,
+) -> None:
+    assert normalize_app_env(raw_value) == expected
+
+
+def test_normalize_app_env_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError, match="APP_ENV must be one of development, production"):
+        normalize_app_env("staging")
 
 
 def test_validate_mercado_publico_contract_rejects_enabled_without_api_key() -> None:

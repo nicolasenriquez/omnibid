@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -245,6 +245,22 @@ def test_daily_pipeline_dry_run_does_not_open_db_session(
     assert "dry-run ok" in output
 
 
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (datetime(2026, 5, 8, 15, tzinfo=UTC), date(2026, 5, 8)),
+        (datetime(2026, 5, 10, 15, tzinfo=UTC), date(2026, 5, 8)),
+        (datetime(2026, 5, 11, 2, tzinfo=UTC), date(2026, 5, 8)),
+        (datetime(2026, 5, 12, 15, tzinfo=UTC), date(2026, 5, 12)),
+    ],
+)
+def test_default_target_date_uses_current_weekday_and_previous_friday_on_weekends(
+    now: datetime,
+    expected: date,
+) -> None:
+    assert run_mp_api_daily_pipeline._default_target_date(now) == expected  # noqa: SLF001
+
+
 def test_daily_pipeline_rejects_weak_production_database_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -268,3 +284,24 @@ def test_daily_pipeline_rejects_weak_production_database_config(
 
     with pytest.raises(ValueError, match="requires a non-local DATABASE_URL host"):
         run_mp_api_daily_pipeline.main()
+
+
+def test_sync_operator_recipes_explicitly_enable_mp_api() -> None:
+    justfile_content = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+
+    assert "mp-api-sync-active *args: db-up" in justfile_content
+    assert (
+        "-e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode active-discovery"
+    ) in justfile_content
+    assert "mp-api-sync-rolling *args: db-up" in justfile_content
+    assert (
+        "-e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode rolling-window"
+    ) in justfile_content
+    assert "mp-api-sync-detail *args: db-up" in justfile_content
+    assert (
+        "-e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/fetch_mp_api.py --mode detail-by-codigo"
+    ) in justfile_content
+    assert "mp-api-daily-refresh *args: db-up" in justfile_content
+    assert (
+        "-e MERCADO_PUBLICO_API_ENABLED=true backend uv run --no-sync python scripts/run_mp_api_daily_pipeline.py"
+    ) in justfile_content

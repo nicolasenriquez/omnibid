@@ -48,7 +48,7 @@ services:
       dockerfile: Dockerfile
       target: runtime
     environment:
-      APP_ENV: ${APP_ENV:-local}
+      APP_ENV: ${APP_ENV:-development}
       APP_NAME: ${APP_NAME:-app-chilecompra}
       APP_PORT: ${APP_PORT:-8000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -113,7 +113,7 @@ services:
     profiles:
       - tools
     environment:
-      APP_ENV: ${APP_ENV:-local}
+      APP_ENV: ${APP_ENV:-development}
       APP_NAME: ${APP_NAME:-app-chilecompra}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chilecompra

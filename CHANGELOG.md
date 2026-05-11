@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Environment contract separation runbook + SDD reference:
+  - canonical matrix for host dev, Docker dev, CI, and production env authority
+  - documented `development` vs `production` semantics and legacy alias transition behavior
+  - explicit Mercado Publico sync-lane opt-in guidance for API enablement
 - Mercado Publico API notice-ingestion lane (operator-driven, backend-only):
   - API client + typed schema parsing for `licitaciones` in active discovery, rolling window, and detail-by-code modes
   - persisted request/payload/snapshot lineage (`api_source_request`, `api_source_payload`, `mercado_publico_notice_snapshot`)
@@ -29,10 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenSpec evidence for `incremental-ingestion-foundation`:
   - proposal/design/spec/tasks + validation record
   - SDD reference note and queue runbook
+- Mercado Publico API read-model propagation bridge:
+  - persisted API payload canonicalization into existing Normalized + Silver entities using current transform builders
+  - staged daily DAG: rolling sync -> selective detail enrichment -> payload canonicalization -> Silver postprocess
+  - stage-level run stats and operator summary fields for detail/canonicalization/postprocess counts
+  - bridge unit tests plus integration coverage updates for the expanded daily step graph
 
 ### Planned
 - Procurement investigation workspace API routes (documented, pending wiring in `backend/main.py`)
 - Gold-layer predictive scoring and forecasting (stage-gated; forbidden in Silver)
+
+### Changed
+- Environment runtime contract defaults now use canonical `APP_ENV=development` for local templates and Docker runtime defaults.
+- Config validation now normalizes legacy `APP_ENV` aliases (`local`, `dev`, `prod`) to canonical values and rejects unknown values.
+- Mercado Publico sync operator recipes explicitly inject `MERCADO_PUBLICO_API_ENABLED=true` so sync execution no longer depends on `.env.docker` defaults.
+- Scheduled/manual Mercado Publico GitHub Actions sync now sets `APP_ENV=production` explicitly during run execution.
+- Daily Mercado Publico pipeline now defaults to the previous business day on weekends instead of using Sunday as the rolling anchor.
+- Daily Mercado Publico `--max-requests` behavior now caps rolling-window API calls safely and skips detail enrichment when the request budget is exhausted in rolling.
 
 ---
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -37,23 +38,25 @@ def _patch_runtime_guards(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _response_with_codes(*codes: str):
-    return parse_licitaciones_response(
-        {
-            "Codigo": 0,
-            "Descripcion": "OK",
-            "Cantidad": len(codes),
-            "Listado": [
-                {
-                    "CodigoExterno": code,
-                    "Nombre": f"Licitacion {code}",
-                    "CodigoEstado": 5,
-                    "Estado": "Publicada",
-                    "FechaPublicacion": "08052026",
-                }
-                for code in codes
-            ],
-        }
-    )
+    return parse_licitaciones_response(_raw_payload_with_codes(*codes))
+
+
+def _raw_payload_with_codes(*codes: str) -> dict[str, Any]:
+    return {
+        "Version": "v1",
+        "Cantidad": len(codes),
+        "FechaCreacion": "08052026",
+        "Listado": [
+            {
+                "CodigoExterno": code,
+                "Nombre": f"Licitacion {code}",
+                "CodigoEstado": 5,
+                "Estado": "Publicada",
+                "FechaPublicacion": "08052026",
+            }
+            for code in codes
+        ],
+    }
 
 
 def test_rolling_window_dates_returns_t_to_t_minus_n() -> None:
@@ -67,7 +70,7 @@ def test_rolling_window_dates_returns_t_to_t_minus_n() -> None:
 
 
 def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, object]] = []
+    calls: list[dict[str, Any]] = []
     _patch_runtime_guards(monkeypatch)
 
     class _SessionWithExecute:
@@ -77,8 +80,9 @@ def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pyte
     class FakeClient:
         settings = SimpleNamespace(daily_request_limit=10000)
 
-        def fetch_active_discovery(self):
-            return _response_with_codes("100-1-LR26", "100-2-LR26")
+        def fetch_active_discovery_with_raw(self):
+            raw = _raw_payload_with_codes("100-1-LR26", "100-2-LR26")
+            return raw, parse_licitaciones_response(raw)
 
         def build_active_discovery_params(self):
             return {"estado": "activas", "ticket": "secret"}
@@ -112,6 +116,10 @@ def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pyte
     assert summary.snapshots_updated == 0
     assert calls[0]["resource_key"] == "estado=activas"
     assert calls[0]["requested_at"] is not None
+    payload = calls[0]["payload"]
+    assert payload["Version"] == "v1"
+    assert "Codigo" not in payload
+    assert "Descripcion" not in payload
 
 
 def test_execute_sync_mode_rolling_window_handles_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,10 +129,11 @@ def test_execute_sync_mode_rolling_window_handles_empty_result(monkeypatch: pyte
     class FakeClient:
         settings = SimpleNamespace(daily_request_limit=10000)
 
-        def fetch_rolling_window(self, *, day: date, estado: str | None = None):
+        def fetch_rolling_window_with_raw(self, *, day: date, estado: str | None = None):
             _ = day, estado
             call_count["value"] += 1
-            return _response_with_codes()
+            raw = _raw_payload_with_codes()
+            return raw, parse_licitaciones_response(raw)
 
         def build_rolling_window_params(self, *, day: date, estado: str | None = None):
             params = {"fecha": day.strftime("%d%m%Y"), "ticket": "secret"}
@@ -182,9 +191,10 @@ def test_execute_sync_mode_detail_by_codigo_iterates_codes(monkeypatch: pytest.M
     class FakeClient:
         settings = SimpleNamespace(daily_request_limit=10000)
 
-        def fetch_detail_by_codigo(self, *, codigo: str):
+        def fetch_detail_by_codigo_with_raw(self, *, codigo: str):
             seen.append(codigo)
-            return _response_with_codes(codigo)
+            raw = _raw_payload_with_codes(codigo)
+            return raw, parse_licitaciones_response(raw)
 
         def build_detail_by_codigo_params(self, *, codigo: str):
             return {"codigo": codigo, "ticket": "secret"}
@@ -230,7 +240,7 @@ def test_execute_sync_mode_propagates_retry_exhaustion_error() -> None:
         def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
             return f"https://example.invalid/{endpoint}?{params.get('estado', '')}"
 
-        def fetch_active_discovery(self):
+        def fetch_active_discovery_with_raw(self):
             raise MercadoPublicoRequestError("retry budget exhausted")
 
     with pytest.raises(MercadoPublicoRequestError, match="retry budget exhausted"), pytest.MonkeyPatch.context() as mp:
@@ -253,7 +263,7 @@ def test_execute_sync_mode_propagates_contract_drift_error() -> None:
         def build_safe_url(self, *, endpoint: str, params: dict[str, str]) -> str:
             return f"https://example.invalid/{endpoint}?{params.get('estado', '')}"
 
-        def fetch_active_discovery(self):
+        def fetch_active_discovery_with_raw(self):
             raise MercadoPublicoContractDriftError("unexpected shape")
 
     with pytest.raises(MercadoPublicoContractDriftError, match="unexpected shape"), pytest.MonkeyPatch.context() as mp:
@@ -353,9 +363,10 @@ def test_execute_sync_mode_fails_fast_on_lock_contention(monkeypatch: pytest.Mon
         def build_active_discovery_params(self):
             return {"estado": "activas", "ticket": "secret"}
 
-        def fetch_active_discovery(self):
+        def fetch_active_discovery_with_raw(self):
             fetch_calls["value"] += 1
-            return _response_with_codes("100-1-LR26")
+            raw = _raw_payload_with_codes("100-1-LR26")
+            return raw, parse_licitaciones_response(raw)
 
     def _raise_lock(*_args, **_kwargs) -> int:
         raise RuntimeError("scoped advisory lock not available for key=mercado_publico:active_discovery")
