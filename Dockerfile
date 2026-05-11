@@ -22,6 +22,7 @@ RUN addgroup --gid 1000 app && adduser --uid 1000 --ingroup app --home /home/app
 USER app
 
 COPY --chown=app:app pyproject.toml uv.lock alembic.ini ./
+COPY --chown=app:app justfile ./
 COPY --chown=app:app alembic ./alembic
 
 RUN --mount=type=cache,target=/tmp/uv-cache,uid=1000,gid=1000 \

@@ -9,3 +9,5 @@ type PanelProps = HTMLAttributes<HTMLDivElement> & {
 export function Panel({ dense = false, className, ...props }: PanelProps) {
   return <div className={cn("ui-panel", dense ? "ui-panel--dense" : null, className)} {...props} />;
 }
+
+export type { PanelProps };

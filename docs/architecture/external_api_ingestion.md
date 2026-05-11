@@ -74,7 +74,7 @@ Modes:
 - `active-discovery`
 - `rolling-window`
 - `detail-by-codigo`
-- `daily rolling-window + silver notice refresh`
+- `daily rolling-window + selective detail + canonicalization + Silver postprocess`
 
 Operational lineage:
 - dataset type: `mercado_publico_api_notice`
@@ -82,12 +82,14 @@ Operational lineage:
   - `mp_api_discovery_active`
   - `mp_api_rolling_refresh`
   - `mp_api_detail_enrichment`
-  - `mp_api_notice_silver_refresh` (daily pipeline only)
+  - `mp_api_payload_canonicalization` (daily pipeline only)
+  - `mp_api_silver_postprocess` (daily pipeline only)
 
 Daily pipeline behavior:
-- one parent run composes sync + Silver notice refresh
+- one parent run composes rolling sync + selective detail sync + canonicalization + Silver postprocess
 - logical API snapshot artifact is registered in `source_files`
-- `silver_notice` upsert uses stable `notice_id` and deterministic row hash
+- read-model canonicalization uses existing transform builders and complete-only upsert semantics
+- `silver_notice` upsert keeps stable `notice_id` and deterministic row hash
 - replay can run from persisted snapshots without upstream API calls
 
 ### Operator Surface

@@ -2,25 +2,28 @@
 
 This runbook describes how to operate:
 
-- the notice-only Mercado Publico API sync lane
-- the daily notice canonicalization lane (rolling sync + Silver notice refresh)
+- the Mercado Publico API sync lane (active/rolling/detail)
+- the daily read-model propagation lane (rolling sync + selective detail + canonicalization + Silver postprocess)
 
 ## Scope
 
 - Backend-only.
 - Operator-driven execution.
-- Notice sync and notice-level Silver refresh only.
-- No CSV historical backfill replacement and no line/bid/award/order synthesis in this lane.
+- API request/payload/snapshot persistence.
+- API payload canonicalization into existing Normalized + Silver canonical tables.
+- No frontend contract mutations in this lane.
 
 ## Runtime Preconditions
 
 - Docker daemon available.
 - Local stack uses `docker-compose.yml` + both `.env` and `.env.docker`.
-- `.env` carries the local Mercado Publico API ticket.
-- `.env.docker` carries Docker-specific nonsecret overrides.
-- API sync enabled and key configured:
-  - `MERCADO_PUBLICO_API_ENABLED=true`
+- `.env` can carry a local Mercado Publico API ticket when running sync commands locally.
+- `.env.docker` is safe-by-default and keeps `MERCADO_PUBLICO_API_ENABLED=false`.
+- Sync commands opt in explicitly at runtime with `MERCADO_PUBLICO_API_ENABLED=true`.
+- API key is still required when sync is enabled:
   - `MERCADO_PUBLICO_API_KEY=<ticket>`
+
+See [`environment-contract.md`](environment-contract.md) for the full host/Docker/CI/production authority matrix.
 
 ## Sync-Only Modes (Troubleshooting and Replay)
 
@@ -67,12 +70,16 @@ Optional:
 - `--requested-by <label>`
 - `--max-requests <n>`
 
-## Daily Canonical Notice Lane
+## Daily Read-Model Propagation Lane
 
 Purpose:
 
-- Run the daily rolling-window sync and refresh canonical `silver_notice` rows in one operator command.
-- Preserve API lineage even if Silver refresh fails.
+- Run one staged daily DAG in a single operator command:
+  - rolling-window discovery sync
+  - selective `detail-by-codigo` enrichment
+  - canonicalization bridge into existing Normalized + Silver tables
+  - Silver postprocess refresh
+- Preserve API lineage end-to-end even when downstream canonicalization fails.
 
 Command:
 
@@ -93,6 +100,12 @@ just mp-api-daily-refresh --target-date YYYY-MM-DD --window-days 4 --refresh-onl
 ```
 
 `--refresh-only` reuses persisted snapshots for the target window and skips upstream sync intentionally.
+
+If `--target-date` is omitted, the daily pipeline uses the current `America/Santiago` date on weekdays and the previous Friday on weekends.
+
+Implementation note:
+- `just mp-api-daily-refresh` sets `MERCADO_PUBLICO_API_ENABLED=true` inline in the Compose run command.
+- This prevents accidental dependence on `.env.docker` defaults.
 
 ## Smoke Check
 
@@ -152,12 +165,15 @@ Daily executions write one parent run with ordered steps:
 - `PipelineRun.dataset_type=mercado_publico_api_notice`
 - step names:
   - `mp_api_rolling_refresh`
-  - `mp_api_notice_silver_refresh`
+  - `mp_api_detail_enrichment`
+  - `mp_api_payload_canonicalization`
+  - `mp_api_silver_postprocess`
 
-Daily runs also register a logical API snapshot `source_files` artifact (`dataset_type=mercado_publico_api_notice`) so `source_file_id` lineage is preserved for downstream canonical Silver rows.
+Daily runs also register a logical API snapshot `source_files` artifact (`dataset_type=mercado_publico_api_notice`) so `source_file_id` lineage is preserved for downstream canonical Normalized + Silver rows.
 
 ## Security Notes
 
 - `ticket` is excluded from canonical request hash inputs.
 - safe URLs/logging paths redact sensitive query parameters.
-- this lane remains bounded to notice sync + notice Silver refresh; it does not replace CSV/manual ingestion flows.
+- this lane remains bounded to API-source read-model propagation; it does not replace CSV/manual ingestion flows.
+- GitHub Actions scheduled/manual sync runs with `APP_ENV=production`, `DATABASE_URL` from `MP_API_DATABASE_URL`, and `MERCADO_PUBLICO_API_KEY` from repository secrets.

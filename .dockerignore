@@ -22,5 +22,4 @@ dist/
 /screenshots/
 /client/screenshots/
 README.md
-justfile
 docker-compose.yml

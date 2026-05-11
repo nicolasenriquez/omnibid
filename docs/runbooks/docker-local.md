@@ -20,8 +20,11 @@ For agents, this runbook is the first execution plan for backend, database, pipe
 ## Initial Setup
 
 1. Review `.env.docker`.
-2. Set `DATASET_HOST_PATH` to your local dataset folder.
-3. If needed, change `POSTGRES_PASSWORD` and update `DATABASE_URL` / `TEST_DATABASE_URL` accordingly.
+2. Keep `APP_ENV=development` for local Docker runtime.
+3. Set `DATASET_HOST_PATH` to your local dataset folder.
+4. If needed, change `POSTGRES_PASSWORD` and update `DATABASE_URL` / `TEST_DATABASE_URL` accordingly.
+
+For the full environment source matrix (host dev, Docker dev, CI, production), see [`environment-contract.md`](environment-contract.md).
 
 ## Canonical Commands
 
@@ -56,6 +59,8 @@ When issuing commands as an agent and `rtk` is available, prefix workflow comman
 - `rtk just docker-smoke`
 
 If a container-backed command cannot be used, state the reason before using the closest host-local fallback. Do not promote the fallback command to the canonical workflow.
+
+Mercado Publico operator sync recipes (`mp-api-sync-*`, `mp-api-daily-refresh`) explicitly inject `MERCADO_PUBLICO_API_ENABLED=true` at runtime so they never depend on the safe default (`false`) in `.env.docker`.
 
 ## Frontend Pairing
 

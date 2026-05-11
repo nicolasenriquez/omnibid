@@ -12,10 +12,13 @@ If RTK on Windows keeps falling back to the proxy shim, use [`rtk-wsl-hardening.
 
 1. `cp .env.example .env`
 2. Review `.env.docker` dataset mount/config values.
-3. Start full local stack:
+3. Keep `APP_ENV=development` in both local templates unless you are running an explicitly production-scoped job.
+4. Start full local stack:
    - `just compose-up`
-4. Open API docs:
+5. Open API docs:
    - `http://localhost:8000/docs`
+
+For host vs Docker vs CI vs production environment authority, use [`environment-contract.md`](environment-contract.md).
 
 ## Daily Commands
 
@@ -36,6 +39,8 @@ For agent-issued workflow commands, use the `rtk` prefix when available:
 - `rtk just rtk-unpin-wsl`
 
 Host-local equivalents such as `uv run pytest`, `.venv/bin/pytest`, or direct `python` commands are not the primary plan for agents. Prefer the matching container-backed `just` recipe first; fall back only with an explicit reason.
+
+Mercado Publico sync recipes (`just mp-api-sync-*`, `just mp-api-daily-refresh`) explicitly set `MERCADO_PUBLICO_API_ENABLED=true` so the command path is deterministic even when `.env.docker` keeps the safe default `false`.
 
 ## Frontend Workflow (`client/`)
 

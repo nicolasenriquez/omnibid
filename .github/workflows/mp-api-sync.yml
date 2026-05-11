@@ -90,6 +90,7 @@ jobs:
           fi
 
           docker compose --env-file .env.docker -f docker-compose.yml run --rm --no-deps \
+            -e APP_ENV=production \
             -e DATABASE_URL="${MP_API_DATABASE_URL}" \
             -e MERCADO_PUBLICO_API_ENABLED=true \
             -e MERCADO_PUBLICO_API_KEY="${MERCADO_PUBLICO_API_KEY}" \

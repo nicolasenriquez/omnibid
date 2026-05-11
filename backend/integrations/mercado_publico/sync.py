@@ -271,7 +271,7 @@ def execute_sync_mode(
                     daily_limit=daily_limit,
                     requested_at=requested_at,
                 )
-            response = client.fetch_active_discovery()
+            raw_payload, response = client.fetch_active_discovery_with_raw()
             persisted = persist_notice_batch(
                 session,
                 pipeline_run_id=pipeline_run_id,
@@ -282,7 +282,7 @@ def execute_sync_mode(
                 request_url_safe=safe_url,
                 source_mode=mode,
                 requested_at=requested_at,
-                payload=response.model_dump(by_alias=True, exclude_none=False),
+                payload=raw_payload,
                 notices=response.notices,
             )
             responses.append(response)
@@ -327,7 +327,7 @@ def execute_sync_mode(
                         daily_limit=daily_limit,
                         requested_at=requested_at,
                     )
-                response = client.fetch_rolling_window(day=day, estado=estado)
+                raw_payload, response = client.fetch_rolling_window_with_raw(day=day, estado=estado)
                 batch = persist_notice_batch(
                     session,
                     pipeline_run_id=pipeline_run_id,
@@ -338,7 +338,7 @@ def execute_sync_mode(
                     request_url_safe=safe_url,
                     source_mode=mode,
                     requested_at=requested_at,
-                    payload=response.model_dump(by_alias=True, exclude_none=False),
+                    payload=raw_payload,
                     notices=response.notices,
                 )
                 responses.append(response)
@@ -383,7 +383,7 @@ def execute_sync_mode(
                         daily_limit=daily_limit,
                         requested_at=requested_at,
                     )
-                response = client.fetch_detail_by_codigo(codigo=normalized_codigo)
+                raw_payload, response = client.fetch_detail_by_codigo_with_raw(codigo=normalized_codigo)
                 batch = persist_notice_batch(
                     session,
                     pipeline_run_id=pipeline_run_id,
@@ -394,7 +394,7 @@ def execute_sync_mode(
                     request_url_safe=safe_url,
                     source_mode=mode,
                     requested_at=requested_at,
-                    payload=response.model_dump(by_alias=True, exclude_none=False),
+                    payload=raw_payload,
                     notices=response.notices,
                 )
                 responses.append(response)

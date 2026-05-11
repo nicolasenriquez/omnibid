@@ -72,9 +72,9 @@ function SortHeader({
       <span>{label}</span>
       {active ? (
         <ChevronDown
+          className={sortOrder === "asc" ? "table-sort__icon table-sort__icon--ascending" : "table-sort__icon"}
           size={13}
           aria-hidden="true"
-          style={{ transform: sortOrder === "asc" ? "rotate(180deg)" : undefined }}
         />
       ) : null}
     </span>
@@ -216,7 +216,7 @@ export function WorkspaceExplorerTable({
                   }
                 }}
                 tabIndex={0}
-                style={{ cursor: "pointer" }}
+                className="table-sort-header table-sort-header--interactive"
               >
                 <SortHeader
                   label="Monto"
@@ -235,7 +235,7 @@ export function WorkspaceExplorerTable({
                   }
                 }}
                 tabIndex={0}
-                style={{ cursor: "pointer" }}
+                className="table-sort-header table-sort-header--interactive"
               >
                 <SortHeader
                   label="Cierre"

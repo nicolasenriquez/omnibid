@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import UTC, date, datetime
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -21,12 +22,26 @@ from backend.integrations.mercado_publico import (  # noqa: E402
 )
 from backend.pipeline.application import run_mp_api_daily_notice_pipeline  # noqa: E402
 
+SANTIAGO_TIMEZONE = ZoneInfo("America/Santiago")
+
 
 def _parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid ISO date: {value}") from exc
+
+
+def _default_target_date(now: datetime | None = None) -> date:
+    current = (now or datetime.now(UTC)).astimezone(SANTIAGO_TIMEZONE).date()
+    weekday = current.weekday()
+    if weekday == 5:
+        offset = 1
+    elif weekday == 6:
+        offset = 2
+    else:
+        offset = 0
+    return current.fromordinal(current.toordinal() - offset)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -36,8 +51,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--target-date",
         type=_parse_date,
-        default=date.today(),
-        help="Anchor date in YYYY-MM-DD for rolling-window mode (defaults to today)",
+        default=None,
+        help="Anchor date in YYYY-MM-DD for rolling-window mode (defaults to the last business day)",
     )
     parser.add_argument(
         "--window-days",
@@ -87,8 +102,13 @@ def _print_summary(
     snapshots_upserted: int,
     snapshots_inserted: int,
     snapshots_updated: int,
+    detail_requests: int,
+    detail_snapshots_upserted: int,
     notice_candidates: int,
     upserted_notices: int,
+    payload_rows_seen: int,
+    payload_rows_used: int,
+    notice_purchase_order_links_inserted: int,
 ) -> None:
     print(
         "[mp-api-daily] "
@@ -98,7 +118,10 @@ def _print_summary(
         f"notices_skipped_missing_external_notice_code={notices_skipped_missing_external_notice_code} "
         f"snapshots_upserted={snapshots_upserted} snapshots_inserted={snapshots_inserted} "
         f"snapshots_updated={snapshots_updated} "
-        f"notice_candidates={notice_candidates} upserted_notices={upserted_notices}"
+        f"detail_requests={detail_requests} detail_snapshots_upserted={detail_snapshots_upserted} "
+        f"notice_candidates={notice_candidates} upserted_notices={upserted_notices} "
+        f"payload_rows_seen={payload_rows_seen} payload_rows_used={payload_rows_used} "
+        f"notice_purchase_order_links_inserted={notice_purchase_order_links_inserted}"
     )
 
 
@@ -107,6 +130,7 @@ def main() -> int:
     if args.window_days < 1:
         raise SystemExit("--window-days must be >= 1")
 
+    target_date = args.target_date or _default_target_date()
     app_settings = get_settings()
     validate_production_database_safety(app_settings.app_env, app_settings.database_url)
     mp_settings = from_app_settings(app_settings)
@@ -114,7 +138,7 @@ def main() -> int:
     if args.dry_run:
         print(
             "[mp-api-daily] dry-run ok "
-            f"target_date={args.target_date.isoformat()} window_days={args.window_days} "
+            f"target_date={target_date.isoformat()} window_days={args.window_days} "
             f"refresh_only={str(args.refresh_only).lower()} "
             f"max_requests={args.max_requests} requested_by={args.requested_by} "
             f"base_url={mp_settings.normalized_base_url}"
@@ -130,7 +154,7 @@ def main() -> int:
             summary = run_mp_api_daily_notice_pipeline(
                 session,
                 client=client,
-                target_date=args.target_date,
+                target_date=target_date,
                 window_days=args.window_days,
                 estado=args.estado,
                 refresh_only=args.refresh_only,
@@ -139,7 +163,7 @@ def main() -> int:
             )
             session.commit()
             _print_summary(
-                target_date=args.target_date,
+                target_date=target_date,
                 window_days=args.window_days,
                 refresh_only=args.refresh_only,
                 run_id=str(summary.run_id),
@@ -152,8 +176,15 @@ def main() -> int:
                 snapshots_upserted=summary.sync_summary.snapshots_upserted,
                 snapshots_inserted=summary.sync_summary.snapshots_inserted,
                 snapshots_updated=summary.sync_summary.snapshots_updated,
+                detail_requests=summary.detail_summary.requests,
+                detail_snapshots_upserted=summary.detail_summary.snapshots_upserted,
                 notice_candidates=summary.silver_summary.notice_candidates,
                 upserted_notices=summary.silver_summary.upserted_notices,
+                payload_rows_seen=summary.silver_summary.payload_rows_seen,
+                payload_rows_used=summary.silver_summary.payload_rows_used,
+                notice_purchase_order_links_inserted=(
+                    summary.postprocess_summary.notice_purchase_order_links_inserted
+                ),
             )
             return 0
         except Exception as exc:
@@ -163,7 +194,7 @@ def main() -> int:
                 session.rollback()
             print(
                 "[mp-api-daily] "
-                f"target_date={args.target_date.isoformat()} status=failed error={str(exc)}"
+                f"target_date={target_date.isoformat()} status=failed error={str(exc)}"
             )
             return 1
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Card } from "@/src/components/ui";
+
 type LicitacionesErrorProps = {
   error: Error;
   reset: () => void;
@@ -7,25 +9,19 @@ type LicitacionesErrorProps = {
 
 export default function LicitacionesError({ error, reset }: LicitacionesErrorProps) {
   return (
-    <main style={{ padding: "1.5rem 2rem" }}>
-      <h1 style={{ marginTop: 0, fontSize: "1.25rem" }}>Error en licitaciones</h1>
-      <p style={{ color: "#475569" }}>
-        No se pudo abrir el espacio de oportunidades. {error.message}
-      </p>
-      <button
-        onClick={reset}
-        type="button"
-        style={{
-          border: "1px solid #94a3b8",
-          borderRadius: "6px",
-          background: "#ffffff",
-          color: "#0f172a",
-          padding: "0.5rem 0.75rem",
-          cursor: "pointer",
-        }}
-      >
-        Reintentar
-      </button>
+    <main className="route-state">
+      <Card className="route-state__content">
+        <p className="route-state__eyebrow">Licitaciones</p>
+        <h1 className="route-state__title">Error en licitaciones</h1>
+        <p className="route-state__description">
+          No se pudo abrir el espacio de oportunidades. {error.message}
+        </p>
+        <div className="route-state__actions">
+          <Button onClick={reset} variant="primary" type="button">
+            Reintentar
+          </Button>
+        </div>
+      </Card>
     </main>
   );
 }

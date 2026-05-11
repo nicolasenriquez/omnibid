@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -13,12 +13,20 @@ MERCADO_PUBLICO_DEFAULT_BASE_URL = "https://api.mercadopublico.cl/servicios/v1/p
 SUPABASE_DB_POOL_MODES = {"session", "transaction"}
 SUPABASE_DEFAULT_DB_POOL_MODE = "transaction"
 PRODUCTION_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
+APP_ENV_CANONICAL_VALUES = {"development", "production"}
+APP_ENV_ALIASES = {
+    "local": "development",
+    "dev": "development",
+    "development": "development",
+    "prod": "production",
+    "production": "production",
+}
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_env: str = Field(default="local", alias="APP_ENV")
+    app_env: str = Field(default="development", alias="APP_ENV")
     app_name: str = Field(default="app-chilecompra", alias="APP_NAME")
     app_port: int = Field(default=8000, alias="APP_PORT")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -77,6 +85,21 @@ class Settings(BaseSettings):
         default=900,
         alias="MERCADO_PUBLICO_CACHE_TTL_SECONDS",
     )
+
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def _normalize_app_env(cls, value: object) -> str:
+        return normalize_app_env(value)
+
+
+def normalize_app_env(value: object) -> str:
+    normalized = str(value).strip().lower()
+    canonical = APP_ENV_ALIASES.get(normalized)
+    if canonical is None:
+        accepted = ", ".join(sorted(APP_ENV_CANONICAL_VALUES))
+        aliases = "local, dev, prod"
+        raise ValueError(f"APP_ENV must be one of {accepted} (legacy aliases: {aliases})")
+    return canonical
 
 
 def database_runtime_family(database_url: str) -> str:
@@ -154,8 +177,8 @@ def validate_supabase_contract(settings: Settings) -> None:
 
 
 def validate_production_database_safety(app_env: str, database_url: str) -> None:
-    normalized_env = app_env.strip().lower()
-    if normalized_env not in {"prod", "production"}:
+    normalized_env = normalize_app_env(app_env)
+    if normalized_env != "production":
         return
 
     parsed = urlparse(database_url.strip())
@@ -176,4 +199,5 @@ def get_settings() -> Settings:
     validate_ingestion_queue_contract(settings)
     validate_mercado_publico_contract(settings)
     validate_supabase_contract(settings)
+    validate_production_database_safety(settings.app_env, settings.database_url)
     return settings

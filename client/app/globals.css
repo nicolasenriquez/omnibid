@@ -3,7 +3,7 @@
 @import "../src/styles/workspace.css";
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 * {
@@ -15,5 +15,6 @@ body {
   min-height: 100vh;
   background-color: var(--background-app);
   color: var(--text-primary);
-  font-family: "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-family-sans);
+  line-height: var(--line-height-normal);
 }

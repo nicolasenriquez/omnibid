@@ -119,3 +119,15 @@ Agent guidance:
 - keep list/summary endpoints at notice grain.
 - move line, offer, award, and purchase-order evidence into detail contracts unless a documented product requirement changes list grain.
 - keep UI labels Spanish; keep backend DTO fields stable and typed.
+
+## Mercado Publico API Read-Model Propagation
+
+Current daily API propagation contract:
+- rolling discovery snapshots are persisted first (`mercado_publico_notice_snapshot`)
+- selective `detail-by-codigo` runs next (missing/stale detail candidates)
+- persisted API payloads are canonicalized into existing Normalized + Silver entities
+- Silver postprocess refreshes derived counts/flags for notice and line surfaces
+
+Merge semantics:
+- canonical upserts are complete-only: non-null existing values are preserved against null/blank incoming payload fields
+- detail payload rows are applied after rolling rows so richer fields take precedence for the same business keys

@@ -25,7 +25,6 @@ $openspec-propose "<change-name>"
 /self-heal-ci [optional target/using]
 /validate
 /commit-local [optional intent]
-/commit [optional intent]
 ```
 
 Mental model:
@@ -42,7 +41,6 @@ Mental model:
 - `/self-heal-ci` = iterate minimal fixes until local CI gates converge or a real blocker is confirmed (`target=fast|full`, `using=back|front|all`)
 - `/validate` = report what actually passes, fails, or is blocked
 - `/commit-local` = create a local commit and stop before push
-- `/commit` = package verified work into clean commits
 
 ## OpenSpec Relationship
 
@@ -136,8 +134,6 @@ Examples:
 /new-branch fix slug=auto working_tree=pass
 ```
 
-Compatibility note:
-- `/branch` remains as deprecated alias pointing to `/new-branch`.
 
 ### `/next-step`
 
@@ -315,25 +311,6 @@ Examples:
 /validate add-pdf-ingestion-without-persistence
 ```
 
-### `/commit`
-
-Use when:
-- you have completed and validated coherent work
-- you want clean commit grouping and safe push flow
-
-What it does:
-- inspects real diff
-- stages intended atomic file groups
-- proposes descriptive conventional commit message
-- asks for approval before commit(s) and push
-
-Examples:
-
-```text
-/commit
-/commit add pdf ingestion docs
-```
-
 ### `/commit-local`
 
 Use when:
@@ -354,19 +331,6 @@ Examples:
 /commit-local finalize docs reorganization
 ```
 
-### `/check-ingore-comments`
-
-Use when:
-- auditing `noqa`, `type: ignore`, or `pyright: ignore` usage
-
-What it does:
-- finds suppressions
-- explains why they exist
-- recommends keep/remove/refactor
-
-Note:
-- filename currently uses `ingore` instead of `ignore`
-
 ## Best Practices
 
 - Run `/prime` when you want an explicit repo/runtime preflight before starting proposal or implementation work.
@@ -380,7 +344,6 @@ Note:
 - Keep `/execute` runs task-scoped and validation-backed.
 - Use `/validate` for reality-based status, not optimistic status.
 - Use `/commit-local` when the commit should be created now but pushing will be manual.
-- Use `/commit` only after validations are acceptable for scope.
 
 ## Notes
 

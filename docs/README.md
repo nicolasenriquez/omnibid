@@ -11,6 +11,7 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
   - external API ingestion boundary: [`architecture/external_api_ingestion.md`](architecture/external_api_ingestion.md)
 - [`runbooks/`](runbooks)
   - local development, operations, CI, and implementation runbooks
+  - environment contract matrix: [`runbooks/environment-contract.md`](runbooks/environment-contract.md)
   - Docker local runtime: [`runbooks/docker-local.md`](runbooks/docker-local.md)
   - RTK Windows WSL hardening: [`runbooks/rtk-wsl-hardening.md`](runbooks/rtk-wsl-hardening.md)
   - GitHub Actions CI runtime: [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
@@ -23,10 +24,16 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
   - product vision and stage-gated delivery priorities
 - [`standards/`](standards)
   - engineering standards (typing, linting, testing, security, logging, SQL)
+  - design system standard: [`standards/design-system.md`](standards/design-system.md)
+  - design tokens: [`standards/design-tokens.md`](standards/design-tokens.md)
+  - component standards: [`standards/component-standards.md`](standards/component-standards.md)
+  - motion standards: [`standards/motion-standards.md`](standards/motion-standards.md)
 - [`references/`](references)
   - SDD source registry and external technical references
+  - Environment contract separation SDD: [`references/sdd-environment-contract-2026-05-10.md`](references/sdd-environment-contract-2026-05-10.md)
   - Mercado Publico API SDD: [`references/sdd-mercado-publico-api-2026-05-04.md`](references/sdd-mercado-publico-api-2026-05-04.md)
   - Mercado Publico API pipeline hardening SDD: [`references/sdd-mercado-publico-api-pipeline-hardening-2026-05-09.md`](references/sdd-mercado-publico-api-pipeline-hardening-2026-05-09.md)
+  - Mercado Publico read-model propagation SDD: [`references/sdd-mercado-publico-read-model-propagation-2026-05-11.md`](references/sdd-mercado-publico-read-model-propagation-2026-05-11.md)
   - Supabase readiness SDD: [`references/sdd-supabase-readiness-2026-05-09.md`](references/sdd-supabase-readiness-2026-05-09.md)
 - [`evidence/`](evidence)
   - validation artifacts, baselines, and runtime logs
