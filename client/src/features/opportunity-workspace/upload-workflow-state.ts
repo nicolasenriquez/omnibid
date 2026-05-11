@@ -12,9 +12,9 @@ export type UploadConsoleEntry = {
   text: string;
 };
 
-export type UploadWorkflowStepState = "idle" | "active" | "done" | "error";
+type UploadWorkflowStepState = "idle" | "active" | "done" | "error";
 
-export type UploadWorkflowStep = {
+type UploadWorkflowStep = {
   key: "prepare" | "validate" | "process";
   label: string;
   summary: string;

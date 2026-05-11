@@ -3,7 +3,7 @@
 @import "../src/styles/workspace.css";
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 * {

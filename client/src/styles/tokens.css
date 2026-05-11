@@ -273,9 +273,8 @@
   --surface-radar-column-header: oklch(1 0 0 / 72%);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
+:root[data-theme="dark"] {
+  color-scheme: dark;
     --background-app: oklch(0.15 0.03 245);
     --background-surface: oklch(0.19 0.03 245);
     --background-subtle: oklch(0.23 0.03 245);
@@ -461,5 +460,4 @@
     --surface-route-state-radial: radial-gradient(circle at top, oklch(0.26 0.04 245), transparent 28rem);
     --surface-table-evidence-panel-header: linear-gradient(180deg, oklch(0.2 0.03 245), oklch(0.18 0.03 245));
     --surface-radar-column-header: oklch(0.22 0.03 245 / 82%);
-  }
 }

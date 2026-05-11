@@ -31,6 +31,11 @@ LIST_SQL = sa.text(
     with buyer_info as (
         select distinct on (nl.codigo_externo)
             nl.codigo_externo,
+            nl.nombre as normalized_title,
+            nl.estado as normalized_official_status,
+            nl.monto_estimado as normalized_estimated_amount,
+            nl.fecha_publicacion as normalized_publication_date,
+            nl.fecha_cierre as normalized_close_date,
             nl.nombre_unidad as buyer_name,
             nl.region_unidad as buyer_region,
             nl.tipo_adquisicion_norm as procurement_method,
@@ -46,12 +51,12 @@ LIST_SQL = sa.text(
     select
         sn.notice_id,
         sn.external_notice_code,
-        sn.notice_title as title,
-        sn.notice_status_name as official_status,
-        sn.estimated_amount,
+        coalesce(sn.notice_title, bi.normalized_title) as title,
+        coalesce(sn.notice_status_name, bi.normalized_official_status) as official_status,
+        coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
-        sn.publication_date,
-        sn.close_date,
+        coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
+        coalesce(sn.close_date, bi.normalized_close_date) as close_date,
         sn.notice_line_count as line_count,
         sn.notice_bid_count as bid_count,
         sn.notice_supplier_count as supplier_count,
@@ -67,30 +72,33 @@ LIST_SQL = sa.text(
         end as procurement_type,
         coalesce(bi.flag_menos_100_utm, false) as is_less_than_100_utm,
         case
-            when sn.close_date is null then null
-            else greatest(0, floor(extract(epoch from (sn.close_date - now())) / 86400))::int
+            when coalesce(sn.close_date, bi.normalized_close_date) is null then null
+            else greatest(
+                0,
+                floor(extract(epoch from (coalesce(sn.close_date, bi.normalized_close_date) - now())) / 86400)
+            )::int
         end as days_remaining,
         case
-            when lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%' then 'awarded'
-            when lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-              or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%' then 'revoked_or_suspended'
-            when sn.close_date is null then 'unknown'
-            when sn.close_date < now() then 'closed'
-            when sn.close_date <= now() + interval '7 days' then 'closing_soon'
+            when lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%adjudicada%' then 'awarded'
+            when lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%revocada%'
+              or lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%suspendida%' then 'revoked_or_suspended'
+            when coalesce(sn.close_date, bi.normalized_close_date) is null then 'unknown'
+            when coalesce(sn.close_date, bi.normalized_close_date) < now() then 'closed'
+            when coalesce(sn.close_date, bi.normalized_close_date) <= now() + interval '7 days' then 'closing_soon'
             else 'open'
         end as derived_stage
     from silver_notice sn
     left join buyer_info bi on bi.codigo_externo = sn.notice_id
     {LIST_FILTER_SQL}
     order by
-        case when :sort_by = 'close_date' and :sort_order = 'asc' then sn.close_date end asc nulls last,
-        case when :sort_by = 'close_date' and :sort_order = 'desc' then sn.close_date end desc nulls last,
-        case when :sort_by = 'publication_date' and :sort_order = 'asc' then sn.publication_date end asc nulls last,
-        case when :sort_by = 'publication_date' and :sort_order = 'desc' then sn.publication_date end desc nulls last,
-        case when :sort_by = 'estimated_amount' and :sort_order = 'asc' then sn.estimated_amount end asc nulls last,
-        case when :sort_by = 'estimated_amount' and :sort_order = 'desc' then sn.estimated_amount end desc nulls last,
-        case when :sort_by = 'days_remaining' and :sort_order = 'asc' then sn.close_date end asc nulls last,
-        case when :sort_by = 'days_remaining' and :sort_order = 'desc' then sn.close_date end desc nulls last
+        case when :sort_by = 'close_date' and :sort_order = 'asc' then coalesce(sn.close_date, bi.normalized_close_date) end asc nulls last,
+        case when :sort_by = 'close_date' and :sort_order = 'desc' then coalesce(sn.close_date, bi.normalized_close_date) end desc nulls last,
+        case when :sort_by = 'publication_date' and :sort_order = 'asc' then coalesce(sn.publication_date, bi.normalized_publication_date) end asc nulls last,
+        case when :sort_by = 'publication_date' and :sort_order = 'desc' then coalesce(sn.publication_date, bi.normalized_publication_date) end desc nulls last,
+        case when :sort_by = 'estimated_amount' and :sort_order = 'asc' then coalesce(sn.estimated_amount, bi.normalized_estimated_amount) end asc nulls last,
+        case when :sort_by = 'estimated_amount' and :sort_order = 'desc' then coalesce(sn.estimated_amount, bi.normalized_estimated_amount) end desc nulls last,
+        case when :sort_by = 'days_remaining' and :sort_order = 'asc' then coalesce(sn.close_date, bi.normalized_close_date) end asc nulls last,
+        case when :sort_by = 'days_remaining' and :sort_order = 'desc' then coalesce(sn.close_date, bi.normalized_close_date) end desc nulls last
     limit :page_size
     offset :offset
     """
@@ -109,23 +117,34 @@ SUMMARY_SQL = sa.text(
     f"""
     select
         count(*) as total_opportunities,
-        count(*) filter (where close_date is null) as unknown_stage,
-        count(*) filter (where close_date > now() + interval '7 days') as open,
-        count(*) filter (where close_date > now() and close_date <= now() + interval '7 days') as closing_soon,
+        count(*) filter (where coalesce(sn.close_date, nl.fecha_cierre) is null) as unknown_stage,
+        count(*) filter (where coalesce(sn.close_date, nl.fecha_cierre) > now() + interval '7 days') as open,
         count(*) filter (
-            where close_date <= now()
-              and lower(coalesce(notice_status_name, '')) not like '%adjudicada%'
-              and lower(coalesce(notice_status_name, '')) not like '%revocada%'
-              and lower(coalesce(notice_status_name, '')) not like '%suspendida%'
+            where coalesce(sn.close_date, nl.fecha_cierre) > now()
+              and coalesce(sn.close_date, nl.fecha_cierre) <= now() + interval '7 days'
+        ) as closing_soon,
+        count(*) filter (
+            where coalesce(sn.close_date, nl.fecha_cierre) <= now()
+              and lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) not like '%adjudicada%'
+              and lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) not like '%revocada%'
+              and lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) not like '%suspendida%'
         ) as closed,
-        count(*) filter (where lower(coalesce(notice_status_name, '')) like '%adjudicada%') as awarded,
+        count(*) filter (where lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) like '%adjudicada%') as awarded,
         count(*) filter (
-            where lower(coalesce(notice_status_name, '')) like '%revocada%'
-               or lower(coalesce(notice_status_name, '')) like '%suspendida%'
+            where lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) like '%revocada%'
+               or lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) like '%suspendida%'
         ) as revoked_or_suspended,
-        count(*) filter (where estimated_amount is not null) as with_estimated_amount,
-        coalesce(avg(estimated_amount) filter (where estimated_amount is not null), 0) as avg_estimated_amount,
-        coalesce(sum(estimated_amount) filter (where estimated_amount is not null), 0) as total_estimated_amount
+        count(*) filter (where coalesce(sn.estimated_amount, nl.monto_estimado) is not null) as with_estimated_amount,
+        coalesce(
+            avg(coalesce(sn.estimated_amount, nl.monto_estimado))
+            filter (where coalesce(sn.estimated_amount, nl.monto_estimado) is not null),
+            0
+        ) as avg_estimated_amount,
+        coalesce(
+            sum(coalesce(sn.estimated_amount, nl.monto_estimado))
+            filter (where coalesce(sn.estimated_amount, nl.monto_estimado) is not null),
+            0
+        ) as total_estimated_amount
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
     {COUNT_AND_SUMMARY_FILTER_SQL}
@@ -137,6 +156,9 @@ DETAIL_SQL = sa.text(
     with buyer_info as (
         select
             nl.codigo_externo,
+            nl.nombre as normalized_title,
+            nl.estado as normalized_official_status,
+            nl.monto_estimado as normalized_estimated_amount,
             nl.nombre_unidad as buyer_name,
             nl.region_unidad as buyer_region,
             nl.codigo_unidad as contracting_unit_code,
@@ -150,9 +172,9 @@ DETAIL_SQL = sa.text(
     select
         sn.notice_id,
         sn.external_notice_code,
-        sn.notice_title as title,
-        sn.notice_status_name as official_status,
-        sn.estimated_amount,
+        coalesce(sn.notice_title, bi.normalized_title) as title,
+        coalesce(sn.notice_status_name, bi.normalized_official_status) as official_status,
+        coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
         coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
         coalesce(sn.close_date, bi.normalized_close_date) as close_date,
@@ -164,9 +186,9 @@ DETAIL_SQL = sa.text(
         bi.contracting_unit_code,
         bi.contracting_unit_name,
         case
-            when lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%' then 'awarded'
-            when lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-              or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%' then 'revoked_or_suspended'
+            when lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%adjudicada%' then 'awarded'
+            when lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%revocada%'
+              or lower(coalesce(coalesce(sn.notice_status_name, bi.normalized_official_status), '')) like '%suspendida%' then 'revoked_or_suspended'
             when coalesce(sn.close_date, bi.normalized_close_date) is null then 'unknown'
             when coalesce(sn.close_date, bi.normalized_close_date) < now() then 'closed'
             when coalesce(sn.close_date, bi.normalized_close_date) <= now() + interval '7 days' then 'closing_soon'

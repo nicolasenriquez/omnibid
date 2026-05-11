@@ -56,6 +56,34 @@ def test_build_licitacion_payload_derives_flags_and_days() -> None:
     assert payload["cantidad_dias_licitacion"] == 10
 
 
+def test_build_licitacion_payload_falls_back_to_codigo_externo_prefix_when_codigo_missing() -> None:
+    raw = {
+        "CodigoExterno": "1000813-8-LE26",
+        "Nombre": "Licitacion test",
+        "Tipo de Adquisicion": "Licitación Pública",
+        "FechaPublicacion": "2026-01-01",
+        "FechaCierre": "2026-01-02",
+    }
+    payload = build_licitacion_payload(raw, source_file_id=uuid4(), row_hash_sha256="abc")
+    assert payload is not None
+    assert payload["codigo_externo"] == "1000813-8-LE26"
+    assert payload["codigo"] == "1000813"
+
+
+def test_build_licitacion_payload_treats_blank_codigo_as_missing() -> None:
+    raw = {
+        "CodigoExterno": "1000813-8-LE26",
+        "Codigo": "",
+        "Nombre": "Licitacion test",
+        "Tipo de Adquisicion": "Licitación Pública",
+        "FechaPublicacion": "2026-01-01",
+        "FechaCierre": "2026-01-02",
+    }
+    payload = build_licitacion_payload(raw, source_file_id=uuid4(), row_hash_sha256="abc")
+    assert payload is not None
+    assert payload["codigo"] == "1000813"
+
+
 def test_build_licitacion_item_payload_requires_keys() -> None:
     raw = {"CodigoExterno": "L123", "Codigoitem": "IT1", "Cantidad": "10,5"}
     payload = build_licitacion_item_payload(raw, source_file_id=uuid4(), row_hash_sha256="abc")

@@ -1,6 +1,7 @@
 import { ApiClientError } from "@/src/lib/api/http";
 import {
   formatCount,
+  formatDate,
   formatMoney,
   formatStage,
   formatUnavailable,
@@ -77,6 +78,80 @@ export const HEADER_METRIC_FALLBACKS: OpportunitySummaryMetric[] = [
 ];
 
 export const WATCHLIST_STORAGE_KEY = "opportunity-workspace.watchlist.v1";
+const TODAY_FORMATTER = new Intl.DateTimeFormat("es-CL", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+const OFFICIAL_STATUS_LABELS: Record<string, string> = {
+  abierta: "Abierta",
+  cerrada: "Cerrada",
+  adjudicada: "Adjudicada",
+};
+
+const OPPORTUNITY_EXPORT_HEADERS = [
+  "Código",
+  "Licitación",
+  "Comprador",
+  "Región",
+  "Estado",
+  "Etapa",
+  "Monto",
+  "Cierre",
+  "Líneas",
+  "Ofertas",
+  "OC",
+  "Radar",
+] as const;
+
+export type WorkspaceFilterChip = {
+  key: string;
+  label: string;
+  patch: Partial<OpportunityWorkspaceQueryState>;
+};
+
+function createFilterChip(
+  key: string,
+  label: string,
+  patch: Partial<OpportunityWorkspaceQueryState>,
+): WorkspaceFilterChip {
+  return {
+    key,
+    label,
+    patch: {
+      page: 1,
+      selectedNoticeId: null,
+      ...patch,
+    },
+  };
+}
+
+function formatAmountChipValue(value: string): string {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return formatMoney(parsed, "CLP");
+}
+
+function formatRangeChipLabel(
+  label: string,
+  from: string,
+  to: string,
+): string {
+  if (from && to) {
+    return `${label}: ${formatDate(from)} - ${formatDate(to)}`;
+  }
+  if (from) {
+    return `${label}: desde ${formatDate(from)}`;
+  }
+  return `${label}: hasta ${formatDate(to)}`;
+}
+
+function escapeCsvValue(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  return /[;"\r\n]/.test(escaped) ? `"${escaped}"` : escaped;
+}
 
 export function toReadableError(error: unknown): { message: string; statusCode: number | null } {
   if (error instanceof ApiClientError) {
@@ -109,7 +184,7 @@ export function toReadableError(error: unknown): { message: string; statusCode: 
   return { message: "Error inesperado al consultar oportunidades.", statusCode: null };
 }
 
-export function readApiErrorDetail(error: ApiClientError): string | null {
+function readApiErrorDetail(error: ApiClientError): string | null {
   if (!error.body) {
     return null;
   }
@@ -230,27 +305,126 @@ export function getSortLabel(sortBy: OpportunitySortField, sortOrder: Opportunit
   return sortOrder === "desc" ? "Cierre más lejano" : "Cierre más cercano";
 }
 
-export function formatToday(): string {
-  return new Intl.DateTimeFormat("es-CL", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date());
+export function formatToday(value: Date): string {
+  return TODAY_FORMATTER.format(value);
+}
+
+export function getActiveFilterChips(state: OpportunityWorkspaceQueryState): WorkspaceFilterChip[] {
+  const chips: WorkspaceFilterChip[] = [];
+
+  if (state.q.trim()) {
+    chips.push(createFilterChip("q", `Búsqueda: ${state.q.trim()}`, { q: "" }));
+  }
+  if (state.procurementType) {
+    chips.push(
+      createFilterChip(
+        "procurementType",
+        PROCUREMENT_TYPE_LABELS[state.procurementType],
+        { procurementType: "" },
+      ),
+    );
+  }
+  if (state.officialStatus.trim()) {
+    chips.push(
+      createFilterChip(
+        "officialStatus",
+        `Estado oficial: ${OFFICIAL_STATUS_LABELS[state.officialStatus] ?? state.officialStatus.trim()}`,
+        { officialStatus: "" },
+      ),
+    );
+  }
+  if (state.stage) {
+    chips.push(createFilterChip("stage", `Etapa: ${formatStage(state.stage)}`, { stage: "" }));
+  }
+  if (state.buyerRegion.trim()) {
+    chips.push(
+      createFilterChip("buyerRegion", `Región: ${state.buyerRegion.trim()}`, {
+        buyerRegion: "",
+      }),
+    );
+  }
+  if (state.primaryCategory.trim()) {
+    chips.push(
+      createFilterChip("primaryCategory", `Categoría: ${state.primaryCategory.trim()}`, {
+        primaryCategory: "",
+      }),
+    );
+  }
+  if (state.minAmount.trim()) {
+    chips.push(
+      createFilterChip("minAmount", `Monto mínimo: ${formatAmountChipValue(state.minAmount)}`, {
+        minAmount: "",
+      }),
+    );
+  }
+  if (state.maxAmount.trim()) {
+    chips.push(
+      createFilterChip("maxAmount", `Monto máximo: ${formatAmountChipValue(state.maxAmount)}`, {
+        maxAmount: "",
+      }),
+    );
+  }
+  if (state.publicationFrom.trim() || state.publicationTo.trim()) {
+    chips.push(
+      createFilterChip(
+        "publicationRange",
+        formatRangeChipLabel("Publicación", state.publicationFrom.trim(), state.publicationTo.trim()),
+        {
+          publicationFrom: "",
+          publicationTo: "",
+        },
+      ),
+    );
+  }
+  if (state.closeFrom.trim() || state.closeTo.trim()) {
+    chips.push(
+      createFilterChip(
+        "closeRange",
+        formatRangeChipLabel("Cierre", state.closeFrom.trim(), state.closeTo.trim()),
+        {
+          closeFrom: "",
+          closeTo: "",
+        },
+      ),
+    );
+  }
+  if (state.lessThan100Utm) {
+    chips.push(createFilterChip("lessThan100Utm", "Menor a 100 UTM", { lessThan100Utm: false }));
+  }
+
+  return chips;
 }
 
 export function getActiveFilterLabels(state: OpportunityWorkspaceQueryState): string[] {
-  const labels: string[] = [];
-  if (state.q.trim()) labels.push(`Búsqueda: ${state.q.trim()}`);
-  if (state.procurementType) {
-    labels.push(PROCUREMENT_TYPE_LABELS[state.procurementType]);
-  }
-  if (state.officialStatus) labels.push(`Estado: ${state.officialStatus}`);
-  if (state.stage) labels.push(`Etapa: ${formatStage(state.stage)}`);
-  if (state.closeFrom || state.closeTo) labels.push("Rango de cierre");
-  if (state.publicationFrom || state.publicationTo) labels.push("Rango de publicación");
-  if (state.lessThan100Utm) labels.push("Menor a 100 UTM");
-  if (state.maxAmount) labels.push(`Máximo ${state.maxAmount}`);
-  return labels;
+  return getActiveFilterChips(state).map((chip) => chip.label);
+}
+
+export function buildOpportunityWorkspaceCsv(
+  items: OpportunityListItem[],
+  watchlistNoticeIds: string[],
+): string {
+  const watchlistSet = new Set(watchlistNoticeIds);
+  const rows = items.map((item) => {
+    const values = [
+      formatUnavailable(item.externalNoticeCode),
+      formatUnavailable(item.title),
+      formatUnavailable(item.buyerName),
+      formatUnavailable(item.buyerRegion),
+      formatUnavailable(item.officialStatus),
+      formatStage(item.derivedStage),
+      formatMoney(item.estimatedAmount, item.currencyCode),
+      formatDate(item.closeDate),
+      formatCount(item.lineCount),
+      formatCount(item.bidCount),
+      formatCount(item.purchaseOrderCount),
+      watchlistSet.has(item.noticeId) ? "Sí" : "No",
+    ];
+
+    return values.map((value) => escapeCsvValue(value)).join(";");
+  });
+
+  const headerRow = OPPORTUNITY_EXPORT_HEADERS.map((header) => escapeCsvValue(header)).join(";");
+  return [headerRow, ...rows].join("\r\n");
 }
 
 export function parseAmountInput(value: string): string {

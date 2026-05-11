@@ -51,20 +51,24 @@ def _shared_filter_sql(
     procurement_public_expr: str,
     procurement_private_expr: str,
     procurement_service_expr: str,
+    official_status_expr: str,
+    publication_date_expr: str,
+    close_date_expr: str,
+    estimated_amount_expr: str,
 ) -> str:
     return f"""
     where (cast(:q as text) is null or (
             {q_clause}
         ))
-      and (cast(:official_status as text) is null or sn.notice_status_name ilike :official_status)
+      and (cast(:official_status as text) is null or {official_status_expr} ilike :official_status)
       and (cast(:buyer_region as text) is null or {buyer_region_clause})
       and (cast(:primary_category as text) is null or {primary_category_clause})
-      and (cast(:publication_from as timestamp) is null or sn.publication_date >= :publication_from)
-      and (cast(:publication_to as timestamp) is null or sn.publication_date < :publication_to + interval '1 day')
-      and (cast(:close_from as timestamp) is null or sn.close_date >= :close_from)
-      and (cast(:close_to as timestamp) is null or sn.close_date < :close_to + interval '1 day')
-      and (cast(:min_amount as numeric) is null or sn.estimated_amount >= :min_amount)
-      and (cast(:max_amount as numeric) is null or sn.estimated_amount <= :max_amount)
+      and (cast(:publication_from as timestamp) is null or {publication_date_expr} >= :publication_from)
+      and (cast(:publication_to as timestamp) is null or {publication_date_expr} < :publication_to + interval '1 day')
+      and (cast(:close_from as timestamp) is null or {close_date_expr} >= :close_from)
+      and (cast(:close_to as timestamp) is null or {close_date_expr} < :close_to + interval '1 day')
+      and (cast(:min_amount as numeric) is null or {estimated_amount_expr} >= :min_amount)
+      and (cast(:max_amount as numeric) is null or {estimated_amount_expr} <= :max_amount)
       and (cast(:less_than_100_utm as boolean) is null or {less_than_100_utm_clause})
       and (cast(:procurement_type as text) is null or
            case
@@ -75,16 +79,16 @@ def _shared_filter_sql(
            end)
       and (cast(:stage as text) is null or
            case
-               when :stage = 'open' then sn.close_date > now() + interval '7 days'
-               when :stage = 'closing_soon' then sn.close_date > now() and sn.close_date <= now() + interval '7 days'
-               when :stage = 'closed' then sn.close_date <= now()
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%adjudicada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%revocada%'
-                 and lower(coalesce(sn.notice_status_name, '')) not like '%suspendida%'
-               when :stage = 'awarded' then lower(coalesce(sn.notice_status_name, '')) like '%adjudicada%'
-               when :stage = 'revoked_or_suspended' then lower(coalesce(sn.notice_status_name, '')) like '%revocada%'
-                 or lower(coalesce(sn.notice_status_name, '')) like '%suspendida%'
-               when :stage = 'unknown' then sn.close_date is null
+               when :stage = 'open' then {close_date_expr} > now() + interval '7 days'
+               when :stage = 'closing_soon' then {close_date_expr} > now() and {close_date_expr} <= now() + interval '7 days'
+               when :stage = 'closed' then {close_date_expr} <= now()
+                 and lower(coalesce({official_status_expr}, '')) not like '%adjudicada%'
+                 and lower(coalesce({official_status_expr}, '')) not like '%revocada%'
+                 and lower(coalesce({official_status_expr}, '')) not like '%suspendida%'
+               when :stage = 'awarded' then lower(coalesce({official_status_expr}, '')) like '%adjudicada%'
+               when :stage = 'revoked_or_suspended' then lower(coalesce({official_status_expr}, '')) like '%revocada%'
+                 or lower(coalesce({official_status_expr}, '')) like '%suspendida%'
+               when :stage = 'unknown' then {close_date_expr} is null
                else true
            end)
     """
@@ -92,7 +96,7 @@ def _shared_filter_sql(
 
 LIST_FILTER_SQL = _shared_filter_sql(
     q_clause="""
-sn.notice_title ilike :q
+coalesce(sn.notice_title, bi.normalized_title) ilike :q
             or sn.external_notice_code ilike :q
             or bi.buyer_name ilike :q
             or bi.primary_category ilike :q
@@ -103,11 +107,15 @@ sn.notice_title ilike :q
     procurement_public_expr="coalesce(sn.is_public_tender_flag, bi.flag_licitacion_publica)",
     procurement_private_expr="coalesce(sn.is_private_tender_flag, bi.flag_licitacion_privada)",
     procurement_service_expr="coalesce(bi.flag_licitacion_servicios, false)",
+    official_status_expr="coalesce(sn.notice_status_name, bi.normalized_official_status)",
+    publication_date_expr="coalesce(sn.publication_date, bi.normalized_publication_date)",
+    close_date_expr="coalesce(sn.close_date, bi.normalized_close_date)",
+    estimated_amount_expr="coalesce(sn.estimated_amount, bi.normalized_estimated_amount)",
 )
 
 COUNT_AND_SUMMARY_FILTER_SQL = _shared_filter_sql(
     q_clause="""
-sn.notice_title ilike :q
+coalesce(sn.notice_title, nl.nombre) ilike :q
             or sn.external_notice_code ilike :q
             or nl.nombre_unidad ilike :q
 """,
@@ -123,4 +131,8 @@ exists (
     procurement_public_expr="coalesce(sn.is_public_tender_flag, nl.flag_licitacion_publica)",
     procurement_private_expr="coalesce(sn.is_private_tender_flag, nl.flag_licitacion_privada)",
     procurement_service_expr="coalesce(nl.flag_licitacion_servicios, false)",
+    official_status_expr="coalesce(sn.notice_status_name, nl.estado)",
+    publication_date_expr="coalesce(sn.publication_date, nl.fecha_publicacion)",
+    close_date_expr="coalesce(sn.close_date, nl.fecha_cierre)",
+    estimated_amount_expr="coalesce(sn.estimated_amount, nl.monto_estimado)",
 )

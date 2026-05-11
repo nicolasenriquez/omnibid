@@ -7,6 +7,24 @@ import {
 const DATE_FORMATTER = new Intl.DateTimeFormat("es-CL", {
   dateStyle: "medium",
 });
+const COUNT_FORMATTER = new Intl.NumberFormat("es-CL");
+const CURRENCY_FORMATTERS = new Map<string, Intl.NumberFormat>();
+
+function getCurrencyFormatter(currencyCode: string): Intl.NumberFormat {
+  const normalizedCurrencyCode = currencyCode.toUpperCase();
+  const cached = CURRENCY_FORMATTERS.get(normalizedCurrencyCode);
+  if (cached) {
+    return cached;
+  }
+
+  const formatter = new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: normalizedCurrencyCode,
+    maximumFractionDigits: 0,
+  });
+  CURRENCY_FORMATTERS.set(normalizedCurrencyCode, formatter);
+  return formatter;
+}
 
 export function formatDate(value: string | null | undefined): string {
   if (!value) {
@@ -27,18 +45,14 @@ export function formatMoney(
     return "No disponible";
   }
   const currency = currencyCode && currencyCode.length === 3 ? currencyCode : "CLP";
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
+  return getCurrencyFormatter(currency).format(amount);
 }
 
 export function formatCount(value: number | null | undefined): string {
   if (value === null || value === undefined) {
     return "No disponible";
   }
-  return new Intl.NumberFormat("es-CL").format(value);
+  return COUNT_FORMATTER.format(value);
 }
 
 export function formatStage(stage: OpportunityStage): string {

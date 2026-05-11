@@ -26,6 +26,12 @@ def build_licitacion_payload(
 ) -> dict[str, Any] | None:
     codigo_externo = pick(raw, "CodigoExterno")
     codigo = pick(raw, "Codigo")
+    if isinstance(codigo_externo, str) and codigo_externo.strip() == "":
+        codigo_externo = None
+    if isinstance(codigo, str) and codigo.strip() == "":
+        codigo = None
+    if codigo is None and codigo_externo:
+        codigo = codigo_externo.split("-", 1)[0]
     if not codigo_externo or not codigo:
         return None
 

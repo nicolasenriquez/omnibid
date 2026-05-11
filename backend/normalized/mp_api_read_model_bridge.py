@@ -192,16 +192,56 @@ def select_detail_enrichment_candidates(
         if str(code or "").strip() != ""
     }
 
+    close_date_rows = session.execute(
+        sa.select(
+            MercadoPublicoNoticeSnapshot.external_notice_code,
+            sa.func.max(SilverNotice.close_date),
+        )
+        .select_from(MercadoPublicoNoticeSnapshot)
+        .outerjoin(SilverNotice, SilverNotice.notice_id == MercadoPublicoNoticeSnapshot.external_notice_code)
+        .where(
+            *filters,
+            MercadoPublicoNoticeSnapshot.external_notice_code.in_(scoped_codes),
+        )
+        .group_by(MercadoPublicoNoticeSnapshot.external_notice_code)
+    ).all()
+    latest_close_by_code = {
+        str(code): cast(datetime | None, max_close)
+        for code, max_close in close_date_rows
+        if str(code or "").strip() != ""
+    }
+
     cutoff_day = target_date - timedelta(days=backfill_interval_days)
-    detail_candidates: list[str] = []
+    open_window_end = target_date + timedelta(days=7)
+    candidate_rows: list[tuple[int, datetime | None, datetime | None, str]] = []
     for code in scoped_codes:
         latest_detail_synced_at = latest_detail_by_code.get(code)
-        if latest_detail_synced_at is None:
-            detail_candidates.append(code)
+        latest_close_date = latest_close_by_code.get(code)
+        close_day = latest_close_date.date() if latest_close_date is not None else None
+        is_open_or_closing_soon = close_day is not None and target_date < close_day <= open_window_end
+        is_stale = latest_detail_synced_at is None or latest_detail_synced_at.date() <= cutoff_day
+        if not is_open_or_closing_soon and not is_stale:
             continue
-        if latest_detail_synced_at.date() <= cutoff_day:
-            detail_candidates.append(code)
 
+        priority = 0 if is_open_or_closing_soon else 1
+        candidate_rows.append(
+            (
+                priority,
+                latest_close_date,
+                latest_detail_synced_at,
+                code,
+            )
+        )
+
+    candidate_rows.sort(
+        key=lambda item: (
+            item[0],
+            item[1] or datetime.max,
+            item[2] or datetime.min,
+            item[3],
+        )
+    )
+    detail_candidates = [code for *_rest, code in candidate_rows]
     selected = detail_candidates if max_candidates is None else detail_candidates[:max_candidates]
     return MpApiDetailCandidateSummary(
         notice_candidates=len(scoped_codes),

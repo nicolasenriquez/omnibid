@@ -102,6 +102,8 @@ Default source strategy:
 - use `silver_notice` as the parent opportunity source.
 - use `silver_notice_line`, `silver_bid_submission`, `silver_award_outcome`, `silver_purchase_order`, and `silver_purchase_order_line` for child evidence.
 - use documented Normalized joins only for display fields currently absent from Silver, such as buyer display and region.
+- list/summary/detail queries must coalesce parent display/stage fields from `normalized_licitaciones` when `silver_notice` values are null (`title`, `official_status`, `estimated_amount`, `publication_date`, `close_date`).
+- keep frontend read-only behavior unchanged: missing values remain explicitly unavailable when neither Silver nor Normalized has data.
 
 Boundary rules:
 - list and Kanban endpoints must not join child rows in a way that duplicates parent opportunities.
@@ -127,6 +129,8 @@ Current daily API propagation contract:
 - selective `detail-by-codigo` runs next (missing/stale detail candidates)
 - persisted API payloads are canonicalized into existing Normalized + Silver entities
 - Silver postprocess refreshes derived counts/flags for notice and line surfaces
+- the lane is additive/backend-only: it hardens upstream ingestion and read-model propagation without mutating frontend contracts.
+- Explorer parent-field completeness depends on this propagation lane; if detail enrichment is skipped, open notices can remain sparse by design.
 
 Merge semantics:
 - canonical upserts are complete-only: non-null existing values are preserved against null/blank incoming payload fields
