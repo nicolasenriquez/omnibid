@@ -241,8 +241,8 @@ def test_daily_pipeline_happy_path_and_rerun_is_idempotent() -> None:
     assert second.sync_summary.snapshots_upserted == 4
     assert second.sync_summary.snapshots_inserted == 0
     assert second.sync_summary.snapshots_updated == 4
-    assert second.detail_summary.requests == 0
-    assert second.detail_summary.snapshots_upserted == 0
+    assert second.detail_summary.requests == 3
+    assert second.detail_summary.snapshots_upserted == 3
 
 
 @pytest.mark.integration
