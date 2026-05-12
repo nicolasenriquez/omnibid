@@ -6,10 +6,10 @@ Define the contract for mapping enriched API snapshots into the canonical normal
 ## ADDED Requirements
 
 ### Requirement: The system MUST map enriched API snapshots to normalized_licitaciones
-The system SHALL map fields from enriched `mercado_publico_notice_snapshot` rows into `normalized_licitaciones` columns including `descripcion`, `region_unidad`, `comuna_unidad`, `direccion_unidad`, `tipo`, and extended dates.
+The system SHALL map fields from enriched `mercado_publico_notice_snapshot` rows into `normalized_licitaciones` columns including `descripcion`, `region_unidad`, `comuna_unidad`, `tipo`, `tipo_convocatoria`, and extended dates.
 
 #### Scenario: Detail snapshot canonicalizes with all fields
-- **WHEN** a snapshot with `api_completeness_level = "detail"` and populated `buyer_unit_region`, `buyer_unit_commune`, `buyer_unit_address`, and `description` is canonicalized
+- **WHEN** a snapshot with `api_completeness_level = "detail"` and populated `buyer_unit_region`, `buyer_unit_commune`, and `description` is canonicalized
 - **THEN** the resulting `normalized_licitaciones` row contains those values in the mapped columns.
 
 #### Scenario: Summary snapshot canonicalizes with partial fields
@@ -23,7 +23,7 @@ The system SHALL map rows from `mercado_publico_notice_item_snapshot` into `norm
 #### Scenario: Items are canonicalized from item snapshots
 - **WHEN** two item snapshot rows exist for `external_notice_code = "1000-8-LE26"`
 - **THEN** two rows are inserted or upserted into `normalized_licitacion_items`
-- **AND** each row carries `product_code`, `product_name`, `quantity`, `item_description`, and `item_correlative`.
+- **AND** each row carries `codigo_producto_onu`, `nombre_producto_generico`, `cantidad`, `descripcion_linea_adquisicion`, and `correlativo`.
 
 ### Requirement: The system MUST NOT overwrite non-null values with NULL
 The system SHALL implement anti-degradation semantics: when canonicalizing a new snapshot for an existing normalized entity, non-null values in the target MUST NOT be replaced by NULL values from the source.

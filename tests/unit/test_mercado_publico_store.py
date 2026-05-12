@@ -348,6 +348,32 @@ def test_persist_detail_notice_persists_items() -> None:
     assert second_item["codigo_producto"] == "81110000"
 
 
+def test_persist_detail_notice_uses_stable_surrogate_for_missing_item_correlative() -> None:
+    notices = _detail_notices()
+    notices[0].items.listado[0].correlativo = None
+    session = _RecordingPersistenceSession()
+
+    result = persist_notice_batch(
+        session,  # type: ignore[arg-type]
+        pipeline_run_id=uuid4(),
+        endpoint_name="licitaciones.json",
+        resource_type="licitacion",
+        resource_key="codigo=1274285-76-LR25",
+        request_params={"codigo": "1274285-76-LR25", "ticket": "test"},
+        payload={"Codigo": 0, "Listado": []},
+        notices=notices,
+        source_mode="detail-by-codigo",
+    )
+
+    assert result.items_seen == 2
+    assert result.items_persisted == 2
+    assert len(session.item_inserts) == 2
+    first_item = session.item_inserts[0]
+    second_item = session.item_inserts[1]
+    assert first_item["item_correlative"] == -1
+    assert second_item["item_correlative"] == 2
+
+
 def test_persist_summary_notice_leaves_enriched_fields_null() -> None:
     notices = _summary_notices()
     session = _RecordingPersistenceSession()

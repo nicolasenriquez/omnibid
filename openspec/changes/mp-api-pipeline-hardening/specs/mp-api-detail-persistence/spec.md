@@ -20,7 +20,7 @@ The system SHALL persist `description`, `buyer_unit_address`, `buyer_unit_commun
 - **AND** `api_completeness_level` is set to `"summary"`.
 
 ### Requirement: The system MUST create a notice item snapshot table
-The system SHALL create `mercado_publico_notice_item_snapshot` with columns `id`, `pipeline_run_id`, `request_id`, `payload_id`, `payload_sha256`, `endpoint_name`, `source_mode`, `resource_key`, `external_notice_code`, `item_correlative`, `product_code`, `category_code`, `category_name`, `product_name`, `item_description`, `unit_measure`, `quantity`, `observed_at`, `synced_at`, `created_at`, `updated_at`.
+The system SHALL create `mercado_publico_notice_item_snapshot` with columns `id`, `pipeline_run_id`, `request_id`, `payload_id`, `external_notice_code`, `item_correlative`, `codigo_producto`, `codigo_categoria`, `categoria`, `nombre_producto`, `descripcion`, `unidad_medida`, `cantidad`, `observed_at`, `synced_at`.
 
 #### Scenario: Item snapshot table exists after migration
 - **WHEN** the Alembic migration for this change is applied
@@ -34,7 +34,7 @@ The system SHALL insert or skip (on conflict) item rows into `mercado_publico_no
 - **WHEN** a detail-by-codigo notice has two items in `Items.Listado`
 - **THEN** two rows are inserted into `mercado_publico_notice_item_snapshot`
 - **AND** each row references the same `payload_id`, `request_id`, and `pipeline_run_id`
-- **AND** each row carries `product_code`, `product_name`, `quantity`, `item_description`.
+- **AND** each row carries `codigo_producto`, `nombre_producto`, `cantidad`, `descripcion`.
 
 #### Scenario: Summary payload with no items does not create item rows
 - **WHEN** a summary-mode notice has no `Items` field

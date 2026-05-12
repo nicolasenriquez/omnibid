@@ -444,14 +444,15 @@ def persist_notice_batch(
                 snapshots_upserted += 1
 
             if notice.items is not None and notice.items.listado:
-                for item in notice.items.listado:
+                for item_index, item in enumerate(notice.items.listado, start=1):
                     items_seen += 1
+                    item_correlative = _item_correlative_key(item.correlativo, item_index)
                     item_values = {
                         "pipeline_run_id": pipeline_run_id,
                         "request_id": request_id,
                         "payload_id": payload_id,
                         "external_notice_code": external_notice_code,
-                        "item_correlative": item.correlativo,
+                        "item_correlative": item_correlative,
                         "codigo_producto": item.codigo_producto,
                         "codigo_categoria": item.codigo_categoria,
                         "categoria": item.categoria,
@@ -479,7 +480,7 @@ def persist_notice_batch(
                             .where(
                                 MercadoPublicoNoticeItemSnapshot.payload_id == payload_id,
                                 MercadoPublicoNoticeItemSnapshot.external_notice_code == external_notice_code,
-                                MercadoPublicoNoticeItemSnapshot.item_correlative == item.correlativo,
+                                MercadoPublicoNoticeItemSnapshot.item_correlative == item_correlative,
                             )
                             .values(
                                 pipeline_run_id=pipeline_run_id,
@@ -558,3 +559,11 @@ def _fechas_attr(notice: LicitacionNotice, attr: str) -> Any:
     if notice.fechas is None:
         return None
     return getattr(notice.fechas, attr, None)
+
+
+def _item_correlative_key(value: int | None, item_index: int) -> int:
+    if value is not None:
+        return value
+    # Keep item dedupe stable for payloads that omit Correlativo by using a
+    # deterministic surrogate derived from the item's order in the payload.
+    return -item_index
