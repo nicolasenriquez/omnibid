@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from backend.integrations.mercado_publico.errors import MercadoPublicoRateLimitError
 from backend.integrations.mercado_publico.schemas import LicitacionNotice
-from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeSnapshot
+from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeItemSnapshot, MercadoPublicoNoticeSnapshot
 
 
 SECRET_KEYS = {"ticket"}
@@ -83,6 +83,8 @@ class PersistedNoticeBatch:
     snapshots_upserted: int
     snapshots_inserted: int
     snapshots_updated: int
+    items_seen: int
+    items_persisted: int
 
 
 @dataclass(frozen=True)
@@ -321,6 +323,8 @@ def persist_notice_batch(
         snapshots_upserted = 0
         snapshots_inserted = 0
         snapshots_updated = 0
+        items_seen = 0
+        items_persisted = 0
         for notice in notices:
             external_notice_code = (notice.external_notice_code or "").strip()
             if external_notice_code == "":
@@ -350,6 +354,25 @@ def persist_notice_batch(
                 "snapshot_date": notice.publication_date or effective_completed_at.date(),
                 "observed_at": effective_completed_at,
                 "synced_at": effective_completed_at,
+                "description": notice.description,
+                "buyer_unit_address": _comprador_attr(notice, "direccion_unidad"),
+                "buyer_unit_commune": _comprador_attr(notice, "comuna_unidad"),
+                "buyer_unit_region": _comprador_attr(notice, "region_unidad"),
+                "buyer_user_rut": _comprador_attr(notice, "rut_usuario"),
+                "buyer_user_code": _comprador_attr(notice, "codigo_usuario"),
+                "buyer_user_name": _comprador_attr(notice, "nombre_usuario"),
+                "buyer_user_position": _comprador_attr(notice, "cargo_usuario"),
+                "created_date": _fechas_attr(notice, "fecha_creacion"),
+                "estimated_award_date": _fechas_attr(notice, "fecha_estimada_adjudicacion"),
+                "award_date": _fechas_attr(notice, "fecha_adjudicacion"),
+                "tipo": notice.tipo,
+                "codigo_tipo": notice.codigo_tipo,
+                "tipo_convocatoria": notice.tipo_convocatoria,
+                "days_to_close": notice.dias_cierre_licitacion,
+                "claim_count": notice.claim_count,
+                "funding_source": notice.funding_source,
+                "visibility_amount": notice.visibility_amount,
+                "api_completeness_level": "detail" if notice.comprador is not None else "summary",
             }
             insert_stmt = (
                 pg_insert(MercadoPublicoNoticeSnapshot)
@@ -361,46 +384,118 @@ def persist_notice_batch(
             if inserted_marker == 1:
                 snapshots_inserted += 1
                 snapshots_upserted += 1
-                continue
+            else:
+                update_values = {
+                    "pipeline_run_id": pipeline_run_id,
+                    "request_id": request_id,
+                    "endpoint_name": endpoint_name,
+                    "source_mode": source_mode,
+                    "resource_key": resource_key,
+                    "notice_id": external_notice_code,
+                    "payload_sha256": payload_sha256,
+                    "notice_title": notice.title,
+                    "official_status_code": notice.official_status_code,
+                    "official_status_name": notice.official_status_name,
+                    "publication_date": notice.publication_date,
+                    "close_date": notice.close_date,
+                    "buyer_org_code": notice.buyer_org_code,
+                    "buyer_org_name": notice.buyer_org_name,
+                    "buyer_unit_code": notice.buyer_unit_code,
+                    "buyer_unit_name": notice.buyer_unit_name,
+                    "currency_code": notice.currency_code,
+                    "estimated_amount": _decimal_or_none(notice.estimated_amount),
+                    "snapshot_date": notice.publication_date or effective_completed_at.date(),
+                    "observed_at": effective_completed_at,
+                    "synced_at": effective_completed_at,
+                    "description": notice.description,
+                    "buyer_unit_address": _comprador_attr(notice, "direccion_unidad"),
+                    "buyer_unit_commune": _comprador_attr(notice, "comuna_unidad"),
+                    "buyer_unit_region": _comprador_attr(notice, "region_unidad"),
+                    "buyer_user_rut": _comprador_attr(notice, "rut_usuario"),
+                    "buyer_user_code": _comprador_attr(notice, "codigo_usuario"),
+                    "buyer_user_name": _comprador_attr(notice, "nombre_usuario"),
+                    "buyer_user_position": _comprador_attr(notice, "cargo_usuario"),
+                    "created_date": _fechas_attr(notice, "fecha_creacion"),
+                    "estimated_award_date": _fechas_attr(notice, "fecha_estimada_adjudicacion"),
+                    "award_date": _fechas_attr(notice, "fecha_adjudicacion"),
+                    "tipo": notice.tipo,
+                    "codigo_tipo": notice.codigo_tipo,
+                    "tipo_convocatoria": notice.tipo_convocatoria,
+                    "days_to_close": notice.dias_cierre_licitacion,
+                    "claim_count": notice.claim_count,
+                    "funding_source": notice.funding_source,
+                    "visibility_amount": notice.visibility_amount,
+                    "api_completeness_level": "detail" if notice.comprador is not None else "summary",
+                }
+                updated_marker = session.execute(
+                    sa.update(MercadoPublicoNoticeSnapshot)
+                    .where(
+                        MercadoPublicoNoticeSnapshot.payload_id == payload_id,
+                        MercadoPublicoNoticeSnapshot.external_notice_code == external_notice_code,
+                    )
+                    .values(**update_values)
+                    .returning(sa.literal(1))
+                )
+                if updated_marker.scalar_one_or_none() != 1:
+                    raise RuntimeError(
+                        "unexpected update rowcount for mercado_publico_notice_snapshot conflict row"
+                    )
+                snapshots_updated += 1
+                snapshots_upserted += 1
 
-            update_values = {
-                "pipeline_run_id": pipeline_run_id,
-                "request_id": request_id,
-                "endpoint_name": endpoint_name,
-                "source_mode": source_mode,
-                "resource_key": resource_key,
-                "notice_id": external_notice_code,
-                "payload_sha256": payload_sha256,
-                "notice_title": notice.title,
-                "official_status_code": notice.official_status_code,
-                "official_status_name": notice.official_status_name,
-                "publication_date": notice.publication_date,
-                "close_date": notice.close_date,
-                "buyer_org_code": notice.buyer_org_code,
-                "buyer_org_name": notice.buyer_org_name,
-                "buyer_unit_code": notice.buyer_unit_code,
-                "buyer_unit_name": notice.buyer_unit_name,
-                "currency_code": notice.currency_code,
-                "estimated_amount": _decimal_or_none(notice.estimated_amount),
-                "snapshot_date": notice.publication_date or effective_completed_at.date(),
-                "observed_at": effective_completed_at,
-                "synced_at": effective_completed_at,
-            }
-            updated_marker = session.execute(
-                sa.update(MercadoPublicoNoticeSnapshot)
-                .where(
-                    MercadoPublicoNoticeSnapshot.payload_id == payload_id,
-                    MercadoPublicoNoticeSnapshot.external_notice_code == external_notice_code,
-                )
-                .values(**update_values)
-                .returning(sa.literal(1))
-            )
-            if updated_marker.scalar_one_or_none() != 1:
-                raise RuntimeError(
-                    "unexpected update rowcount for mercado_publico_notice_snapshot conflict row"
-                )
-            snapshots_updated += 1
-            snapshots_upserted += 1
+            if notice.items is not None and notice.items.listado:
+                for item in notice.items.listado:
+                    items_seen += 1
+                    item_values = {
+                        "pipeline_run_id": pipeline_run_id,
+                        "request_id": request_id,
+                        "payload_id": payload_id,
+                        "external_notice_code": external_notice_code,
+                        "item_correlative": item.correlativo,
+                        "codigo_producto": item.codigo_producto,
+                        "codigo_categoria": item.codigo_categoria,
+                        "categoria": item.categoria,
+                        "nombre_producto": item.nombre_producto,
+                        "descripcion": item.descripcion,
+                        "unidad_medida": item.unidad_medida,
+                        "cantidad": item.cantidad,
+                        "observed_at": effective_completed_at,
+                        "synced_at": effective_completed_at,
+                    }
+                    item_insert = (
+                        pg_insert(MercadoPublicoNoticeItemSnapshot)
+                        .values(item_values)
+                        .on_conflict_do_nothing(
+                            index_elements=["payload_id", "external_notice_code", "item_correlative"]
+                        )
+                        .returning(sa.literal(1))
+                    )
+                    item_inserted = session.execute(item_insert).scalar_one_or_none()
+                    if item_inserted == 1:
+                        items_persisted += 1
+                    else:
+                        session.execute(
+                            sa.update(MercadoPublicoNoticeItemSnapshot)
+                            .where(
+                                MercadoPublicoNoticeItemSnapshot.payload_id == payload_id,
+                                MercadoPublicoNoticeItemSnapshot.external_notice_code == external_notice_code,
+                                MercadoPublicoNoticeItemSnapshot.item_correlative == item.correlativo,
+                            )
+                            .values(
+                                pipeline_run_id=pipeline_run_id,
+                                request_id=request_id,
+                                codigo_producto=item.codigo_producto,
+                                codigo_categoria=item.codigo_categoria,
+                                categoria=item.categoria,
+                                nombre_producto=item.nombre_producto,
+                                descripcion=item.descripcion,
+                                unidad_medida=item.unidad_medida,
+                                cantidad=item.cantidad,
+                                observed_at=effective_completed_at,
+                                synced_at=effective_completed_at,
+                            )
+                        )
+                        items_persisted += 1
 
         session.flush()
 
@@ -414,6 +509,8 @@ def persist_notice_batch(
         snapshots_upserted=snapshots_upserted,
         snapshots_inserted=snapshots_inserted,
         snapshots_updated=snapshots_updated,
+        items_seen=items_seen,
+        items_persisted=items_persisted,
     )
 
 
@@ -449,3 +546,15 @@ def _decimal_or_none(value: Any) -> Decimal | None:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
+
+
+def _comprador_attr(notice: LicitacionNotice, attr: str) -> Any:
+    if notice.comprador is None:
+        return None
+    return getattr(notice.comprador, attr, None)
+
+
+def _fechas_attr(notice: LicitacionNotice, attr: str) -> Any:
+    if notice.fechas is None:
+        return None
+    return getattr(notice.fechas, attr, None)

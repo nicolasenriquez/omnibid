@@ -98,6 +98,25 @@ class MercadoPublicoNoticeSnapshot(Base):
     snapshot_date = sa.Column(sa.Date, nullable=False)
     observed_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
     synced_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    description = sa.Column(sa.Text)
+    buyer_unit_address = sa.Column(sa.Text)
+    buyer_unit_commune = sa.Column(sa.Text)
+    buyer_unit_region = sa.Column(sa.Text)
+    buyer_user_rut = sa.Column(sa.Text)
+    buyer_user_code = sa.Column(sa.Text)
+    buyer_user_name = sa.Column(sa.Text)
+    buyer_user_position = sa.Column(sa.Text)
+    created_date = sa.Column(sa.Date)
+    estimated_award_date = sa.Column(sa.Date)
+    award_date = sa.Column(sa.Date)
+    tipo = sa.Column(sa.Text)
+    codigo_tipo = sa.Column(sa.Text)
+    tipo_convocatoria = sa.Column(sa.Text)
+    days_to_close = sa.Column(sa.Integer)
+    claim_count = sa.Column(sa.Integer)
+    funding_source = sa.Column(sa.Text)
+    visibility_amount = sa.Column(sa.Text)
+    api_completeness_level = sa.Column(sa.Text)
 
     __table_args__ = (
         sa.Index("ix_mp_notice_snapshot_pipeline_run_id", "pipeline_run_id"),
@@ -119,6 +138,37 @@ class MercadoPublicoNoticeSnapshot(Base):
             "payload_id",
             "external_notice_code",
             name="uq_mp_notice_snapshot_payload_notice",
+        ),
+    )
+
+
+class MercadoPublicoNoticeItemSnapshot(Base):
+    __tablename__ = "mercado_publico_notice_item_snapshot"
+
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()"))
+    pipeline_run_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("pipeline_runs.id"), nullable=False)
+    request_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("api_source_request.id"), nullable=False)
+    payload_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey("api_source_payload.id"), nullable=False)
+    external_notice_code = sa.Column(sa.Text, nullable=False)
+    item_correlative = sa.Column(sa.Integer)
+    codigo_producto = sa.Column(sa.Text)
+    codigo_categoria = sa.Column(sa.Text)
+    categoria = sa.Column(sa.Text)
+    nombre_producto = sa.Column(sa.Text)
+    descripcion = sa.Column(sa.Text)
+    unidad_medida = sa.Column(sa.Text)
+    cantidad = sa.Column(sa.Text)
+    observed_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+    synced_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    __table_args__ = (
+        sa.Index("ix_mp_notice_item_snapshot_external_notice_code", "external_notice_code"),
+        sa.Index("ix_mp_notice_item_snapshot_payload_id", "payload_id"),
+        sa.UniqueConstraint(
+            "payload_id",
+            "external_notice_code",
+            "item_correlative",
+            name="uq_mp_notice_item_snapshot_payload_notice_item",
         ),
     )
 

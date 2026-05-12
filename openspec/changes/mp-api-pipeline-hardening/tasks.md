@@ -20,15 +20,15 @@
 
 ## 3. Persistence Migration
 
-- [ ] 3.1 Generate Alembic migration adding nullable enriched columns to `mercado_publico_notice_snapshot`: `description`, `buyer_unit_address`, `buyer_unit_commune`, `buyer_unit_region`, `buyer_user_rut`, `buyer_user_code`, `buyer_user_name`, `buyer_user_position`, `created_date`, `estimated_award_date`, `award_date`, `tipo`, `codigo_tipo`, `tipo_convocatoria`, `days_to_close`, `claim_count`, `funding_source`, `visibility_amount`, `api_completeness_level`
-- [ ] 3.2 Generate Alembic migration creating `mercado_publico_notice_item_snapshot` table with all required columns and unique constraint on `(payload_id, external_notice_code, item_correlative)`
-- [ ] 3.3 Add `MercadoPublicoNoticeItemSnapshot` ORM model in `backend/models/api_source.py`
-- [ ] 3.4 Extend `MercadoPublicoNoticeSnapshot` ORM model with new enriched columns
-- [ ] 3.5 Update `persist_notice_batch` in `store.py` to populate enriched snapshot fields from the extended `LicitacionNotice`
-- [ ] 3.6 Add item persistence in `persist_notice_batch`: iterate `notice.items.listado` and upsert rows into `mercado_publico_notice_item_snapshot`
-- [ ] 3.7 Write test `test_persist_detail_notice_populates_enriched_fields` verifying description, buyer_region, buyer_commune, buyer_address, tipo, api_completeness_level are persisted
-- [ ] 3.8 Write test `test_persist_detail_notice_persists_items` verifying item rows are created
-- [ ] 3.9 Write test `test_persist_summary_notice_leaves_enriched_fields_null` verifying summary-mode persistence is backward-compatible
+- [x] 3.1 Generate Alembic migration adding nullable enriched columns to `mercado_publico_notice_snapshot`: `description`, `buyer_unit_address`, `buyer_unit_commune`, `buyer_unit_region`, `buyer_user_rut`, `buyer_user_code`, `buyer_user_name`, `buyer_user_position`, `created_date`, `estimated_award_date`, `award_date`, `tipo`, `codigo_tipo`, `tipo_convocatoria`, `days_to_close`, `claim_count`, `funding_source`, `visibility_amount`, `api_completeness_level`
+- [x] 3.2 Generate Alembic migration creating `mercado_publico_notice_item_snapshot` table with all required columns and unique constraint on `(payload_id, external_notice_code, item_correlative)`
+- [x] 3.3 Add `MercadoPublicoNoticeItemSnapshot` ORM model in `backend/models/api_source.py`
+- [x] 3.4 Extend `MercadoPublicoNoticeSnapshot` ORM model with new enriched columns
+- [x] 3.5 Update `persist_notice_batch` in `store.py` to populate enriched snapshot fields from the extended `LicitacionNotice`
+- [x] 3.6 Add item persistence in `persist_notice_batch`: iterate `notice.items.listado` and upsert rows into `mercado_publico_notice_item_snapshot`
+- [x] 3.7 Write test `test_persist_detail_notice_populates_enriched_fields` verifying description, buyer_region, buyer_commune, buyer_address, tipo, api_completeness_level are persisted
+- [x] 3.8 Write test `test_persist_detail_notice_persists_items` verifying item rows are created
+- [x] 3.9 Write test `test_persist_summary_notice_leaves_enriched_fields_null` verifying summary-mode persistence is backward-compatible
 
 ## 4. Canonicalization
 
