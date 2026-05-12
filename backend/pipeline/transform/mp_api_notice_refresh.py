@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.api_source import MercadoPublicoNoticeSnapshot
 from backend.models.normalized import SilverNotice
-from backend.normalized.upsert_engine import upsert_rows
+from backend.pipeline.transform.upsert_engine import upsert_rows
 
 MP_API_NOTICE_SILVER_STEP_NAME = "mp_api_notice_silver_refresh"
 SILVER_NOTICE_CONFLICT_FIELDS = ["notice_id"]

@@ -10,7 +10,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import dialect as pg_dialect
 
-import backend.normalized.upsert_engine as UPSERT_MODULE
+import backend.pipeline.transform.upsert_engine as UPSERT_MODULE
 from backend.models.normalized import NormalizedOferta
 from backend.models.normalized import NormalizedOrdenCompra
 from backend.models.normalized import SilverNoticeTextAnn

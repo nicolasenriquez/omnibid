@@ -53,7 +53,6 @@ def pick(raw: dict[str, Any], *keys: str) -> str | None:
             raw_value = cast(Any, raw.get(key))
             if raw_value is not None:
                 if isinstance(raw_value, dict):
-                    # Sanitize corrupted dict values to str to prevent SQLAlchemy 'can't adapt type' error
                     value = clean_raw_value(str(cast(Any, raw_value)))
                 else:
                     value = clean_raw_value(raw_value)
@@ -70,11 +69,6 @@ def parse_decimal(value: Any) -> Decimal | None:
     text = raw.replace("\xa0", "").replace(" ", "")
     text = re.sub(r"[^0-9,.\-+eE]", "", text)
 
-    # Examples handled:
-    # - 1.234,56  -> 1234.56
-    # - 1234,56   -> 1234.56
-    # - 6,8e+08   -> 6.8e+08
-    # - 1,234.56  -> 1234.56
     if "," in text and "." in text:
         if text.rfind(",") > text.rfind("."):
             text = text.replace(".", "").replace(",", ".")

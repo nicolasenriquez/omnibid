@@ -7,7 +7,7 @@ from typing import Any
 from backend.nlp.artifacts import tfidf_artifact_ref
 from backend.nlp.config import get_nlp_contract_config
 from backend.nlp.normalization import normalize_annotation_text
-from backend.normalized.transform_common import pick
+from backend.pipeline.transform.transform_common import pick
 
 _CONTRACT = get_nlp_contract_config()
 DEFAULT_SILVER_NLP_VERSION = _CONTRACT.nlp_version

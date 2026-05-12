@@ -27,7 +27,7 @@ from backend.models.normalized import (
     SilverSupplier,
     SilverSupplierParticipation,
 )
-from backend.normalized.postprocess import (
+from backend.pipeline.load.postprocess import (
     reconcile_silver_notice_purchase_order_links,
     refresh_silver_notice_and_line_enrichments,
     refresh_silver_purchase_order_enrichments,
@@ -48,7 +48,7 @@ from backend.normalized.transform import (
     build_supplier_domain_payload,
     resolve_supplier_identity_key,
 )
-from backend.normalized.upsert_engine import upsert_rows
+from backend.pipeline.transform.upsert_engine import upsert_rows
 
 LICITACIONES_CONFLICT_FIELDS = ["codigo_externo"]
 LICITACION_ITEMS_CONFLICT_FIELDS = ["codigo_externo", "codigo_item"]

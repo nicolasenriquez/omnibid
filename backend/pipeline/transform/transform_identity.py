@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.normalized.transform_common import pick
+from backend.pipeline.transform.transform_common import pick
 
 
 def resolve_buyer_identity_key(raw: dict[str, Any]) -> str | None:
@@ -27,7 +27,6 @@ def resolve_category_identity_key(raw: dict[str, Any]) -> str | None:
 
     onu_code = pick(raw, "codigoProductoONU", "CodigoProductoONU")
     if onu_code is not None:
-        # Prefix ONU fallback keys to avoid collisions with native category codes.
         return f"onu:{onu_code}"
     return None
 

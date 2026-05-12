@@ -5,7 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
-from backend.normalized import mp_api_read_model_bridge as bridge
+from backend.pipeline.transform import mp_api_read_model_bridge as bridge
 
 
 class _ScalarIterableResult:
@@ -266,7 +266,7 @@ def test_api_items_canonicalize_to_normalized_licitacion_items() -> None:
 def test_nulls_do_not_overwrite_existing_non_null_values(
     monkeypatch,
 ) -> None:
-    from backend.normalized.upsert_engine import _build_complete_only_update_expr
+    from backend.pipeline.transform.upsert_engine import _build_complete_only_update_expr
     import sqlalchemy as sa
 
     mock_stmt = SimpleNamespace()

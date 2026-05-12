@@ -7,10 +7,10 @@ from uuid import uuid4
 
 import pytest
 
-import backend.integrations.mercado_publico.store as store_module
+import backend.pipeline.load.mp_api_store as store_module
 from backend.pipeline.extract.mp_api_errors import MercadoPublicoRateLimitError
 from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
-from backend.integrations.mercado_publico.store import (
+from backend.pipeline.load.mp_api_store import (
     PersistedNoticeBatch,
     _comprador_attr,
     _fechas_attr,

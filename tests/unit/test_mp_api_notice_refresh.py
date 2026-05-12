@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.normalized import mp_api_notice_refresh
+from backend.pipeline.transform import mp_api_notice_refresh
 
 
 def _snapshot(

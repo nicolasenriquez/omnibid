@@ -53,13 +53,13 @@ class _DummySession:
 
 
 def test_queue_contract_exposes_deterministic_claim_order_fields() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     fields = getattr(queue, "CLAIM_ORDER_FIELDS", None)
     assert fields == ("priority", "available_at", "created_at", "id")
 
 
 def test_claim_next_job_contract_includes_atomic_claim_inputs() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     sig = _require_callable(queue, "claim_next_job")
     assert "session" in sig.parameters
     assert "worker_id" in sig.parameters
@@ -67,14 +67,14 @@ def test_claim_next_job_contract_includes_atomic_claim_inputs() -> None:
 
 
 def test_claim_next_job_contract_exposes_skip_locked_semantics() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     claim_sql = getattr(queue, "CLAIM_NEXT_JOB_SQL", "")
     normalized = str(claim_sql).upper()
     assert "FOR UPDATE SKIP LOCKED" in normalized
 
 
 def test_retry_schedule_is_deterministic_from_attempt_count() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     _require_callable(queue, "compute_retry_available_at")
     start = datetime(2026, 5, 7, 10, 0, tzinfo=UTC)
     next_at = queue.compute_retry_available_at(
@@ -86,7 +86,7 @@ def test_retry_schedule_is_deterministic_from_attempt_count() -> None:
 
 
 def test_retry_state_transitions_have_bounded_terminal_path() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     _require_callable(queue, "resolve_failure_state")
     state, available_at = queue.resolve_failure_state(
         attempts=2,
@@ -99,7 +99,7 @@ def test_retry_state_transitions_have_bounded_terminal_path() -> None:
 
 
 def test_retry_state_transitions_keep_future_available_at_when_retryable() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     state, available_at = queue.resolve_failure_state(
         attempts=1,
         max_attempts=2,
@@ -111,7 +111,7 @@ def test_retry_state_transitions_keep_future_available_at_when_retryable() -> No
 
 
 def test_mark_job_failure_honors_per_job_max_attempts() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     session = _DummySession({"attempts": 2, "max_attempts": 2})
     state = queue.mark_job_failure(
         session,
@@ -129,7 +129,7 @@ def test_mark_job_failure_honors_per_job_max_attempts() -> None:
 
 
 def test_mark_job_failure_uses_fallback_max_attempts_when_row_value_missing() -> None:
-    queue = _load_module("backend.ingestion.queue")
+    queue = _load_module("backend.pipeline.load.queue")
     session = _DummySession({"attempts": 1, "max_attempts": None})
     state = queue.mark_job_failure(
         session,

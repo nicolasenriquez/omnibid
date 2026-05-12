@@ -83,23 +83,23 @@ Notes: Move MP API extraction logic and CSV file ingestion contracts into `backe
 
 Notes: Move normalization and transform builders into `backend/pipeline/transform/`. Only MP API transform code is migrated.
 
-- [ ] 9.1 Move `backend/normalized/transform_common.py` and `backend/normalized/transform_identity.py` → `backend/pipeline/transform/`
-- [ ] 9.2 Move `backend/normalized/transform_normalized_payloads.py` and `backend/normalized/transform_silver_payloads.py` → `backend/pipeline/transform/`
-- [ ] 9.3 Move `backend/normalized/upsert_engine.py` → `backend/pipeline/transform/upsert_engine.py`
-- [ ] 9.4 Move `backend/normalized/quality_gate.py` → `backend/pipeline/transform/quality_gate.py`
-- [ ] 9.5 Move `backend/normalized/mp_api_notice_refresh.py` and `backend/normalized/mp_api_read_model_bridge.py` → `backend/pipeline/transform/`
-- [ ] 9.6 Update all imports in `backend/pipeline/application.py`, `backend/pipeline/extract/`, and tests to use new transform paths
-- [ ] 9.7 Run `just test-unit` to verify transform migration is clean
+- [x] 9.1 Move `backend/normalized/transform_common.py` and `backend/normalized/transform_identity.py` → `backend/pipeline/transform/`
+- [x] 9.2 Move `backend/normalized/transform_normalized_payloads.py` and `backend/normalized/transform_silver_payloads.py` → `backend/pipeline/transform/`
+- [x] 9.3 Move `backend/normalized/upsert_engine.py` → `backend/pipeline/transform/upsert_engine.py`
+- [x] 9.4 Move `backend/normalized/quality_gate.py` → `backend/pipeline/transform/quality_gate.py`
+- [x] 9.5 Move `backend/normalized/mp_api_notice_refresh.py` and `backend/normalized/mp_api_read_model_bridge.py` → `backend/pipeline/transform/`
+- [x] 9.6 Update all imports in `backend/pipeline/application.py`, `backend/pipeline/extract/`, and tests to use new transform paths
+- [x] 9.7 Run `just test-unit` to verify transform migration is clean
 
 ## 10. Load Stage Migration
 
 Notes: Move persistence and load logic into `backend/pipeline/load/`.
 
-- [ ] 10.1 Move `backend/integrations/mercado_publico/store.py` → `backend/pipeline/load/mp_api_store.py`
-- [ ] 10.2 Move `backend/ingestion/queue.py` and `backend/ingestion/checkpoints.py` → `backend/pipeline/load/`
-- [ ] 10.3 Move `backend/normalized/postprocess.py` → `backend/pipeline/load/postprocess.py`
-- [ ] 10.4 Update all imports in `backend/pipeline/application.py`, `backend/pipeline/worker.py`, and tests to use new load paths
-- [ ] 10.5 Run `just test-unit` to verify load migration is clean
+- [x] 10.1 Move `backend/integrations/mercado_publico/store.py` → `backend/pipeline/load/mp_api_store.py`
+- [x] 10.2 Move `backend/ingestion/queue.py` and `backend/ingestion/checkpoints.py` → `backend/pipeline/load/`
+- [x] 10.3 Move `backend/normalized/postprocess.py` → `backend/pipeline/load/postprocess.py`
+- [x] 10.4 Update all imports in `backend/pipeline/application.py`, `backend/pipeline/worker.py`, and tests to use new load paths
+- [x] 10.5 Run `just test-unit` to verify load migration is clean
 
 ## 11. Orchestration Consolidation & Cleanup
 

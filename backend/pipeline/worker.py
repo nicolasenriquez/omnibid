@@ -8,8 +8,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from backend.ingestion.checkpoints import mark_source_checkpoint_consumed
-from backend.ingestion import queue
+from backend.pipeline.load.checkpoints import mark_source_checkpoint_consumed
+from backend.pipeline.load import queue
 from backend.pipeline.ingestion_units import (
     create_ingestion_unit,
     mark_ingestion_unit_completed,

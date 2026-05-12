@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.normalized.transform_common import (
+from backend.pipeline.transform.transform_common import (
     oferta_key_from_raw,
     parse_bool,
     parse_datetime,
@@ -11,7 +11,7 @@ from backend.normalized.transform_common import (
     pick,
     tipo_flags,
 )
-from backend.normalized.transform_identity import (
+from backend.pipeline.transform.transform_identity import (
     resolve_buyer_identity_key,
     resolve_category_identity_key,
     resolve_supplier_identity_key,

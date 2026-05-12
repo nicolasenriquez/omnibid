@@ -79,7 +79,7 @@ from backend.observability.cli_ui import (  # noqa: E402
     progress_write,
     timed_step,
 )
-from backend.normalized.quality_gate import (  # noqa: E402,F401
+from backend.pipeline.transform.quality_gate import (  # noqa: E402,F401
     QUALITY_GATE_CHECKPOINT_EVERY_PAGES_DEFAULT,
     QUALITY_GATE_DOMAIN_IDENTITY_FIELDS,
     QUALITY_GATE_MAX_ERROR_RATE,
@@ -89,13 +89,13 @@ from backend.normalized.quality_gate import (  # noqa: E402,F401
     evaluate_normalized_quality_gate,
     persist_normalized_quality_issues,
 )
-from backend.normalized import quality_gate as normalized_quality_gate  # noqa: E402
-from backend.normalized.upsert_engine import (  # noqa: E402,F401
+import backend.pipeline.transform.quality_gate as normalized_quality_gate  # noqa: E402
+from backend.pipeline.transform.upsert_engine import (  # noqa: E402,F401
     flush_if_needed,
     flush_remaining,
 )
-from backend.normalized import upsert_engine as normalized_upsert_engine  # noqa: E402
-from backend.normalized.postprocess import (  # noqa: E402
+import backend.pipeline.transform.upsert_engine as normalized_upsert_engine  # noqa: E402
+from backend.pipeline.load.postprocess import (  # noqa: E402
     reconcile_silver_notice_purchase_order_links,
     refresh_silver_notice_and_line_enrichments,
     refresh_silver_purchase_order_enrichments,

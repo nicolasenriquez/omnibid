@@ -12,7 +12,7 @@ from backend.pipeline.extract.mp_api_errors import (
 from backend.pipeline.extract.mp_api_rate_limit import DailyRequestBudget, retry_backoff_seconds
 from backend.pipeline.extract.mp_api_schemas import LicitacionNotice, LicitacionesResponse, parse_licitaciones_response
 from backend.pipeline.extract.mp_api_client import MercadoPublicoClient, redact_query_params
-from .store import (
+from backend.pipeline.load.mp_api_store import (
     PersistedNoticeBatch,
     canonical_request_params,
     compute_payload_hash,

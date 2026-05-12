@@ -22,10 +22,10 @@ from backend.integrations.mercado_publico.sync import (
 )
 from backend.models.api_source import ApiSourcePayload, ApiSourceRequest
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
-from backend.normalized.mp_api_notice_refresh import (
+from backend.pipeline.transform.mp_api_notice_refresh import (
     select_latest_notice_snapshots,
 )
-from backend.normalized.mp_api_read_model_bridge import (
+from backend.pipeline.transform.mp_api_read_model_bridge import (
     MpApiCanonicalizationSummary,
     MpApiSilverPostprocessSummary,
     canonicalize_mp_api_payloads_to_read_model,

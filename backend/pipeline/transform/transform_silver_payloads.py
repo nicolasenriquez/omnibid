@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from backend.normalized.transform_common import (
+from backend.pipeline.transform.transform_common import (
     award_outcome_key_from_raw,
     has_bid_submission_signal,
     oferta_key_from_raw,
@@ -14,7 +14,7 @@ from backend.normalized.transform_common import (
     parse_int,
     pick,
 )
-from backend.normalized.transform_identity import (
+from backend.pipeline.transform.transform_identity import (
     resolve_buying_org_identity_key,
     resolve_category_ref_identity_key,
     resolve_contracting_unit_identity_key,
