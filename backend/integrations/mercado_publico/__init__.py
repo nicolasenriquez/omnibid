@@ -1,17 +1,17 @@
 """Mercado Publico integration primitives."""
 
-from .client import MercadoPublicoClient, redact_query_params
-from .config import MercadoPublicoSettings, from_app_settings, validate_settings
-from .enums import LicitacionEstadoCode
-from .errors import (
+from backend.pipeline.extract.mp_api_config import MercadoPublicoSettings, from_app_settings, validate_settings
+from backend.pipeline.extract.mp_api_enums import LicitacionEstadoCode
+from backend.pipeline.extract.mp_api_errors import (
     MercadoPublicoConfigError,
     MercadoPublicoContractDriftError,
     MercadoPublicoIntegrationError,
     MercadoPublicoRateLimitError,
     MercadoPublicoRequestError,
 )
-from .rate_limit import DailyRequestBudget, retry_backoff_seconds
-from .schemas import LicitacionNotice, LicitacionesResponse, parse_licitaciones_response
+from backend.pipeline.extract.mp_api_rate_limit import DailyRequestBudget, retry_backoff_seconds
+from backend.pipeline.extract.mp_api_schemas import LicitacionNotice, LicitacionesResponse, parse_licitaciones_response
+from backend.pipeline.extract.mp_api_client import MercadoPublicoClient, redact_query_params
 from .store import (
     PersistedNoticeBatch,
     canonical_request_params,

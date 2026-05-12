@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.ingestion.contracts import validate_required_columns  # noqa: E402
+from backend.pipeline.extract.file_contracts import validate_required_columns  # noqa: E402
 from backend.observability.cli_ui import (  # noqa: E402
     create_progress,
     progress_write,

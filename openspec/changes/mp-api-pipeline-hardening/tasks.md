@@ -70,14 +70,14 @@ Notes: Create new module boundaries alongside existing code. No files are moved 
 
 Notes: Move MP API extraction logic and CSV file ingestion contracts into `backend/pipeline/extract/`. All data entry points (API, CSV, file load) are part of the same pipeline. `backend/integrations/` is preserved for future non-pipeline integrations only.
 
-- [ ] 8.1 Move `backend/integrations/mercado_publico/client.py` → `backend/pipeline/extract/mp_api_client.py`
-- [ ] 8.2 Move `backend/integrations/mercado_publico/schemas.py` → `backend/pipeline/extract/mp_api_schemas.py`
-- [ ] 8.3 Move `backend/integrations/mercado_publico/config.py` and `backend/integrations/mercado_publico/rate_limit.py` → `backend/pipeline/extract/`
-- [ ] 8.3b Move `backend/integrations/mercado_publico/errors.py` and `backend/integrations/mercado_publico/enums.py` → `backend/pipeline/extract/`
-- [ ] 8.4 Move file ingestion contracts from `backend/ingestion/contracts.py` → `backend/pipeline/extract/file_contracts.py`
-- [ ] 8.5 Update `__init__.py` re-exports in `backend/integrations/mercado_publico/` to point to new locations (backward-compatible shim for existing importers)
-- [ ] 8.6 Update all imports in `backend/pipeline/application.py`, `scripts/fetch_mp_api.py`, `scripts/run_mp_api_daily_pipeline.py`, and tests to use new extract module paths
-- [ ] 8.7 Run `just test-unit` to verify extract migration is clean
+- [x] 8.1 Move `backend/integrations/mercado_publico/client.py` → `backend/pipeline/extract/mp_api_client.py`
+- [x] 8.2 Move `backend/integrations/mercado_publico/schemas.py` → `backend/pipeline/extract/mp_api_schemas.py`
+- [x] 8.3 Move `backend/integrations/mercado_publico/config.py` and `backend/integrations/mercado_publico/rate_limit.py` → `backend/pipeline/extract/`
+- [x] 8.3b Move `backend/integrations/mercado_publico/errors.py` and `backend/integrations/mercado_publico/enums.py` → `backend/pipeline/extract/`
+- [x] 8.4 Move file ingestion contracts from `backend/ingestion/contracts.py` → `backend/pipeline/extract/file_contracts.py`
+- [x] 8.5 Update `__init__.py` re-exports in `backend/integrations/mercado_publico/` to point to new locations (backward-compatible shim for existing importers)
+- [x] 8.6 Update all imports in `backend/pipeline/application.py`, `scripts/fetch_mp_api.py`, `scripts/run_mp_api_daily_pipeline.py`, and tests to use new extract module paths
+- [x] 8.7 Run `just test-unit` to verify extract migration is clean
 
 ## 9. Transform Stage Migration
 

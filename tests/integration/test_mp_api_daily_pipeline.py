@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 import backend.models  # noqa: F401
 from backend.db.base import Base
-from backend.integrations.mercado_publico.schemas import (
+from backend.pipeline.extract.mp_api_schemas import (
     LicitacionesResponse,
     parse_licitaciones_response,
 )

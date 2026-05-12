@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .errors import MercadoPublicoRateLimitError
+from backend.pipeline.extract.mp_api_errors import MercadoPublicoRateLimitError
 
 
 @dataclass
@@ -38,4 +38,3 @@ def retry_backoff_seconds(*, attempt: int, base_seconds: int = 2, cap_seconds: i
         raise ValueError("cap_seconds must be >= 1")
     backoff = base_seconds * (2 ** (attempt - 1))
     return backoff if backoff < cap_seconds else cap_seconds
-

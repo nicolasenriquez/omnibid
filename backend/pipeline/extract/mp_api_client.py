@@ -9,14 +9,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .config import MercadoPublicoSettings, validate_settings
-from .errors import (
+from backend.pipeline.extract.mp_api_config import MercadoPublicoSettings, validate_settings
+from backend.pipeline.extract.mp_api_errors import (
     MercadoPublicoConfigError,
     MercadoPublicoContractDriftError,
     MercadoPublicoRequestError,
 )
-from .rate_limit import DailyRequestBudget, retry_backoff_seconds
-from .schemas import LicitacionesResponse, parse_licitaciones_response
+from backend.pipeline.extract.mp_api_rate_limit import DailyRequestBudget, retry_backoff_seconds
+from backend.pipeline.extract.mp_api_schemas import LicitacionesResponse, parse_licitaciones_response
 
 REDACTED_SECRET = "***redacted***"
 LICITACIONES_ENDPOINT = "/licitaciones.json"

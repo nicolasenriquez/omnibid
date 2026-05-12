@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from backend.ingestion.contracts import validate_required_columns
+from backend.pipeline.extract.file_contracts import validate_required_columns
 
 MANUAL_UPLOAD_ALLOWED_DATASETS = {"licitacion", "orden_compra"}
 MANUAL_UPLOAD_ALLOWED_CONTENT_TYPES = {

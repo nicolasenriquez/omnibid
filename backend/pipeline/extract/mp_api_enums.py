@@ -8,6 +8,3 @@ class LicitacionEstadoCode(IntEnum):
     CERRADA = 6
     DESIERTA = 7
     ADJUDICADA = 8
-    REVOCADA = 18
-    SUSPENDIDA = 19
-

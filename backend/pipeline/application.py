@@ -12,7 +12,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from backend.integrations.mercado_publico import MercadoPublicoClient
+from backend.pipeline.extract.mp_api_client import MercadoPublicoClient
 from backend.integrations.mercado_publico.sync import (
     DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
     STEP_NAME_BY_MODE,
@@ -32,7 +32,7 @@ from backend.normalized.mp_api_read_model_bridge import (
     run_mp_api_silver_postprocess,
     select_detail_enrichment_candidates,
 )
-from backend.ingestion.contracts import normalize_dataset_type
+from backend.pipeline.extract.file_contracts import normalize_dataset_type
 from backend.nlp.runtime import (
     IMPLEMENTED_SOURCE_PROFILE,
     normalize_source_profile,

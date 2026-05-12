@@ -15,8 +15,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.integrations.mercado_publico.errors import MercadoPublicoRateLimitError
-from backend.integrations.mercado_publico.schemas import LicitacionNotice
+from backend.pipeline.extract.mp_api_errors import MercadoPublicoRateLimitError
+from backend.pipeline.extract.mp_api_schemas import LicitacionNotice
 from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeItemSnapshot, MercadoPublicoNoticeSnapshot
 
 

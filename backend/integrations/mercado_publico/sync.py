@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.operational import PipelineRun, PipelineRunStep
 
-from .client import MercadoPublicoClient
+from backend.pipeline.extract.mp_api_client import MercadoPublicoClient
 from .store import PersistedNoticeBatch, persist_notice_batch, reserve_request_budget
 
 SyncMode = Literal["active-discovery", "rolling-window", "detail-by-codigo"]

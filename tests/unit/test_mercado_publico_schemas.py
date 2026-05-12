@@ -4,7 +4,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
-from backend.integrations.mercado_publico.schemas import parse_licitaciones_response
+from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
 
 
 def test_parse_active_discovery_payload() -> None:

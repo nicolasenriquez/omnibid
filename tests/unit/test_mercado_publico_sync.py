@@ -7,11 +7,12 @@ from uuid import uuid4
 
 import pytest
 
-from backend.integrations.mercado_publico.errors import (
+from backend.pipeline.extract.mp_api_errors import (
     MercadoPublicoContractDriftError,
+    MercadoPublicoRateLimitError,
     MercadoPublicoRequestError,
 )
-from backend.integrations.mercado_publico.schemas import parse_licitaciones_response
+from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
 from backend.integrations.mercado_publico.sync import (
     SyncSummary,
     create_sync_run,

@@ -5,9 +5,10 @@ from urllib.error import HTTPError
 
 import pytest
 
-from backend.integrations.mercado_publico.client import MercadoPublicoClient, redact_query_params
-from backend.integrations.mercado_publico.config import MercadoPublicoSettings, validate_settings
-from backend.integrations.mercado_publico.errors import (
+from backend.pipeline.extract.mp_api_client import MercadoPublicoClient, redact_query_params
+from backend.pipeline.extract.mp_api_config import MercadoPublicoSettings, validate_settings
+from backend.pipeline.extract.mp_api_errors import (
+    MercadoPublicoConfigError,
     MercadoPublicoContractDriftError,
     MercadoPublicoRateLimitError,
     MercadoPublicoRequestError,
@@ -93,8 +94,8 @@ def test_fetch_active_discovery_retries_then_exhausts_on_5xx(
         attempts["count"] += 1
         raise HTTPError(url="https://example", code=500, msg="boom", hdrs=None, fp=None)
 
-    monkeypatch.setattr("backend.integrations.mercado_publico.client.urlopen", fake_urlopen)
-    monkeypatch.setattr("backend.integrations.mercado_publico.client.sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("backend.pipeline.extract.mp_api_client.urlopen", fake_urlopen)
+    monkeypatch.setattr("backend.pipeline.extract.mp_api_client.sleep", lambda *_args, **_kwargs: None)
 
     with pytest.raises(MercadoPublicoRequestError, match="status=500"):
         client.fetch_active_discovery()
@@ -124,7 +125,7 @@ def test_fetch_active_discovery_fails_on_contract_drift_invalid_json(
             return b"not-json"
 
     monkeypatch.setattr(
-        "backend.integrations.mercado_publico.client.urlopen",
+        "backend.pipeline.extract.mp_api_client.urlopen",
         lambda *_args, **_kwargs: _FakeResponse(),
     )
 
@@ -157,7 +158,7 @@ def test_fetch_budget_persists_across_calls(
             return b'{"Codigo":0,"Descripcion":"OK","Cantidad":0,"Listado":[]}'
 
     monkeypatch.setattr(
-        "backend.integrations.mercado_publico.client.urlopen",
+        "backend.pipeline.extract.mp_api_client.urlopen",
         lambda *_args, **_kwargs: _FakeResponse(),
     )
 

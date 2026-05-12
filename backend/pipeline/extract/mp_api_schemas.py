@@ -67,16 +67,10 @@ class FechasPayload(BaseModel):
     fecha_estimada_adjudicacion: date | None = Field(default=None, alias="FechaEstimadaAdjudicacion")
 
     @field_validator(
-        "fecha_creacion",
-        "fecha_cierre",
-        "fecha_inicio",
-        "fecha_final",
-        "fecha_pub_respuestas",
-        "fecha_acto_apertura_tecnica",
-        "fecha_acto_apertura_economica",
-        "fecha_publicacion",
-        "fecha_adjudicacion",
-        "fecha_estimada_adjudicacion",
+        "fecha_creacion", "fecha_cierre", "fecha_inicio", "fecha_final",
+        "fecha_pub_respuestas", "fecha_acto_apertura_tecnica",
+        "fecha_acto_apertura_economica", "fecha_publicacion",
+        "fecha_adjudicacion", "fecha_estimada_adjudicacion",
         mode="before",
     )
     @classmethod
@@ -195,4 +189,4 @@ class LicitacionesResponse(BaseModel):
 
 
 def parse_licitaciones_response(payload: Mapping[str, Any]) -> LicitacionesResponse:
-    return LicitacionesResponse.model_validate(payload)
+    return LicitacionesResponse(**payload)

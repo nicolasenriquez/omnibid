@@ -1,6 +1,6 @@
 import pytest
 
-from backend.ingestion.contracts import assert_required_columns, validate_required_columns
+from backend.pipeline.extract.file_contracts import assert_required_columns, validate_required_columns
 
 
 def test_validate_required_columns_ok_for_licitacion() -> None:

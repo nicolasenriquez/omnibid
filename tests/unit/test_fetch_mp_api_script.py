@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.integrations.mercado_publico.errors import (
+from backend.pipeline.extract.mp_api_errors import (
     MercadoPublicoContractDriftError,
     MercadoPublicoRequestError,
 )
