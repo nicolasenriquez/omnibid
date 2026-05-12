@@ -1,0 +1,99 @@
+{
+  "Codigo": 0,
+  "Descripcion": "OK",
+  "FechaCreacion": "2026-05-08T06:01:53.969145Z",
+  "Cantidad": 1,
+  "Listado": [
+    {
+      "CodigoExterno": "1274285-76-LR25",
+      "Nombre": "Servicio de soporte TI y desarrollo de software",
+      "CodigoEstado": 5,
+      "Estado": "Publicada",
+      "Descripcion": "Servicios de soporte para sistemas informaticos, incluyendo desarrollo, mantenimiento y operacion de plataformas digitales para la Municipalidad de Providencia durante el periodo 2026-2028.",
+      "Tipo": "Publica",
+      "CodigoTipo": "LR",
+      "TipoConvocatoria": "Abierta",
+      "DiasCierreLicitacion": 15,
+      "CantidadReclamos": 3,
+      "FundingSource": "Municipal",
+      "VisibilityAmount": "150000000",
+      "FechaCreacion": "2026-05-01T10:00:00",
+      "FechaCierre": "2026-05-18T15:10:00",
+      "FechaPublicacion": "2026-05-01T10:00:00",
+      "FechaInicio": "2026-06-01T00:00:00",
+      "FechaFinal": "2026-12-31T23:59:59",
+      "CodigoOrganismo": "MUN-PROV-001",
+      "NombreOrganismo": "Municipalidad de Providencia",
+      "CodigoUnidad": "U-ADQ-10",
+      "NombreUnidad": "Departamento de Adquisiciones",
+      "RutUnidad": "69.123.456-7",
+      "DireccionUnidad": "Av. Providencia 1234",
+      "ComunaUnidad": "Providencia",
+      "RegionUnidad": "Metropolitana",
+      "RutUsuario": "12.345.678-9",
+      "CodigoUsuario": "USR-ADQ-01",
+      "NombreUsuario": "Juan Perez Lara",
+      "CargoUsuario": "Jefe de Adquisiciones",
+      "Moneda": "CLP",
+      "MontoEstimado": "150000000",
+      "Comprador": {
+        "CodigoOrganismo": "MUN-PROV-001",
+        "NombreOrganismo": "Municipalidad de Providencia",
+        "RutUnidad": "69.123.456-7",
+        "CodigoUnidad": "U-ADQ-10",
+        "NombreUnidad": "Departamento de Adquisiciones",
+        "DireccionUnidad": "Av. Providencia 1234",
+        "ComunaUnidad": "Providencia",
+        "RegionUnidad": "Metropolitana",
+        "RutUsuario": "12.345.678-9",
+        "CodigoUsuario": "USR-ADQ-01",
+        "NombreUsuario": "Juan Perez Lara",
+        "CargoUsuario": "Jefe de Adquisiciones"
+      },
+      "Fechas": {
+        "FechaCreacion": "2026-05-01T10:00:00",
+        "FechaCierre": "2026-05-18T15:10:00",
+        "FechaInicio": "2026-06-01T00:00:00",
+        "FechaFinal": "2026-12-31T23:59:59",
+        "FechaPubRespuestas": "2026-05-10T12:00:00",
+        "FechaActoAperturaTecnica": "2026-05-20T10:00:00",
+        "FechaActoAperturaEconomica": "2026-05-25T10:00:00",
+        "FechaPublicacion": "2026-05-01T10:00:00",
+        "FechaAdjudicacion": null,
+        "FechaEstimadaAdjudicacion": "2026-06-15T00:00:00"
+      },
+      "Items": {
+        "Cantidad": 2,
+        "Listado": [
+          {
+            "Correlativo": 1,
+            "CodigoProducto": "43210000",
+            "CodigoCategoria": "4321",
+            "Categoria": "Equipos informaticos",
+            "NombreProducto": "Servidores de rack para centro de datos",
+            "Descripcion": "Servidores de rack para centro de datos, 2U, 64 GB RAM, 4 TB almacenamiento SSD",
+            "UnidadMedida": "Unidad",
+            "Cantidad": "4"
+          },
+          {
+            "Correlativo": 2,
+            "CodigoProducto": "81110000",
+            "CodigoCategoria": "8111",
+            "Categoria": "Servicios de software",
+            "NombreProducto": "Licencias de base de datos empresarial",
+            "Descripcion": "Licencias de base de datos PostgreSQL enterprise para 8 cores",
+            "UnidadMedida": "Licencia",
+            "Cantidad": "2"
+          }
+        ]
+      },
+      "Adjudicacion": {
+        "Tipo": "Total",
+        "Fecha": null,
+        "Numero": null,
+        "NumeroOferentes": 5,
+        "UrlActa": null
+      }
+    }
+  ]
+}

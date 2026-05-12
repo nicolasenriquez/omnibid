@@ -1,22 +1,22 @@
 ## 1. Audit & Fixtures
 
-- [ ] 1.1 Create a detail-by-codigo JSON fixture from the empirically confirmed payload structure (Comprador nested, Fechas nested, Items with Listado, Descripcion, etc.)
-- [ ] 1.2 Create a summary-mode JSON fixture from active-discovery payload structure (flat buyer fields, no nested objects)
-- [ ] 1.3 Write a failing test `test_parse_detail_payload_discards_description` proving `Descripcion` is lost with current `LicitacionNotice`
-- [ ] 1.4 Write a failing test `test_parse_detail_payload_discards_nested_buyer` proving `Comprador.RegionUnidad` and `Comprador.ComunaUnidad` are lost
-- [ ] 1.5 Write a failing test `test_parse_detail_payload_discards_items` proving `Items.Listado` entries are discarded
-- [ ] 1.6 Write `docs/architecture/mp_api_pipeline_hardening_audit.md` documenting current gaps: which fields are in raw payload but not in parsed model, not in snapshot, and not in normalized/silver
+- [x] 1.1 Create a detail-by-codigo JSON fixture from the empirically confirmed payload structure (Comprador nested, Fechas nested, Items with Listado, Descripcion, etc.)
+- [x] 1.2 Create a summary-mode JSON fixture from active-discovery payload structure (flat buyer fields, no nested objects)
+- [x] 1.3 Write a failing test `test_parse_detail_payload_discards_description` proving `Descripcion` is lost with current `LicitacionNotice`
+- [x] 1.4 Write a failing test `test_parse_detail_payload_discards_nested_buyer` proving `Comprador.RegionUnidad` and `Comprador.ComunaUnidad` are lost
+- [x] 1.5 Write a failing test `test_parse_detail_payload_discards_items` proving `Items.Listado` entries are discarded
+- [x] 1.6 Write `docs/architecture/mp_api_pipeline_hardening_audit.md` documenting current gaps: which fields are in raw payload but not in parsed model, not in snapshot, and not in normalized/silver
 
 ## 2. Schema Enrichment
 
-- [ ] 2.1 Add `CompradorPayload` Pydantic model with all nested buyer fields (`CodigoOrganismo`, `NombreOrganismo`, `RutUnidad`, `CodigoUnidad`, `NombreUnidad`, `DireccionUnidad`, `ComunaUnidad`, `RegionUnidad`, `RutUsuario`, `CodigoUsuario`, `NombreUsuario`, `CargoUsuario`)
-- [ ] 2.2 Add `FechasPayload` Pydantic model with all extended date fields (`FechaCreacion`, `FechaCierre`, `FechaInicio`, `FechaFinal`, `FechaPubRespuestas`, `FechaActoAperturaTecnica`, `FechaActoAperturaEconomica`, `FechaPublicacion`, `FechaAdjudicacion`, `FechaEstimadaAdjudicacion`)
-- [ ] 2.3 Add `ItemPayload` and `ItemsPayload` Pydantic models (`Correlativo`, `CodigoProducto`, `CodigoCategoria`, `Categoria`, `NombreProducto`, `Descripcion`, `UnidadMedida`, `Cantidad`)
-- [ ] 2.4 Add `AdjudicacionPayload` Pydantic model (`Tipo`, `Fecha`, `Numero`, `NumeroOferentes`, `UrlActa`)
-- [ ] 2.5 Extend `LicitacionNotice` with new fields: `description` (alias `Descripcion`), `comprador` (nested `Comprador`), `fechas` (nested `Fechas`), `items` (nested `Items`), `adjudicacion` (nested `Adjudicacion`), `tipo`, `codigo_tipo`, `tipo_convocatoria`, `dias_cierre_licitacion`, `claim_count`, `funding_source`, `visibility_amount`
-- [ ] 2.6 Add `@property` fallbacks on `LicitacionNotice`: `publication_date` (prefer `Fechas.FechaPublicacion` over root `FechaPublicacion`), `close_date` (prefer `Fechas.FechaCierre` over root `FechaCierre`), `buyer_org_code` / `buyer_org_name` / `buyer_unit_code` / `buyer_unit_name` (prefer nested `Comprador` over flat root fields)
-- [ ] 2.7 Confirm existing summary-mode parsing tests still pass
-- [ ] 2.8 Confirm audit tests from 1.3-1.5 now pass
+- [x] 2.1 Add `CompradorPayload` Pydantic model with all nested buyer fields (`CodigoOrganismo`, `NombreOrganismo`, `RutUnidad`, `CodigoUnidad`, `NombreUnidad`, `DireccionUnidad`, `ComunaUnidad`, `RegionUnidad`, `RutUsuario`, `CodigoUsuario`, `NombreUsuario`, `CargoUsuario`)
+- [x] 2.2 Add `FechasPayload` Pydantic model with all extended date fields (`FechaCreacion`, `FechaCierre`, `FechaInicio`, `FechaFinal`, `FechaPubRespuestas`, `FechaActoAperturaTecnica`, `FechaActoAperturaEconomica`, `FechaPublicacion`, `FechaAdjudicacion`, `FechaEstimadaAdjudicacion`)
+- [x] 2.3 Add `ItemPayload` and `ItemsPayload` Pydantic models (`Correlativo`, `CodigoProducto`, `CodigoCategoria`, `Categoria`, `NombreProducto`, `Descripcion`, `UnidadMedida`, `Cantidad`)
+- [x] 2.4 Add `AdjudicacionPayload` Pydantic model (`Tipo`, `Fecha`, `Numero`, `NumeroOferentes`, `UrlActa`)
+- [x] 2.5 Extend `LicitacionNotice` with new fields: `description` (alias `Descripcion`), `comprador` (nested `Comprador`), `fechas` (nested `Fechas`), `items` (nested `Items`), `adjudicacion` (nested `Adjudicacion`), `tipo`, `codigo_tipo`, `tipo_convocatoria`, `dias_cierre_licitacion`, `claim_count`, `funding_source`, `visibility_amount`
+- [x] 2.6 Add `@property` fallbacks on `LicitacionNotice`: `publication_date` (prefer `Fechas.FechaPublicacion` over root `FechaPublicacion`), `close_date` (prefer `Fechas.FechaCierre` over root `FechaCierre`), `buyer_org_code` / `buyer_org_name` / `buyer_unit_code` / `buyer_unit_name` (prefer nested `Comprador` over flat root fields)
+- [x] 2.7 Confirm existing summary-mode parsing tests still pass
+- [x] 2.8 Confirm audit tests from 1.3-1.5 now pass
 
 ## 3. Persistence Migration
 

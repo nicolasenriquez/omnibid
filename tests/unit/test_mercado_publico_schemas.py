@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 from backend.integrations.mercado_publico.schemas import parse_licitaciones_response
 
@@ -114,3 +116,45 @@ def test_parse_active_discovery_payload_with_datetime_strings_and_missing_top_le
     assert response.created_at is not None
     assert response.notices[0].publication_date is not None
     assert response.notices[0].close_date is not None
+
+
+def test_parse_detail_payload_discards_description() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.description is not None, (
+        "FAIL (expected): Descripcion is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no description field"
+    )
+
+
+def test_parse_detail_payload_discards_nested_buyer() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.comprador is not None, (
+        "FAIL (expected): Comprador nested object is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no comprador field"
+    )
+    assert notice.comprador.region_unidad == "Metropolitana"
+    assert notice.comprador.comuna_unidad == "Providencia"
+
+
+def test_parse_detail_payload_discards_items() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.items is not None, (
+        "FAIL (expected): Items.Listado is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no items field"
+    )
+    assert len(notice.items.listado) == 2
