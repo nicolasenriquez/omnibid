@@ -58,13 +58,13 @@
 
 Notes: Create new module boundaries alongside existing code. No files are moved yet — this establishes the target structure. All existing code and tests continue working unchanged.
 
-- [ ] 7.1 Create `config/pipeline.yaml` with centralized pipeline config: DB connection references, API endpoint templates, batch sizes (`RAW_CHUNK_SIZE`, `NORMALIZED_CHUNK_SIZE`), retry policy defaults, rolling window days default, rate limit defaults, and environment overrides
-- [ ] 7.2 Create `backend/pipeline/extract/__init__.py` (empty module boundary for extraction stage)
-- [ ] 7.3 Create `backend/pipeline/transform/__init__.py` (empty module boundary for transformation stage)
-- [ ] 7.4 Create `backend/pipeline/load/__init__.py` (empty module boundary for load/persistence stage)
-- [ ] 7.5 Create `backend/pipeline/shared/__init__.py` and move `backend/shared/cleaning.py` → `backend/pipeline/shared/cleaning.py`
-- [ ] 7.6 Create `backend/pipeline/shared/validation.py` with input/output validators for pipeline stage boundaries (e.g., validate notice payload before persistence, validate canonicalized row before upsert)
-- [ ] 7.7 Add `docs/pipeline/structure.md` documenting the new layout, stage responsibilities, run command reference, and extension guide for adding new ingestion sources
+- [x] 7.1 Create `config/pipeline.yaml` with centralized pipeline config: DB connection references, API endpoint templates, batch sizes (`RAW_CHUNK_SIZE`, `NORMALIZED_CHUNK_SIZE`), retry policy defaults, rolling window days default, rate limit defaults, and environment overrides
+- [x] 7.2 Create `backend/pipeline/extract/__init__.py` (empty module boundary for extraction stage)
+- [x] 7.3 Create `backend/pipeline/transform/__init__.py` (empty module boundary for transformation stage)
+- [x] 7.4 Create `backend/pipeline/load/__init__.py` (empty module boundary for load/persistence stage)
+- [x] 7.5 Create `backend/pipeline/shared/__init__.py` and move `backend/shared/cleaning.py` → `backend/pipeline/shared/cleaning.py`
+- [x] 7.6 Create `backend/pipeline/shared/validation.py` with input/output validators for pipeline stage boundaries (e.g., validate notice payload before persistence, validate canonicalized row before upsert)
+- [x] 7.7 Add `docs/pipeline/structure.md` documenting the new layout, stage responsibilities, run command reference, and extension guide for adding new ingestion sources
 
 ## 8. Extract Stage Migration
 

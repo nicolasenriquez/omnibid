@@ -16,7 +16,7 @@ from backend.normalized.transform_identity import (
     resolve_category_identity_key,
     resolve_supplier_identity_key,
 )
-from backend.shared.cleaning import normalize_tipo_adquisicion
+from backend.pipeline.shared.cleaning import normalize_tipo_adquisicion
 
 
 def build_licitacion_payload(

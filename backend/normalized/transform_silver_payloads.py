@@ -20,7 +20,7 @@ from backend.normalized.transform_identity import (
     resolve_contracting_unit_identity_key,
     resolve_supplier_identity_key,
 )
-from backend.shared.cleaning import normalize_text_base
+from backend.pipeline.shared.cleaning import normalize_text_base
 
 
 def build_silver_notice_payload(

@@ -24,7 +24,6 @@ def normalize_tipo_adquisicion(value: str | None) -> str | None:
         return None
 
     def _cleanup_utm(match: re.Match[str]) -> str:
-        # Convert values like 5.000 or 5,000 -> 5000 only in UTM context.
         return re.sub(r"[\.,]", "", match.group(1))
 
     return re.sub(r"\b(\d{1,3}(?:[\.,]\d{3})+)(?=\s*utm\b)", _cleanup_utm, text)

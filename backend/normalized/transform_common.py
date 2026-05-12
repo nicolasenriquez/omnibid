@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
-from backend.shared.cleaning import is_licitacion_elegible, normalize_text_base, normalize_tipo_adquisicion
+from backend.pipeline.shared.cleaning import is_licitacion_elegible, normalize_text_base, normalize_tipo_adquisicion
 
 DATE_FORMATS: tuple[str, ...] = (
     "%Y-%m-%d %H:%M:%S",
