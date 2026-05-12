@@ -11,7 +11,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from backend.models.api_source import ApiSourcePayload, MercadoPublicoNoticeSnapshot
+from backend.models.api_source import ApiSourcePayload, MercadoPublicoNoticeItemSnapshot, MercadoPublicoNoticeSnapshot
 from backend.models.normalized import (
     NormalizedLicitacion,
     NormalizedLicitacionItem,
@@ -578,6 +578,207 @@ def canonicalize_mp_api_payloads_to_read_model(
         upserted_silver_category_ref=upserted_silver_category_ref,
         upserted_silver_supplier_participation=upserted_silver_supplier_participation,
     )
+
+
+def _as_naive_datetime(value: date | None) -> datetime | None:
+    from datetime import time
+
+    if value is None:
+        return None
+    return datetime.combine(value, time.min)
+
+
+def _sha256_json_basis(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _strip_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text != "" else None
+
+
+def build_normalized_licitacion_from_snapshot(
+    snapshot: MercadoPublicoNoticeSnapshot,
+    *,
+    source_file_id: Any,
+) -> dict[str, Any] | None:
+    snap_any = cast(Any, snapshot)
+    codigo_externo = _strip_or_none(snap_any.external_notice_code)
+    if codigo_externo is None:
+        return None
+
+    codigo = _strip_or_none(snap_any.notice_id) or codigo_externo
+    fecha_publicacion = _as_naive_datetime(snap_any.publication_date)
+    fecha_cierre = _as_naive_datetime(snap_any.close_date)
+    cantidad_dias = None
+    if fecha_publicacion is not None and fecha_cierre is not None:
+        cantidad_dias = (fecha_cierre - fecha_publicacion).days
+
+    payload: dict[str, Any] = {
+        "codigo_externo": codigo_externo,
+        "codigo": codigo,
+        "nombre": snap_any.notice_title,
+        "descripcion": snap_any.description,
+        "tipo_adquisicion": snap_any.tipo,
+        "tipo_adquisicion_norm": None,
+        "codigo_estado": snap_any.official_status_code,
+        "estado": snap_any.official_status_name,
+        "tipo": snap_any.tipo,
+        "tipo_convocatoria": snap_any.tipo_convocatoria,
+        "moneda_adquisicion": snap_any.currency_code,
+        "visibilidad_monto_raw": snap_any.visibility_amount,
+        "monto_estimado": snap_any.estimated_amount,
+        "numero_oferentes": None,
+        "codigo_organismo": snap_any.buyer_org_code,
+        "nombre_organismo": snap_any.buyer_org_name,
+        "codigo_unidad": snap_any.buyer_unit_code,
+        "nombre_unidad": snap_any.buyer_unit_name,
+        "comuna_unidad": snap_any.buyer_unit_commune,
+        "region_unidad": snap_any.buyer_unit_region,
+        "fecha_publicacion": fecha_publicacion,
+        "fecha_cierre": fecha_cierre,
+        "fecha_adjudicacion": _as_naive_datetime(snap_any.award_date),
+        "fecha_estimada_adjudicacion": _as_naive_datetime(snap_any.estimated_award_date),
+        "fecha_inicio": None,
+        "fecha_final": None,
+        "cantidad_dias_licitacion": snap_any.days_to_close or cantidad_dias,
+        "flag_licitacion_publica": False,
+        "flag_licitacion_privada": False,
+        "flag_licitacion_servicios": False,
+        "flag_menos_100_utm": False,
+        "is_elegible_mvp": False,
+        "source_file_id": source_file_id,
+    }
+    basis = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"source_file_id", "row_hash_sha256", "created_at", "updated_at"}
+    }
+    payload["row_hash_sha256"] = _sha256_json_basis(basis)
+    return payload
+
+
+def build_normalized_licitacion_item_from_item_snapshot(
+    item_snapshot: MercadoPublicoNoticeItemSnapshot,
+    *,
+    source_file_id: Any,
+) -> dict[str, Any] | None:
+    snap_any = cast(Any, item_snapshot)
+    codigo_externo = _strip_or_none(snap_any.external_notice_code)
+    if codigo_externo is None:
+        return None
+
+    correlativo = snap_any.item_correlative
+    codigo_producto = _strip_or_none(snap_any.codigo_producto) or ""
+    codigo_item = str(correlativo) if correlativo is not None else codigo_producto
+    if codigo_item == "":
+        codigo_item = str(abs(hash(codigo_producto + codigo_externo)) % (10**12))
+
+    payload: dict[str, Any] = {
+        "codigo_externo": codigo_externo,
+        "codigo_item": codigo_item,
+        "correlativo": str(correlativo) if correlativo is not None else None,
+        "codigo_producto_onu": snap_any.codigo_producto,
+        "nombre_producto_generico": snap_any.nombre_producto,
+        "nombre_linea_adquisicion": snap_any.nombre_producto,
+        "descripcion_linea_adquisicion": snap_any.descripcion,
+        "unidad_medida": snap_any.unidad_medida,
+        "cantidad": parse_decimal(snap_any.cantidad),
+        "rubro1": None,
+        "rubro2": None,
+        "rubro3": None,
+        "source_file_id": source_file_id,
+    }
+    basis = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"source_file_id", "row_hash_sha256", "created_at", "updated_at"}
+    }
+    payload["row_hash_sha256"] = _sha256_json_basis(basis)
+    return payload
+
+
+def parse_decimal(value: Any) -> Any:
+    if value is None:
+        return None
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        return Decimal(str(value))
+    except (ValueError, InvalidOperation):
+        return None
+
+
+def canonicalize_api_snapshots_to_normalized(
+    session: Session,
+    *,
+    source_file_id: Any,
+    pipeline_run_id: UUID | None = None,
+    window_dates: Sequence[date] | None = None,
+) -> tuple[int, int]:
+    """Map enriched snapshot rows and item snapshots into normalized tables.
+
+    Returns (normalized_licitaciones_count, normalized_items_count).
+    Uses the existing anti-degradation upsert engine which applies
+    field-level coalesce (prefer non-null incoming, keep existing as fallback).
+    """
+    filters: list[Any] = []
+    if pipeline_run_id is not None:
+        filters.append(MercadoPublicoNoticeSnapshot.pipeline_run_id == pipeline_run_id)
+    if window_dates is not None and len(window_dates) > 0:
+        filters.append(MercadoPublicoNoticeSnapshot.snapshot_date.in_(list(window_dates)))
+    if not filters:
+        raise ValueError("either pipeline_run_id or window_dates is required")
+
+    snapshots = session.execute(
+        sa.select(MercadoPublicoNoticeSnapshot)
+        .where(*filters)
+        .order_by(MercadoPublicoNoticeSnapshot.synced_at.desc())
+    ).scalars().all()
+
+    latest_by_code: dict[str, MercadoPublicoNoticeSnapshot] = {}
+    for snap in snapshots:
+        code = _strip_or_none(snap.external_notice_code)  # type: ignore[union-attr]
+        if code is None or code in latest_by_code:
+            continue
+        latest_by_code[code] = snap  # type: ignore[assignment]
+
+    licitacion_payloads: list[dict[str, Any]] = []
+    item_payloads: list[dict[str, Any]] = []
+    for code in sorted(latest_by_code):
+        snap = latest_by_code[code]
+        payload = build_normalized_licitacion_from_snapshot(snap, source_file_id=source_file_id)
+        if payload is not None:
+            licitacion_payloads.append(payload)
+
+        item_snapshots = session.execute(
+            sa.select(MercadoPublicoNoticeItemSnapshot).where(
+                MercadoPublicoNoticeItemSnapshot.external_notice_code == code,
+            )
+        ).scalars().all()
+        for item_snap in item_snapshots:
+            item_payload = build_normalized_licitacion_item_from_item_snapshot(
+                item_snap, source_file_id=source_file_id
+            )
+            if item_payload is not None:
+                item_payloads.append(item_payload)
+
+    licitacion_count = upsert_rows(
+        session,
+        NormalizedLicitacion,
+        licitacion_payloads,
+        LICITACIONES_CONFLICT_FIELDS,
+    )
+    item_count = upsert_rows(
+        session,
+        NormalizedLicitacionItem,
+        item_payloads,
+        LICITACION_ITEMS_CONFLICT_FIELDS,
+    )
+    return licitacion_count, item_count
 
 
 def run_mp_api_silver_postprocess(session: Session) -> MpApiSilverPostprocessSummary:

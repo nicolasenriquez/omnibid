@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -178,3 +179,109 @@ def test_canonicalize_payloads_uses_detail_last_and_expected_conflict_keys(
     normalized_oferta_rows = captured_rows["NormalizedOferta"]
     assert normalized_oferta_rows[0]["supplier_key"] is not None
     assert captured_conflicts["NormalizedOferta"] == ["oferta_key_sha256"]
+
+
+def test_api_detail_canonicalizes_to_normalized_licitaciones() -> None:
+    snap = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        notice_id="1274285-76-LR25",
+        notice_title="Servicio de soporte TI",
+        description="Servicios de soporte informatico para sistemas criticos",
+        official_status_code=5,
+        official_status_name="Publicada",
+        publication_date=date(2026, 5, 8),
+        close_date=date(2026, 5, 18),
+        buyer_org_code="ORG-001",
+        buyer_org_name="Municipalidad X",
+        buyer_unit_code="U-10",
+        buyer_unit_name="Departamento de Compras",
+        buyer_unit_address="Av. Providencia 1234",
+        buyer_unit_commune="Providencia",
+        buyer_unit_region="Metropolitana",
+        currency_code="CLP",
+        estimated_amount=Decimal("150000000"),
+        visibility_amount="150000000",
+        tipo="Publica",
+        codigo_tipo="LR",
+        tipo_convocatoria="Abierta",
+        days_to_close=10,
+        award_date=date(2026, 6, 15),
+        estimated_award_date=date(2026, 6, 10),
+    )
+
+    source_file_id = uuid4()
+    payload = bridge.build_normalized_licitacion_from_snapshot(
+        snap, source_file_id=source_file_id
+    )
+
+    assert payload is not None
+    assert payload["codigo_externo"] == "1274285-76-LR25"
+    assert payload["descripcion"] == "Servicios de soporte informatico para sistemas criticos"
+    assert payload["comuna_unidad"] == "Providencia"
+    assert payload["region_unidad"] == "Metropolitana"
+    assert payload["tipo"] == "Publica"
+    assert payload["tipo_convocatoria"] == "Abierta"
+    assert payload["cantidad_dias_licitacion"] == 10
+    assert payload["monto_estimado"] == Decimal("150000000")
+    assert payload["visibilidad_monto_raw"] == "150000000"
+    assert payload["fecha_publicacion"] is not None
+    assert payload["fecha_cierre"] is not None
+    assert payload["fecha_adjudicacion"] is not None
+    assert payload["fecha_estimada_adjudicacion"] is not None
+    assert payload["source_file_id"] == source_file_id
+    assert "row_hash_sha256" in payload
+
+
+def test_api_items_canonicalize_to_normalized_licitacion_items() -> None:
+    item_snap = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        item_correlative=1,
+        codigo_producto="43210000",
+        codigo_categoria="4321",
+        categoria="Equipos informaticos",
+        nombre_producto="Servidores de rack 2U",
+        descripcion="64 GB RAM, 4 TB SSD",
+        unidad_medida="Unidad",
+        cantidad="4",
+    )
+
+    source_file_id = uuid4()
+    payload = bridge.build_normalized_licitacion_item_from_item_snapshot(
+        item_snap, source_file_id=source_file_id
+    )
+
+    assert payload is not None
+    assert payload["codigo_externo"] == "1274285-76-LR25"
+    assert payload["codigo_item"] == "1"
+    assert payload["correlativo"] == "1"
+    assert payload["codigo_producto_onu"] == "43210000"
+    assert payload["nombre_producto_generico"] == "Servidores de rack 2U"
+    assert payload["descripcion_linea_adquisicion"] == "64 GB RAM, 4 TB SSD"
+    assert payload["unidad_medida"] == "Unidad"
+    assert payload["cantidad"] == Decimal("4")
+    assert payload["source_file_id"] == source_file_id
+    assert "row_hash_sha256" in payload
+
+
+def test_nulls_do_not_overwrite_existing_non_null_values(
+    monkeypatch,
+) -> None:
+    from backend.normalized.upsert_engine import _build_complete_only_update_expr
+    import sqlalchemy as sa
+
+    mock_stmt = SimpleNamespace()
+    mock_stmt.excluded = SimpleNamespace()
+    mock_stmt.excluded.description = None
+
+    class _FakeColumn:
+        def __init__(self, col_type: sa.types.TypeEngine) -> None:
+            self.type = col_type
+
+    mock_model = SimpleNamespace()
+    mock_model.description = _FakeColumn(sa.Text())
+
+    expr = _build_complete_only_update_expr(
+        model=mock_model, stmt=mock_stmt, field="description"
+    )
+    compiled = str(expr)
+    assert "coalesce" in compiled.lower()

@@ -32,19 +32,19 @@
 
 ## 4. Canonicalization
 
-- [ ] 4.1 Audit existing normalized transform builders for API-to-normalized mapping coverage
-- [ ] 4.2 Map API snapshot enriched fields into `normalized_licitaciones` columns (description, region, commune, address, tipo, extended dates)
-- [ ] 4.3 Map API item snapshots into `normalized_licitacion_items`
-- [ ] 4.4 Implement anti-degradation logic: field-level coalesce preferring non-null existing values over NULL incoming values
-- [ ] 4.5 Write test `test_api_detail_canonicalizes_to_normalized_licitaciones` with full field mapping
-- [ ] 4.6 Write test `test_api_items_canonicalize_to_normalized_licitacion_items`
-- [ ] 4.7 Write test `test_nulls_do_not_overwrite_existing_non_null_values`
+- [x] 4.1 Audit existing normalized transform builders for API-to-normalized mapping coverage
+- [x] 4.2 Map API snapshot enriched fields into `normalized_licitaciones` columns (description, region, commune, address, tipo, extended dates)
+- [x] 4.3 Map API item snapshots into `normalized_licitacion_items`
+- [x] 4.4 Implement anti-degradation logic: field-level coalesce preferring non-null existing values over NULL incoming values
+- [x] 4.5 Write test `test_api_detail_canonicalizes_to_normalized_licitaciones` with full field mapping
+- [x] 4.6 Write test `test_api_items_canonicalize_to_normalized_licitacion_items`
+- [x] 4.7 Write test `test_nulls_do_not_overwrite_existing_non_null_values`
 
 ## 5. Coverage Metrics & Observability
 
-- [ ] 5.1 Extend `SyncSummary` dataclass with coverage fields: `notices_with_description`, `notices_missing_description`, `notices_with_buyer_region`, `notices_missing_buyer_region`, `notices_with_items`, `notices_missing_items`, `items_seen`, `items_persisted`, `detail_calls_made`, `detail_calls_failed`
-- [ ] 5.2 Compute coverage counts in `_summary_from_batches` from parsed notices and persisted batches
-- [ ] 5.3 Include coverage metrics in `mark_sync_run_completed` run stats
+- [x] 5.1 Extend `SyncSummary` dataclass with coverage fields: `notices_with_description`, `notices_missing_description`, `notices_with_buyer_region`, `notices_missing_buyer_region`, `notices_with_items`, `notices_missing_items`, `items_seen`, `items_persisted`, `detail_calls_made`, `detail_calls_failed`
+- [x] 5.2 Compute coverage counts in `_summary_from_batches` from parsed notices and persisted batches
+- [x] 5.3 Include coverage metrics in `mark_sync_run_completed` run stats
 
 ## 6. Final Validation
 

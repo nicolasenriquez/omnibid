@@ -35,6 +35,16 @@ class SyncSummary:
     snapshots_upserted: int
     snapshots_inserted: int
     snapshots_updated: int
+    notices_with_description: int = 0
+    notices_missing_description: int = 0
+    notices_with_buyer_region: int = 0
+    notices_missing_buyer_region: int = 0
+    notices_with_items: int = 0
+    notices_missing_items: int = 0
+    items_seen: int = 0
+    items_persisted: int = 0
+    detail_calls_made: int = 0
+    detail_calls_failed: int = 0
 
 
 def _snapshot_payload_id(snapshot: Any) -> UUID | None:
@@ -127,6 +137,16 @@ def mark_sync_run_completed(
             "snapshots_upserted": summary.snapshots_upserted,
             "snapshots_inserted": summary.snapshots_inserted,
             "snapshots_updated": summary.snapshots_updated,
+            "notices_with_description": summary.notices_with_description,
+            "notices_missing_description": summary.notices_missing_description,
+            "notices_with_buyer_region": summary.notices_with_buyer_region,
+            "notices_missing_buyer_region": summary.notices_missing_buyer_region,
+            "notices_with_items": summary.notices_with_items,
+            "notices_missing_items": summary.notices_missing_items,
+            "items_seen": summary.items_seen,
+            "items_persisted": summary.items_persisted,
+            "detail_calls_made": summary.detail_calls_made,
+            "detail_calls_failed": summary.detail_calls_failed,
         },
     }
     run_any.run_stats_json = {
@@ -138,6 +158,16 @@ def mark_sync_run_completed(
         "snapshots_upserted": summary.snapshots_upserted,
         "snapshots_inserted": summary.snapshots_inserted,
         "snapshots_updated": summary.snapshots_updated,
+        "notices_with_description": summary.notices_with_description,
+        "notices_missing_description": summary.notices_missing_description,
+        "notices_with_buyer_region": summary.notices_with_buyer_region,
+        "notices_missing_buyer_region": summary.notices_missing_buyer_region,
+        "notices_with_items": summary.notices_with_items,
+        "notices_missing_items": summary.notices_missing_items,
+        "items_seen": summary.items_seen,
+        "items_persisted": summary.items_persisted,
+        "detail_calls_made": summary.detail_calls_made,
+        "detail_calls_failed": summary.detail_calls_failed,
     }
     step_any.status = "completed"
     step_any.finished_at = finished_at
@@ -437,6 +467,29 @@ def _summary_from_batches(
         int(getattr(batch, "snapshots_updated", 0) or 0)
         for batch in persisted_batches
     )
+    items_seen_total = sum(
+        int(getattr(batch, "items_seen", 0) or 0) for batch in persisted_batches
+    )
+    items_persisted_total = sum(
+        int(getattr(batch, "items_persisted", 0) or 0) for batch in persisted_batches
+    )
+
+    notices_with_description = 0
+    notices_with_buyer_region = 0
+    notices_with_items = 0
+    for response in responses:
+        for notice in getattr(response, "notices", []) or []:
+            if getattr(notice, "description", None):
+                notices_with_description += 1
+            comprador = getattr(notice, "comprador", None)
+            if comprador is not None and getattr(comprador, "region_unidad", None):
+                notices_with_buyer_region += 1
+            items = getattr(notice, "items", None)
+            if items is not None and getattr(items, "listado", None):
+                notices_with_items += 1
+
+    detail_calls_made = len(responses) if mode == "detail-by-codigo" else 0
+
     return SyncSummary(
         mode=mode,
         requests=len(responses),
@@ -445,4 +498,14 @@ def _summary_from_batches(
         snapshots_upserted=snapshots_upserted,
         snapshots_inserted=snapshots_inserted,
         snapshots_updated=snapshots_updated,
+        notices_with_description=notices_with_description,
+        notices_missing_description=notices_seen - notices_with_description,
+        notices_missing_buyer_region=notices_seen - notices_with_buyer_region,
+        notices_with_buyer_region=notices_with_buyer_region,
+        notices_with_items=notices_with_items,
+        notices_missing_items=notices_seen - notices_with_items,
+        items_seen=items_seen_total,
+        items_persisted=items_persisted_total,
+        detail_calls_made=detail_calls_made,
+        detail_calls_failed=0,
     )
