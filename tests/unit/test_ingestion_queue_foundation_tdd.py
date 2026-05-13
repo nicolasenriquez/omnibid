@@ -147,7 +147,7 @@ def test_mark_job_failure_uses_fallback_max_attempts_when_row_value_missing() ->
 
 
 def test_ingestion_unit_lineage_contract_persists_source_metadata() -> None:
-    ingestion_units = _load_module("backend.pipeline.ingestion_units")
+    ingestion_units = _load_module("backend.pipeline.orchestration.worker")
     _require_callable(ingestion_units, "build_ingestion_unit_payload")
     payload = ingestion_units.build_ingestion_unit_payload(
         job={
@@ -167,7 +167,7 @@ def test_ingestion_unit_lineage_contract_persists_source_metadata() -> None:
 
 
 def test_ingestion_unit_lineage_contract_fails_fast_on_missing_source_kind() -> None:
-    ingestion_units = _load_module("backend.pipeline.ingestion_units")
+    ingestion_units = _load_module("backend.pipeline.orchestration.worker")
     _require_callable(ingestion_units, "build_ingestion_unit_payload")
     with pytest.raises(ValueError, match="source_kind"):
         ingestion_units.build_ingestion_unit_payload(
@@ -182,7 +182,7 @@ def test_ingestion_unit_lineage_contract_fails_fast_on_missing_source_kind() -> 
 
 
 def test_ingestion_unit_lineage_contract_fails_fast_on_missing_dataset_type() -> None:
-    ingestion_units = _load_module("backend.pipeline.ingestion_units")
+    ingestion_units = _load_module("backend.pipeline.orchestration.worker")
     _require_callable(ingestion_units, "build_ingestion_unit_payload")
     with pytest.raises(ValueError, match="dataset_type"):
         ingestion_units.build_ingestion_unit_payload(
@@ -199,7 +199,7 @@ def test_ingestion_unit_lineage_contract_fails_fast_on_missing_dataset_type() ->
 def test_worker_completion_uses_checkpoint_source_file_id_and_fresh_finished_at(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    worker = _load_module("backend.pipeline.worker")
+    worker = _load_module("backend.pipeline.orchestration.worker")
     claim_time = datetime(2026, 5, 7, 10, 0, tzinfo=UTC)
     finished_at = datetime(2026, 5, 7, 10, 5, tzinfo=UTC)
     job = {
@@ -278,7 +278,7 @@ def test_worker_completion_uses_checkpoint_source_file_id_and_fresh_finished_at(
 
 
 def test_worker_retryable_failure_uses_fresh_failure_at(monkeypatch: pytest.MonkeyPatch) -> None:
-    worker = _load_module("backend.pipeline.worker")
+    worker = _load_module("backend.pipeline.orchestration.worker")
     claim_time = datetime(2026, 5, 7, 10, 0, tzinfo=UTC)
     failed_at = datetime(2026, 5, 7, 10, 6, tzinfo=UTC)
     job = {

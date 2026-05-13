@@ -8,7 +8,6 @@ import pytest
 from backend.pipeline.extract.mp_api_client import MercadoPublicoClient, redact_query_params
 from backend.pipeline.extract.mp_api_config import MercadoPublicoSettings, validate_settings
 from backend.pipeline.extract.mp_api_errors import (
-    MercadoPublicoConfigError,
     MercadoPublicoContractDriftError,
     MercadoPublicoRateLimitError,
     MercadoPublicoRequestError,

@@ -36,7 +36,7 @@ def _parse_optional_date(value: Any) -> Any:
 
 
 class CompradorPayload(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", coerce_numbers_to_str=True)
 
     codigo_organismo: str | None = Field(default=None, alias="CodigoOrganismo")
     nombre_organismo: str | None = Field(default=None, alias="NombreOrganismo")
@@ -79,7 +79,7 @@ class FechasPayload(BaseModel):
 
 
 class ItemPayload(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", coerce_numbers_to_str=True)
 
     correlativo: int | None = Field(default=None, alias="Correlativo")
     codigo_producto: str | None = Field(default=None, alias="CodigoProducto")
@@ -102,7 +102,7 @@ class ItemsPayload(BaseModel):
 
 
 class AdjudicacionPayload(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", coerce_numbers_to_str=True)
 
     tipo: str | None = Field(default=None, alias="Tipo")
     fecha: date | None = Field(default=None, alias="Fecha")
@@ -117,7 +117,7 @@ class AdjudicacionPayload(BaseModel):
 
 
 class LicitacionNotice(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", coerce_numbers_to_str=True)
 
     external_notice_code: str | None = Field(default=None, alias="CodigoExterno")
     title: str | None = Field(default=None, alias="Nombre")

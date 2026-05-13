@@ -334,6 +334,7 @@ def canonicalize_mp_api_payloads_to_read_model(
     source_file_id: Any,
     pipeline_run_id: UUID | None = None,
     window_dates: Sequence[date] | None = None,
+    include_normalized: bool = True,
 ) -> MpApiCanonicalizationSummary:
     scoped_rows = _select_scoped_payload_rows(
         session,
@@ -479,18 +480,21 @@ def canonicalize_mp_api_payloads_to_read_model(
         if row_had_payload:
             payload_rows_used += 1
 
-    upserted_normalized_licitaciones = upsert_rows(
-        session,
-        NormalizedLicitacion,
-        normalized_licitaciones_rows,
-        LICITACIONES_CONFLICT_FIELDS,
-    )
-    upserted_normalized_licitacion_items = upsert_rows(
-        session,
-        NormalizedLicitacionItem,
-        normalized_licitacion_items_rows,
-        LICITACION_ITEMS_CONFLICT_FIELDS,
-    )
+    upserted_normalized_licitaciones = 0
+    upserted_normalized_licitacion_items = 0
+    if include_normalized:
+        upserted_normalized_licitaciones = upsert_rows(
+            session,
+            NormalizedLicitacion,
+            normalized_licitaciones_rows,
+            LICITACIONES_CONFLICT_FIELDS,
+        )
+        upserted_normalized_licitacion_items = upsert_rows(
+            session,
+            NormalizedLicitacionItem,
+            normalized_licitacion_items_rows,
+            LICITACION_ITEMS_CONFLICT_FIELDS,
+        )
     upserted_normalized_ofertas = upsert_rows(
         session,
         NormalizedOferta,
@@ -600,6 +604,21 @@ def _strip_or_none(value: Any) -> str | None:
     return text if text != "" else None
 
 
+def _stable_item_codigo_fallback(*, codigo_externo: str, item_snapshot: Any) -> str:
+    basis = {
+        "codigo_externo": codigo_externo,
+        "codigo_producto": _strip_or_none(item_snapshot.codigo_producto),
+        "codigo_categoria": _strip_or_none(item_snapshot.codigo_categoria),
+        "categoria": _strip_or_none(item_snapshot.categoria),
+        "nombre_producto": _strip_or_none(item_snapshot.nombre_producto),
+        "descripcion": _strip_or_none(item_snapshot.descripcion),
+        "unidad_medida": _strip_or_none(item_snapshot.unidad_medida),
+        "cantidad": _strip_or_none(item_snapshot.cantidad),
+    }
+    encoded = json.dumps(basis, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return f"item-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
 def build_normalized_licitacion_from_snapshot(
     snapshot: MercadoPublicoNoticeSnapshot,
     *,
@@ -675,7 +694,10 @@ def build_normalized_licitacion_item_from_item_snapshot(
     codigo_producto = _strip_or_none(snap_any.codigo_producto) or ""
     codigo_item = str(correlativo) if correlativo is not None else codigo_producto
     if codigo_item == "":
-        codigo_item = str(abs(hash(codigo_producto + codigo_externo)) % (10**12))
+        codigo_item = _stable_item_codigo_fallback(
+            codigo_externo=codigo_externo,
+            item_snapshot=snap_any,
+        )
 
     payload: dict[str, Any] = {
         "codigo_externo": codigo_externo,
@@ -733,18 +755,27 @@ def canonicalize_api_snapshots_to_normalized(
     if not filters:
         raise ValueError("either pipeline_run_id or window_dates is required")
 
+    source_mode_priority = sa.case(
+        (MercadoPublicoNoticeSnapshot.source_mode == DETAIL_MODE, 0),
+        (MercadoPublicoNoticeSnapshot.source_mode == "rolling-window", 1),
+        else_=2,
+    )
     snapshots = session.execute(
         sa.select(MercadoPublicoNoticeSnapshot)
         .where(*filters)
-        .order_by(MercadoPublicoNoticeSnapshot.synced_at.desc())
+        .order_by(
+            source_mode_priority.asc(),
+            MercadoPublicoNoticeSnapshot.synced_at.desc(),
+            MercadoPublicoNoticeSnapshot.id.desc(),
+        )
     ).scalars().all()
 
     latest_by_code: dict[str, MercadoPublicoNoticeSnapshot] = {}
     for snap in snapshots:
-        code = _strip_or_none(snap.external_notice_code)  # type: ignore[union-attr]
+        code = _strip_or_none(snap.external_notice_code)
         if code is None or code in latest_by_code:
             continue
-        latest_by_code[code] = snap  # type: ignore[assignment]
+        latest_by_code[code] = snap
 
     licitacion_payloads: list[dict[str, Any]] = []
     item_payloads: list[dict[str, Any]] = []
@@ -757,6 +788,11 @@ def canonicalize_api_snapshots_to_normalized(
         item_snapshots = session.execute(
             sa.select(MercadoPublicoNoticeItemSnapshot).where(
                 MercadoPublicoNoticeItemSnapshot.external_notice_code == code,
+            ).order_by(
+                MercadoPublicoNoticeItemSnapshot.synced_at.desc(),
+                MercadoPublicoNoticeItemSnapshot.observed_at.desc(),
+                sa.func.coalesce(MercadoPublicoNoticeItemSnapshot.item_correlative, sa.literal(-1)).asc(),
+                MercadoPublicoNoticeItemSnapshot.id.asc(),
             )
         ).scalars().all()
         for item_snap in item_snapshots:

@@ -21,13 +21,13 @@ from backend.core.config import (  # noqa: E402
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.pipeline.extract.mp_api_client import MercadoPublicoClient  # noqa: E402
 from backend.pipeline.extract.mp_api_config import MercadoPublicoSettings, from_app_settings  # noqa: E402
-from backend.integrations.mercado_publico import (  # noqa: E402
+from backend.pipeline.orchestration.sync import (  # noqa: E402
+    SyncMode,
     create_sync_run,
     execute_sync_mode,
     mark_sync_run_completed,
     mark_sync_run_failed,
 )
-from backend.integrations.mercado_publico.sync import SyncMode  # noqa: E402
 
 
 def _parse_date(value: str) -> date:

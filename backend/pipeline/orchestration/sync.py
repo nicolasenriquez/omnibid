@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Canonical Mercado Publico sync orchestration lives here.
+
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 import hashlib

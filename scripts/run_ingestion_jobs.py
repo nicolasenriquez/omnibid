@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 
 from backend.core.config import get_settings  # noqa: E402
 from backend.db.session import SessionLocal  # noqa: E402
-from backend.pipeline.worker import JobHandler, run_worker_once  # noqa: E402
+from backend.pipeline.orchestration.worker import JobHandler, run_worker_once  # noqa: E402
 
 
 def _default_worker_id() -> str:

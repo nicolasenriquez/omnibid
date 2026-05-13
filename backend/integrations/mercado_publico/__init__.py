@@ -19,7 +19,7 @@ from backend.pipeline.load.mp_api_store import (
     compute_request_hash,
     persist_notice_batch,
 )
-from .sync import (
+from backend.pipeline.orchestration.sync import (
     DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
     STEP_NAME_BY_MODE,
     SyncMode,

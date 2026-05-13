@@ -1,6 +1,8 @@
 ## Why
 
-Empirical testing confirms the Mercado Publico API returns two distinct schemas: `estado=activas` and `fecha=DDMMAAAA` return a summary schema with ~11 flat fields, while `codigo=<CodigoExterno>` returns a full enriched schema with nested `Comprador`, `Fechas`, `Items`, `Descripcion`, and operational metadata. The current `LicitacionNotice` Pydantic model uses `extra="ignore"` and only captures the flat summary fields, silently discarding all enriched data at parse time. The raw payload is preserved in `api_source_payload`, but the snapshot and downstream layers never receive description, buyer region/commune/address, extended dates, items, or completeness metadata — causing avoidable NULLs in the UI.
+Empirical testing confirms the Mercado Publico API returns two distinct schemas: `estado=activas` and `fecha=DDMMAAAA` return a summary schema with ~11 flat fields, while `codigo=<CodigoExterno>` returns a full enriched schema with nested `Comprador`, `Fechas`, `Items`, `Descripcion`, and operational metadata. The current `LicitacionNotice` Pydantic model uses `extra="ignore"` and only captures the flat summary fields, silently discarding all enriched data at parse time. The raw payload is preserved in `api_source_payload`, but the snapshot and downstream layers never receive description, buyer region/commune/address, extended dates, items, or completeness metadata.
+
+For open/publicada notices, the contract is stage-aware: Mercado Publico API is the source of truth for pre-close intelligence, while the monthly CSV load remains the source for post-close and adjudication enrichment. The fix is not to force every field onto every open row. The fix is to propagate the MP detail fields that are actually present before close, and to keep CSV-only fields unavailable until the close/adjudication stage.
 
 ## What Changes
 
@@ -11,6 +13,7 @@ Empirical testing confirms the Mercado Publico API returns two distinct schemas:
 - Add coverage metrics to `SyncSummary` (description %, region %, items %)  
 - Implement anti-degradation canonicalization: never overwrite non-null normalized/silver values with NULL from a lower-priority source  
 - Add parsing, persistence, and canonicalization tests with real detail-by-codigo fixtures  
+- Keep the pipeline stage-aware: MP API enriches open/publicada intelligence, monthly CSV enriches closed/adjudicated outcomes, and CSV-only fields must not leak into open rows  
 - Formalize pipeline structure with clear extract/transform/load boundaries under `backend/pipeline/`  
 - Create centralized pipeline config at `config/pipeline.yaml` for DB connections, API endpoints, batch sizes, and operational parameters  
 - Migrate MP API pipeline modules into extract/transform/load stages with gradual, test-backed migration  
@@ -44,3 +47,12 @@ Empirical testing confirms the Mercado Publico API returns two distinct schemas:
 - `backend/pipeline/orchestration/` — consolidated pipeline orchestration  
 - `backend/ingestion/`, `backend/shared/`, `backend/normalized/` — migrated into `backend/pipeline/` as data entry points and processing stages under the same raw→normalized→silver pipeline  
 - `docs/pipeline/structure.md` — new pipeline structure documentation  
+
+## Required Fix Steps
+
+1. Classify each Explorer field by stage and source ownership: MP API open/publicada, MP API detail-by-codigo, or monthly CSV post-close.
+2. Keep `select_detail_enrichment_candidates(...)` focused on open/closing-soon notices that still need MP detail enrichment, without exceeding the request budget.
+3. Keep `canonicalize_api_snapshots_to_normalized(...)` as the source-aware bridge for MP API snapshots, with detail > rolling-window > active-discovery precedence and anti-degradation semantics.
+4. Preserve monthly CSV ingestion as the downstream source for closed/adjudicated enrichments only; do not backfill open rows with CSV-only fields.
+5. Add regression tests for one summary-only open notice, one MP detail-enriched open notice, and one CSV-backed closed/adjudicated notice.
+6. Re-run the May 12 refresh and confirm the Explorer only shows non-null values for fields that the current stage/source can actually provide.

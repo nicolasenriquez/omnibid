@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from backend.pipeline import application
+from backend.pipeline.orchestration import daily_pipeline as application
 
 
 def test_run_registered_raw_ingest_uses_manual_upload_defaults() -> None:

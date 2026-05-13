@@ -48,11 +48,11 @@
 
 ## 6. Final Validation
 
-- [ ] 6.1 Run `just lint` and fix any Ruff issues
-- [ ] 6.2 Run `just type` and fix any MyPy issues
-- [ ] 6.3 Run `just test-unit` and ensure all existing and new tests pass
-- [ ] 6.4 Run `just docker-start` then `just mp-api-smoke` to verify sync commands still function
-- [ ] 6.5 Verify migration applies and rolls back cleanly with `uv run alembic upgrade head` and `uv run alembic downgrade -1`
+- [x] 6.1 Run `just lint` and fix any Ruff issues
+- [x] 6.2 Run `just type` and fix any MyPy issues
+- [x] 6.3 Run `just test-unit` and ensure all existing and new tests pass
+- [x] 6.4 Run `just docker-start` then `just mp-api-smoke` to verify sync commands still function
+- [x] 6.5 Verify migration applies and rolls back cleanly with `uv run alembic upgrade head` and `uv run alembic downgrade -1`
 
 ## 7. Pipeline Structure Foundation
 
@@ -105,11 +105,11 @@ Notes: Move persistence and load logic into `backend/pipeline/load/`.
 
 Notes: Consolidate orchestration logic, remove empty legacy directories, and run final validation.
 
-- [ ] 11.1 Consolidate `backend/pipeline/application.py` → `backend/pipeline/orchestration/daily_pipeline.py`
-- [ ] 11.2 Consolidate `backend/pipeline/worker.py` and `backend/pipeline/ingestion_units.py` → `backend/pipeline/orchestration/worker.py`
-- [ ] 11.2b Move `backend/integrations/mercado_publico/sync.py` → `backend/pipeline/orchestration/sync.py` and update all imports in `application.py`, scripts, and tests to use the new path
-- [ ] 11.3 Remove empty legacy directories (`backend/ingestion/`, `backend/normalized/`, `backend/shared/`) after verifying no orphaned imports via `rg "from backend\.(ingestion|normalized|shared)" backend/ scripts/ tests/`
-- [ ] 11.4 Update `scripts/fetch_mp_api.py` and `scripts/run_mp_api_daily_pipeline.py` to use new orchestration imports
-- [ ] 11.5 Run `just lint && just type && just test-unit` to verify all migrations are clean
-- [ ] 11.6 Run `just docker-start && just mp-api-smoke` to verify sync commands still function end-to-end
-- [ ] 11.7 Verify migration applies and rolls back cleanly with `uv run alembic upgrade head && uv run alembic downgrade -1`
+- [x] 11.1 Consolidate `backend/pipeline/application.py` → `backend/pipeline/orchestration/daily_pipeline.py`
+- [x] 11.2 Consolidate `backend/pipeline/worker.py` and `backend/pipeline/ingestion_units.py` → `backend/pipeline/orchestration/worker.py`
+- [x] 11.2b Move `backend/integrations/mercado_publico/sync.py` → `backend/pipeline/orchestration/sync.py` and update all imports in `application.py`, scripts, and tests to use the new path
+- [x] 11.3 Remove empty legacy directories (`backend/ingestion/`, `backend/normalized/`, `backend/shared/`) after verifying no orphaned imports via `rg "from backend\.(ingestion|normalized|shared)" backend/ scripts/ tests/`
+- [x] 11.4 Update `scripts/fetch_mp_api.py` and `scripts/run_mp_api_daily_pipeline.py` to use new orchestration imports
+- [x] 11.5 Run `just lint && just type && just test-unit` to verify all migrations are clean
+- [x] 11.6 Run `just docker-start && just mp-api-smoke` to verify sync commands still function end-to-end
+- [x] 11.7 Verify migration applies and rolls back cleanly with `uv run alembic upgrade head` and `uv run alembic downgrade -1`

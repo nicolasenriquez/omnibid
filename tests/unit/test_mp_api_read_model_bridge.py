@@ -15,6 +15,9 @@ class _ScalarIterableResult:
     def scalars(self):
         return self
 
+    def all(self):
+        return list(self._values)
+
     def __iter__(self):
         return iter(self._values)
 
@@ -30,8 +33,10 @@ class _RowsResult:
 class _QueuedSession:
     def __init__(self, queued_results):
         self._queued_results = list(queued_results)
+        self.statements = []
 
     def execute(self, _statement):
+        self.statements.append(_statement)
         if not self._queued_results:
             raise AssertionError("unexpected execute() call with no queued result")
         return self._queued_results.pop(0)
@@ -181,6 +186,51 @@ def test_canonicalize_payloads_uses_detail_last_and_expected_conflict_keys(
     assert captured_conflicts["NormalizedOferta"] == ["oferta_key_sha256"]
 
 
+def test_canonicalize_payloads_can_skip_normalized_upserts(monkeypatch) -> None:
+    scoped_rows = [
+        bridge._ScopedPayloadRow(  # noqa: SLF001
+            payload_sha256="rolling-sha",
+            row_index=0,
+            raw_row={
+                "CodigoExterno": "1274285-76-LR25",
+                "Codigo": "1274285",
+                "Nombre": "Licitacion base",
+                "Estado": "Publicada",
+                "CodigoEstado": 5,
+                "FechaPublicacion": "08052026",
+                "FechaCierre": "10052026",
+            },
+            mode_rank=1,
+            fetched_at=datetime(2026, 5, 10, 10, 0, 0),
+        )
+    ]
+    monkeypatch.setattr(
+        bridge,
+        "_select_scoped_payload_rows",
+        lambda *_args, **_kwargs: scoped_rows,
+    )
+
+    touched_models: list[str] = []
+
+    def _fake_upsert_rows(_session, model, rows, _conflict_fields):
+        touched_models.append(model.__name__)
+        return len(rows)
+
+    monkeypatch.setattr(bridge, "upsert_rows", _fake_upsert_rows)
+
+    summary = bridge.canonicalize_mp_api_payloads_to_read_model(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        source_file_id=uuid4(),
+        pipeline_run_id=uuid4(),
+        include_normalized=False,
+    )
+
+    assert summary.upserted_normalized_licitaciones == 0
+    assert summary.upserted_normalized_licitacion_items == 0
+    assert "NormalizedLicitacion" not in touched_models
+    assert "NormalizedLicitacionItem" not in touched_models
+
+
 def test_api_detail_canonicalizes_to_normalized_licitaciones() -> None:
     snap = SimpleNamespace(
         external_notice_code="1274285-76-LR25",
@@ -261,6 +311,122 @@ def test_api_items_canonicalize_to_normalized_licitacion_items() -> None:
     assert payload["cantidad"] == Decimal("4")
     assert payload["source_file_id"] == source_file_id
     assert "row_hash_sha256" in payload
+
+
+def test_api_items_canonicalize_uses_stable_fallback_key_when_identity_fields_are_missing() -> None:
+    item_snap = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        item_correlative=None,
+        codigo_producto=None,
+        codigo_categoria=None,
+        categoria=None,
+        nombre_producto="Servidores de rack 2U",
+        descripcion="64 GB RAM, 4 TB SSD",
+        unidad_medida="Unidad",
+        cantidad="4",
+    )
+
+    source_file_id = uuid4()
+    first = bridge.build_normalized_licitacion_item_from_item_snapshot(
+        item_snap, source_file_id=source_file_id
+    )
+    second = bridge.build_normalized_licitacion_item_from_item_snapshot(
+        item_snap, source_file_id=source_file_id
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first["codigo_item"] == second["codigo_item"]
+    assert first["codigo_item"].startswith("item-")
+    assert len(first["codigo_item"]) > len("item-")
+
+
+def test_canonicalize_api_snapshots_orders_item_snapshot_reads_deterministically(monkeypatch) -> None:
+    snapshot = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        notice_id="1274285-76-LR25",
+        notice_title="Servicio de soporte TI",
+        description="Servicios de soporte informatico para sistemas criticos",
+        official_status_code=5,
+        official_status_name="Publicada",
+        publication_date=date(2026, 5, 8),
+        close_date=date(2026, 5, 18),
+        buyer_org_code="ORG-001",
+        buyer_org_name="Municipalidad X",
+        buyer_unit_code="U-10",
+        buyer_unit_name="Departamento de Compras",
+        buyer_unit_address="Av. Providencia 1234",
+        buyer_unit_commune="Providencia",
+        buyer_unit_region="Metropolitana",
+        currency_code="CLP",
+        estimated_amount=Decimal("150000000"),
+        visibility_amount="150000000",
+        tipo="Publica",
+        codigo_tipo="LR",
+        tipo_convocatoria="Abierta",
+        days_to_close=10,
+        award_date=date(2026, 6, 15),
+        estimated_award_date=date(2026, 6, 10),
+    )
+    item_snap = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        item_correlative=None,
+        codigo_producto=None,
+        codigo_categoria=None,
+        categoria=None,
+        nombre_producto="Servidores de rack 2U",
+        descripcion="64 GB RAM, 4 TB SSD",
+        unidad_medida="Unidad",
+        cantidad="4",
+        synced_at=datetime(2026, 5, 10, 10, 5, 0),
+        observed_at=datetime(2026, 5, 10, 10, 0, 0),
+        id=uuid4(),
+    )
+
+    session = _QueuedSession(
+        [
+            _ScalarIterableResult([snapshot]),
+            _ScalarIterableResult([item_snap]),
+        ]
+    )
+
+    monkeypatch.setattr(bridge, "upsert_rows", lambda _session, _model, rows, _conflicts: len(rows))
+    monkeypatch.setattr(
+        bridge,
+        "build_normalized_licitacion_from_snapshot",
+        lambda snap, *, source_file_id: {
+            "codigo_externo": snap.external_notice_code,
+            "source_file_id": source_file_id,
+        },
+    )
+
+    bridge.canonicalize_api_snapshots_to_normalized(
+        session=session,  # type: ignore[arg-type]
+        source_file_id=uuid4(),
+        pipeline_run_id=uuid4(),
+    )
+
+    item_select_sql = str(session.statements[1]).lower()
+    assert "order by" in item_select_sql
+    assert "synced_at" in item_select_sql
+    assert "observed_at" in item_select_sql
+    assert "coalesce" in item_select_sql
+
+
+def test_canonicalize_api_snapshots_prioritizes_detail_source_mode_in_query() -> None:
+    session = _QueuedSession([_ScalarIterableResult([])])
+
+    bridge.canonicalize_api_snapshots_to_normalized(
+        session=session,  # type: ignore[arg-type]
+        source_file_id=uuid4(),
+        pipeline_run_id=uuid4(),
+    )
+
+    snapshots_select_sql = str(session.statements[0]).lower()
+    assert "order by" in snapshots_select_sql
+    assert "source_mode" in snapshots_select_sql
+    assert "case when" in snapshots_select_sql
+    assert "synced_at" in snapshots_select_sql
 
 
 def test_nulls_do_not_overwrite_existing_non_null_values(

@@ -30,7 +30,7 @@ The existing sync pipeline (`sync.py`) already routes through three modes (`acti
 - New API endpoints (compradores, proveedores, etc.)
 - Frontend or UI changes
 - Schema-aware replay from raw payload (payload replay already works)
-- Cross-source reconciliation with CSV paths
+- Cross-source reconciliation that backfills open/publicada rows with CSV-only fields
 - Predictive or scoring fields
 - Moving non-pipeline application modules (`backend/api/`, `backend/core/`, `backend/db/`, `backend/models/`, `backend/nlp/`)
 
@@ -90,7 +90,7 @@ The existing sync pipeline (`sync.py`) already routes through three modes (`acti
 
 ### 8. Unified pipeline for all data entry points
 
-**Why**: The repo has three data entry points — massive file load, CSV manual load, and MP API — all feeding the same raw→normalized→silver pipeline. Rather than leaving CSV/manual load paths in a separate `backend/ingestion/` location, they are migrated alongside the MP API modules into `backend/pipeline/` so all entry points share the same extract/transform/load structure. `backend/integrations/` is preserved for non-pipeline integrations only.
+**Why**: The repo has three data entry points — massive file load, CSV manual load, and MP API — all feeding the same raw→normalized→silver pipeline. Rather than leaving CSV/manual load paths in a separate `backend/ingestion/` location, they are migrated alongside the MP API modules into `backend/pipeline/` so all entry points share the same extract/transform/load structure. That shared structure is stage-aware: MP API owns pre-close open/publicada intelligence, while the monthly CSV load owns post-close/adjudication enrichment. `backend/integrations/` is preserved for non-pipeline integrations only.
 
 **Alternatives considered**:
 - *Keep CSV paths separate*: Rejected. CSV and API are both data entry points into the same normalization pipeline. Keeping them in separate directories creates fragmentation and makes the pipeline harder to understand.

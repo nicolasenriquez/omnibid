@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from backend.pipeline.extract.mp_api_client import MercadoPublicoClient
-from backend.integrations.mercado_publico.sync import (
+from backend.pipeline.orchestration.sync import (
     DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE,
     STEP_NAME_BY_MODE,
     SyncSummary,
@@ -28,6 +28,7 @@ from backend.pipeline.transform.mp_api_notice_refresh import (
 from backend.pipeline.transform.mp_api_read_model_bridge import (
     MpApiCanonicalizationSummary,
     MpApiSilverPostprocessSummary,
+    canonicalize_api_snapshots_to_normalized,
     canonicalize_mp_api_payloads_to_read_model,
     run_mp_api_silver_postprocess,
     select_detail_enrichment_candidates,
@@ -38,7 +39,7 @@ from backend.nlp.runtime import (
     normalize_source_profile,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -740,11 +741,37 @@ def run_mp_api_daily_notice_pipeline(
             step_name=MP_API_SILVER_POSTPROCESS_STEP_NAME,
         )
         try:
-            silver_summary = canonicalize_mp_api_payloads_to_read_model(
+            payload_summary = canonicalize_mp_api_payloads_to_read_model(
                 session,
                 source_file_id=source_file.id,
                 pipeline_run_id=sync_scope_pipeline_run_id,
                 window_dates=None if sync_scope_pipeline_run_id is not None else window_dates,
+                include_normalized=False,
+            )
+            normalized_licitaciones_count, normalized_items_count = canonicalize_api_snapshots_to_normalized(
+                session,
+                source_file_id=source_file.id,
+                pipeline_run_id=sync_scope_pipeline_run_id,
+                window_dates=None if sync_scope_pipeline_run_id is not None else window_dates,
+            )
+            silver_summary = MpApiCanonicalizationSummary(
+                payload_rows_seen=payload_summary.payload_rows_seen,
+                payload_rows_used=payload_summary.payload_rows_used,
+                notice_candidates=payload_summary.notice_candidates,
+                upserted_notices=payload_summary.upserted_notices,
+                upserted_normalized_licitaciones=normalized_licitaciones_count,
+                upserted_normalized_licitacion_items=normalized_items_count,
+                upserted_normalized_ofertas=payload_summary.upserted_normalized_ofertas,
+                upserted_normalized_suppliers=payload_summary.upserted_normalized_suppliers,
+                upserted_silver_notice=payload_summary.upserted_silver_notice,
+                upserted_silver_notice_line=payload_summary.upserted_silver_notice_line,
+                upserted_silver_bid_submission=payload_summary.upserted_silver_bid_submission,
+                upserted_silver_award_outcome=payload_summary.upserted_silver_award_outcome,
+                upserted_silver_buying_org=payload_summary.upserted_silver_buying_org,
+                upserted_silver_contracting_unit=payload_summary.upserted_silver_contracting_unit,
+                upserted_silver_supplier=payload_summary.upserted_silver_supplier,
+                upserted_silver_category_ref=payload_summary.upserted_silver_category_ref,
+                upserted_silver_supplier_participation=payload_summary.upserted_silver_supplier_participation,
             )
             _mark_pipeline_step_completed(
                 canonical_step,
@@ -769,6 +796,7 @@ def run_mp_api_daily_notice_pipeline(
                     "payload_rows_used": silver_summary.payload_rows_used,
                     "notice_candidates": silver_summary.notice_candidates,
                     "upserted_notices": silver_summary.upserted_notices,
+                    "normalized_from_snapshots": True,
                     "upserted_normalized_licitaciones": (
                         silver_summary.upserted_normalized_licitaciones
                     ),

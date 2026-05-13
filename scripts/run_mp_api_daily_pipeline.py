@@ -18,7 +18,7 @@ from backend.core.config import (  # noqa: E402
 from backend.db.session import SessionLocal  # noqa: E402
 from backend.pipeline.extract.mp_api_client import MercadoPublicoClient  # noqa: E402
 from backend.pipeline.extract.mp_api_config import from_app_settings  # noqa: E402
-from backend.pipeline.application import run_mp_api_daily_notice_pipeline  # noqa: E402
+from backend.pipeline.orchestration.daily_pipeline import run_mp_api_daily_notice_pipeline  # noqa: E402
 
 SANTIAGO_TIMEZONE = ZoneInfo("America/Santiago")
 

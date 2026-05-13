@@ -9,11 +9,10 @@ import pytest
 
 from backend.pipeline.extract.mp_api_errors import (
     MercadoPublicoContractDriftError,
-    MercadoPublicoRateLimitError,
     MercadoPublicoRequestError,
 )
 from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
-from backend.integrations.mercado_publico.sync import (
+from backend.pipeline.orchestration.sync import (
     SyncSummary,
     create_sync_run,
     execute_sync_mode,
@@ -25,15 +24,15 @@ from backend.integrations.mercado_publico.sync import (
 
 def _patch_runtime_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "backend.integrations.mercado_publico.sync._acquire_scoped_lock",
+        "backend.pipeline.orchestration.sync._acquire_scoped_lock",
         lambda *_args, **_kwargs: 1,
     )
     monkeypatch.setattr(
-        "backend.integrations.mercado_publico.sync._release_scoped_lock",
+        "backend.pipeline.orchestration.sync._release_scoped_lock",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        "backend.integrations.mercado_publico.sync.reserve_request_budget",
+        "backend.pipeline.orchestration.sync.reserve_request_budget",
         lambda *_args, **_kwargs: None,
     )
 
@@ -100,7 +99,7 @@ def test_execute_sync_mode_active_discovery_persists_one_batch(monkeypatch: pyte
             snapshots_updated=0,
         )
 
-    monkeypatch.setattr("backend.integrations.mercado_publico.sync.persist_notice_batch", fake_persist_notice_batch)
+    monkeypatch.setattr("backend.pipeline.orchestration.sync.persist_notice_batch", fake_persist_notice_batch)
 
     summary = execute_sync_mode(
         session=_SessionWithExecute(),  # type: ignore[arg-type]
@@ -154,7 +153,7 @@ def test_execute_sync_mode_rolling_window_handles_empty_result(monkeypatch: pyte
             snapshots_updated=0,
         )
 
-    monkeypatch.setattr("backend.integrations.mercado_publico.sync.persist_notice_batch", fake_persist_notice_batch)
+    monkeypatch.setattr("backend.pipeline.orchestration.sync.persist_notice_batch", fake_persist_notice_batch)
 
     summary = execute_sync_mode(
         session=object(),  # type: ignore[arg-type]
@@ -212,7 +211,7 @@ def test_execute_sync_mode_detail_by_codigo_iterates_codes(monkeypatch: pytest.M
             snapshots_updated=0,
         )
 
-    monkeypatch.setattr("backend.integrations.mercado_publico.sync.persist_notice_batch", fake_persist_notice_batch)
+    monkeypatch.setattr("backend.pipeline.orchestration.sync.persist_notice_batch", fake_persist_notice_batch)
 
     summary = execute_sync_mode(
         session=object(),  # type: ignore[arg-type]
@@ -372,7 +371,7 @@ def test_execute_sync_mode_fails_fast_on_lock_contention(monkeypatch: pytest.Mon
     def _raise_lock(*_args, **_kwargs) -> int:
         raise RuntimeError("scoped advisory lock not available for key=mercado_publico:active_discovery")
 
-    monkeypatch.setattr("backend.integrations.mercado_publico.sync._acquire_scoped_lock", _raise_lock)
+    monkeypatch.setattr("backend.pipeline.orchestration.sync._acquire_scoped_lock", _raise_lock)
 
     with pytest.raises(RuntimeError, match="scoped advisory lock not available"):
         execute_sync_mode(

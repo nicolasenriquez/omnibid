@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,9 +11,6 @@ import backend.pipeline.load.mp_api_store as store_module
 from backend.pipeline.extract.mp_api_errors import MercadoPublicoRateLimitError
 from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
 from backend.pipeline.load.mp_api_store import (
-    PersistedNoticeBatch,
-    _comprador_attr,
-    _fechas_attr,
     canonical_request_params,
     compute_payload_hash,
     compute_request_hash,

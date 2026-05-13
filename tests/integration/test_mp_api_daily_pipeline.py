@@ -15,7 +15,7 @@ from backend.pipeline.extract.mp_api_schemas import (
     LicitacionesResponse,
     parse_licitaciones_response,
 )
-from backend.integrations.mercado_publico.sync import DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE
+from backend.pipeline.orchestration.sync import DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE
 from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeSnapshot
 from backend.models.normalized import (
     NormalizedLicitacion,
@@ -36,7 +36,7 @@ from backend.models.normalized import (
     SilverSupplierParticipation,
 )
 from backend.models.operational import PipelineRun, PipelineRunStep, SourceFile
-from backend.pipeline import application
+from backend.pipeline.orchestration import daily_pipeline as application
 
 
 def _prepare_schema(engine: sa.Engine) -> None:

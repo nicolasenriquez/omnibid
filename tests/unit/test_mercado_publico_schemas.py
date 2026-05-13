@@ -94,6 +94,51 @@ def test_parse_detail_by_codigo_payload_with_nulls() -> None:
     assert notice.estimated_amount is None
 
 
+def test_parse_detail_by_codigo_payload_coerces_numeric_string_fields() -> None:
+    payload = {
+        "Codigo": 0,
+        "Descripcion": "OK",
+        "Cantidad": 1,
+        "Listado": [
+            {
+                "CodigoExterno": "X-1",
+                "Nombre": "Licitacion detallada",
+                "CodigoEstado": 5,
+                "Estado": "Publicada",
+                "CodigoTipo": 1,
+                "FechaPublicacion": "2026-05-08",
+                "Adjudicacion": {"Tipo": 4},
+                "Items": {
+                    "Cantidad": 1,
+                    "Listado": [
+                        {
+                            "Correlativo": 1,
+                            "CodigoProducto": 43222815,
+                            "Cantidad": 1.0,
+                            "CodigoCategoria": "4322",
+                            "Categoria": "Equipos",
+                            "NombreProducto": "Servidor",
+                            "Descripcion": "Equipo",
+                            "UnidadMedida": "Unidad",
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+    item = notice.items.listado[0]
+
+    assert notice.codigo_tipo == "1"
+    assert notice.adjudicacion is not None
+    assert notice.adjudicacion.tipo == "4"
+    assert item.codigo_producto == "43222815"
+    assert item.cantidad == "1.0"
+    assert item.correlativo == 1
+
+
 def test_parse_active_discovery_payload_with_datetime_strings_and_missing_top_level_fields() -> None:
     payload = {
         "Cantidad": 1,
