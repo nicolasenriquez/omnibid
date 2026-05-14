@@ -16,7 +16,12 @@ from backend.pipeline.extract.mp_api_schemas import (
     parse_licitaciones_response,
 )
 from backend.pipeline.orchestration.sync import DATASET_TYPE_MERCADO_PUBLICO_API_NOTICE
-from backend.models.api_source import ApiSourcePayload, ApiSourceRequest, MercadoPublicoNoticeSnapshot
+from backend.models.api_source import (
+    ApiSourcePayload,
+    ApiSourceRequest,
+    MercadoPublicoNoticeItemSnapshot,
+    MercadoPublicoNoticeSnapshot,
+)
 from backend.models.normalized import (
     NormalizedLicitacion,
     NormalizedLicitacionItem,
@@ -47,6 +52,7 @@ def _prepare_schema(engine: sa.Engine) -> None:
         ApiSourcePayload.__table__,
         ApiSourceRequest.__table__,
         MercadoPublicoNoticeSnapshot.__table__,
+        MercadoPublicoNoticeItemSnapshot.__table__,
         NormalizedLicitacion.__table__,
         NormalizedLicitacionItem.__table__,
         NormalizedOferta.__table__,

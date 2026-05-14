@@ -84,9 +84,11 @@ Frontend baseline when `client/` is in scope:
 
 ```bash
 cd client
-npm run lint
-npm run typecheck
-npm run build
+corepack enable
+corepack prepare pnpm@11.0.8 --activate
+pnpm lint
+pnpm typecheck
+pnpm build
 ```
 
 Equivalent explicit backend gate (if `just` is unavailable):

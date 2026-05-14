@@ -53,8 +53,8 @@ The current `LicitacionNotice` Pydantic model (`backend/integrations/mercado_pub
 | `TipoConvocatoria` | No | Call type (Abierta/Cerrada) lost |
 | `DiasCierreLicitacion` | No | Days to close lost |
 | `CantidadReclamos` | No | Claim count lost |
-| `FundingSource` | No | Funding source lost |
-| `VisibilityAmount` | No | Visibility budget lost |
+| `FuenteFinanciamiento` | No | Funding source lost |
+| `VisibilidadMonto` | No | Visibility budget lost |
 
 Note: Root-level `FechaPublicacion` and `FechaCierre` on the notice are parsed by the existing date validators, but the nested `Fechas.*` extended dates are discarded.
 
@@ -97,7 +97,7 @@ The `NormalizedLicitacion` model already has columns for:
 - `fecha_adjudicacion`, `fecha_estimada_adjudicacion`, `fecha_inicio`, `fecha_final` — not populated from API snapshots
 - `cantidad_dias_licitacion` — not populated from API snapshots
 - `numero_oferentes` — not populated from API snapshots (available via `Adjudicacion.NumeroOferentes` in detail)
-- `visibilidad_monto_raw` — not populated from API snapshots (available via `VisibilityAmount` in detail)
+- `visibilidad_monto_raw` — not populated from API snapshots (available via `VisibilidadMonto` in detail)
 
 These columns exist but are NULL for API-sourced rows because the canonicalization layer never receives enriched fields from the snapshot.
 

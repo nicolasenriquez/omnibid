@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - staged daily DAG: rolling sync -> selective detail enrichment -> payload canonicalization -> Silver postprocess
   - stage-level run stats and operator summary fields for detail/canonicalization/postprocess counts
   - bridge unit tests plus integration coverage updates for the expanded daily step graph
+- Mercado Publico opportunities contract alignment for `Publicada` discovery:
+  - official state metadata exposed in `/opportunities` list/detail/summary (`mpEstadoCodigo`, `mpEstadoNombre`, `mpEstadoCanonical`, source/availability context)
+  - additive discovery filter `source_view=publicadas` with backward-compatible `derivedStage`
+  - official licitacion field exposure (`CodigoTipo`, `Tipo`, `TipoConvocatoria`, `Informada`, `VisibilidadMonto`, `FuenteFinanciamiento`)
+  - lifecycle-aware detail availability semantics (`available`, `not_yet_public`, `not_applicable`, `not_reported_by_source`, `pipeline_missing`)
 
 ### Planned
 - Procurement investigation workspace API routes (documented, pending wiring in `backend/main.py`)

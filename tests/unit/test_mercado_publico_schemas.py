@@ -203,3 +203,39 @@ def test_parse_detail_payload_discards_items() -> None:
         "-- LicitacionNotice has no items field"
     )
     assert len(notice.items.listado) == 2
+
+
+def test_parse_detail_payload_uses_official_funding_and_visibility_field_names() -> None:
+    payload = {
+        "Codigo": 0,
+        "Descripcion": "OK",
+        "Cantidad": 1,
+        "Listado": [
+            {
+                "CodigoExterno": "1274285-76-LR25",
+                "Nombre": "Servicio de soporte",
+                "CodigoEstado": 5,
+                "Estado": "Publicada",
+                "FuenteFinanciamiento": "Municipal",
+                "VisibilidadMonto": "Reservado",
+                "Informada": "No",
+            }
+        ],
+    }
+
+    notice = parse_licitaciones_response(payload).notices[0]
+    assert notice.funding_source == "Municipal"
+    assert notice.visibility_amount == "Reservado"
+    assert notice.informada == "No"
+
+
+def test_parse_detail_fixture_preserves_official_public_fields() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    notice = parse_licitaciones_response(payload).notices[0]
+    assert notice.codigo_tipo == "LR"
+    assert notice.tipo_convocatoria == "Abierta"
+    assert notice.funding_source == "Municipal"
+    assert notice.visibility_amount == "150000000"
+    assert notice.informada == "No"

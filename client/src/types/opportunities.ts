@@ -29,6 +29,13 @@ export type OpportunitySortField =
 
 export type OpportunitySortDirection = "asc" | "desc";
 export type ProcurementTypeFilter = "public" | "private" | "service";
+export type SourceViewFilter = "publicadas";
+export type OpportunityAvailability =
+  | "available"
+  | "not_yet_public"
+  | "not_applicable"
+  | "not_reported_by_source"
+  | "pipeline_missing";
 
 export type OpportunitySummaryMetric = {
   key: string;
@@ -50,6 +57,7 @@ export type OpportunityFilters = {
   minAmount?: number;
   maxAmount?: number;
   procurementType?: ProcurementTypeFilter;
+  sourceView?: SourceViewFilter;
   lessThan100Utm?: boolean;
   page: number;
   pageSize: number;
@@ -135,6 +143,7 @@ export type OpportunityPurchaseOrderEvidence = {
 export type OpportunityBuyerSnapshot = {
   buyerName: string | null;
   buyerRegion: string | null;
+  buyerCommune?: string | null;
   contractingUnitName: string | null;
   contractingUnitCode: string | null;
 };
@@ -145,8 +154,24 @@ export type OpportunityDetail = {
   title: string;
   officialStatus: string | null;
   derivedStage: OpportunityStage;
+  mpEstadoCodigo?: number | null;
+  mpEstadoNombre?: string | null;
+  mpEstadoCanonical?: string | null;
+  dataSourceKind?: string | null;
+  availabilityContext?: string | null;
+  codigoTipo?: string | null;
+  tipo?: string | null;
+  tipoConvocatoria?: string | null;
+  informada?: string | null;
+  visibilidadMonto?: string | null;
+  fuenteFinanciamiento?: string | null;
   estimatedAmount: number | null;
   currencyCode: string | null;
+  participantsAvailability?: OpportunityAvailability;
+  offersAvailability?: OpportunityAvailability;
+  awardAvailability?: OpportunityAvailability;
+  purchaseOrderAvailability?: OpportunityAvailability;
+  descriptionAvailability?: OpportunityAvailability;
   buyer: OpportunityBuyerSnapshot;
   relationshipSummary: RelationshipCertainty;
   timeline: OpportunityTimelineEvent[];
@@ -182,6 +207,7 @@ export type OpportunityWorkspaceQueryState = {
   minAmount: string;
   maxAmount: string;
   procurementType: ProcurementTypeFilter | "";
+  sourceView: SourceViewFilter | "";
   lessThan100Utm: boolean;
   page: number;
   pageSize: number;

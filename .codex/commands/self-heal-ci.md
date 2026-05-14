@@ -33,7 +33,7 @@ By default this command is diagnose-first and conservative. It can apply non-sem
 
 `target=fast`:
 - `using=back` (`scope=back`) -> `just ci-fast`
-- `using=front` (`scope=front`) -> `npm run lint`, `npm run typecheck`, `npm run build` from `client/`
+- `using=front` (`scope=front`) -> `pnpm lint`, `pnpm typecheck`, `pnpm build` from `client/` after Corepack activation
 - `using=all` (`scope=all`) -> `just ci-fast`
 
 `target=full`:
@@ -114,9 +114,9 @@ Frontend gates:
 
 ```bash
 cd client
-npm run lint
-npm run typecheck
-npm run build
+pnpm lint
+pnpm typecheck
+pnpm build
 ```
 
 Pre-push hooks (when target includes full `ci`):

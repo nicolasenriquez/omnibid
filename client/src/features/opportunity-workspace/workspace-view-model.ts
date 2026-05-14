@@ -84,10 +84,44 @@ const TODAY_FORMATTER = new Intl.DateTimeFormat("es-CL", {
   year: "numeric",
 });
 const OFFICIAL_STATUS_LABELS: Record<string, string> = {
-  abierta: "Abierta",
+  publicada: "Publicada",
   cerrada: "Cerrada",
+  desierta: "Desierta",
   adjudicada: "Adjudicada",
+  revocada: "Revocada",
+  suspendida: "Suspendida",
 };
+
+export const OFFICIAL_STATUS_FILTER_OPTIONS: Array<{
+  value: string;
+  label: string;
+}> = [
+  { value: "publicada", label: "Publicada" },
+  { value: "cerrada", label: "Cerrada" },
+  { value: "desierta", label: "Desierta" },
+  { value: "adjudicada", label: "Adjudicada" },
+  { value: "revocada", label: "Revocada" },
+  { value: "suspendida", label: "Suspendida" },
+];
+
+export const REGION_FILTER_OPTIONS: string[] = [
+  "Región Metropolitana de Santiago",
+  "Región del Biobío",
+  "Región de Valparaíso",
+  "Región de la Araucanía",
+  "Región del Maule",
+  "Región de los Lagos",
+  "Región del Libertador General Bernardo O´Higgins",
+  "Región de Coquimbo",
+  "Región del Ñuble",
+  "Región de Los Ríos",
+  "Región de Magallanes y de la Antártica",
+  "Región de Antofagasta",
+  "Región de Atacama",
+  "Región de Arica y Parinacota",
+  "Región de Tarapacá",
+  "Región Aysén del General Carlos Ibáñez del Campo",
+];
 
 const OPPORTUNITY_EXPORT_HEADERS = [
   "Código",
@@ -322,6 +356,13 @@ export function getActiveFilterChips(state: OpportunityWorkspaceQueryState): Wor
         PROCUREMENT_TYPE_LABELS[state.procurementType],
         { procurementType: "" },
       ),
+    );
+  }
+  if (state.sourceView) {
+    chips.push(
+      createFilterChip("sourceView", "Vista: Publicadas / Activas", {
+        sourceView: "",
+      }),
     );
   }
   if (state.officialStatus.trim()) {

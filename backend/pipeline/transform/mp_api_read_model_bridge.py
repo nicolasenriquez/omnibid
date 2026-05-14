@@ -66,6 +66,149 @@ SILVER_SUPPLIER_PARTICIPATION_CONFLICT_FIELDS = ["supplier_id", "notice_id"]
 
 DETAIL_MODE = "detail-by-codigo"
 
+SNAPSHOT_ROW_FIELD_MAP: dict[str, str] = {
+    "CodigoExterno": "external_notice_code",
+    "Nombre": "notice_title",
+    "CodigoEstado": "official_status_code",
+    "Estado": "official_status_name",
+    "FechaPublicacion": "publication_date",
+    "FechaCierre": "close_date",
+    "FechaCreacion": "created_date",
+    "FechaAdjudicacion": "award_date",
+    "FechaEstimadaAdjudicacion": "estimated_award_date",
+    "Descripcion": "description",
+    "CodigoOrganismo": "buyer_org_code",
+    "NombreOrganismo": "buyer_org_name",
+    "CodigoUnidad": "buyer_unit_code",
+    "NombreUnidad": "buyer_unit_name",
+    "DireccionUnidad": "buyer_unit_address",
+    "ComunaUnidad": "buyer_unit_commune",
+    "RegionUnidad": "buyer_unit_region",
+    "Moneda": "currency_code",
+    "MontoEstimado": "estimated_amount",
+    "Tipo": "tipo",
+    "CodigoTipo": "codigo_tipo",
+    "TipoConvocatoria": "tipo_convocatoria",
+    "CantidadReclamos": "claim_count",
+    "FuenteFinanciamiento": "funding_source",
+    "VisibilidadMonto": "visibility_amount",
+}
+
+
+def _text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    return text
+
+
+def _is_missing_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _select_latest_snapshots_by_notice(
+    session: Session,
+    *,
+    pipeline_run_id: UUID | None,
+    window_dates: Sequence[date] | None,
+) -> dict[str, MercadoPublicoNoticeSnapshot]:
+    filters = _scope_filters(pipeline_run_id=pipeline_run_id, window_dates=window_dates)
+    source_mode_priority = sa.case(
+        (MercadoPublicoNoticeSnapshot.source_mode == DETAIL_MODE, 0),
+        (MercadoPublicoNoticeSnapshot.source_mode == "rolling-window", 1),
+        else_=2,
+    )
+    snapshots = session.execute(
+        sa.select(MercadoPublicoNoticeSnapshot)
+        .where(*filters)
+        .order_by(
+            source_mode_priority.asc(),
+            MercadoPublicoNoticeSnapshot.synced_at.desc(),
+            MercadoPublicoNoticeSnapshot.id.desc(),
+        )
+    ).scalars().all()
+    by_code: dict[str, MercadoPublicoNoticeSnapshot] = {}
+    for snapshot in snapshots:
+        code = _text_or_none(snapshot.external_notice_code)
+        if code is None or code in by_code:
+            continue
+        by_code[code] = snapshot
+    return by_code
+
+
+def _merge_raw_row_with_snapshot(
+    raw_row: Mapping[str, Any],
+    snapshot: MercadoPublicoNoticeSnapshot | None,
+) -> dict[str, Any]:
+    merged = dict(raw_row)
+    if snapshot is None:
+        return merged
+    snap_any = cast(Any, snapshot)
+    for row_key, snapshot_attr in SNAPSHOT_ROW_FIELD_MAP.items():
+        if not _is_missing_value(merged.get(row_key)):
+            continue
+        value = getattr(snap_any, snapshot_attr, None)
+        if _is_missing_value(value):
+            continue
+        merged[row_key] = value
+    if _is_missing_value(merged.get("SourceMode")):
+        merged["SourceMode"] = _text_or_none(getattr(snap_any, "source_mode", None))
+    if _is_missing_value(merged.get("Codigo")):
+        merged["Codigo"] = _text_or_none(getattr(snap_any, "notice_id", None))
+    return merged
+
+
+def _flatten_items_from_row(raw_row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    items_container = _as_dict(raw_row.get("Items"))
+    if items_container is None:
+        return []
+    listed_raw = items_container.get("Listado")
+    if not isinstance(listed_raw, Sequence) or isinstance(listed_raw, (str, bytes, bytearray)):
+        return []
+
+    flattened_rows: list[dict[str, Any]] = []
+    for item_raw in cast(Sequence[object], listed_raw):
+        item = _as_dict(item_raw)
+        if item is None:
+            continue
+        item_row = dict(raw_row)
+        item_correlative = _as_int(item.get("Correlativo"))
+        item_product_code = _text_or_none(item.get("CodigoProducto"))
+        item_code = str(item_correlative) if item_correlative is not None else item_product_code
+        if item_code is None:
+            continue
+        item_row["Codigoitem"] = item_code
+        item_row["CodigoItem"] = item_code
+        item_row["Correlativo"] = str(item_correlative) if item_correlative is not None else None
+        item_row["CodigoProductoONU"] = item_product_code
+        item_row["codigoCategoria"] = _text_or_none(item.get("CodigoCategoria"))
+        item_row["CodigoCategoria"] = _text_or_none(item.get("CodigoCategoria"))
+        item_row["Categoria"] = _text_or_none(item.get("Categoria"))
+        item_row["Rubro1"] = _text_or_none(item.get("Categoria"))
+        item_row["Nombre producto genrico"] = _text_or_none(item.get("NombreProducto"))
+        item_row["NombreProductoGenerico"] = _text_or_none(item.get("NombreProducto"))
+        item_row["Nombre linea Adquisicion"] = _text_or_none(item.get("NombreProducto"))
+        item_row["Descripcion linea Adquisicion"] = _text_or_none(item.get("Descripcion"))
+        item_row["UnidadMedida"] = _text_or_none(item.get("UnidadMedida"))
+        item_row["Cantidad"] = item.get("Cantidad")
+        flattened_rows.append(item_row)
+    return flattened_rows
+
 
 @dataclass(frozen=True)
 class MpApiDetailCandidateSummary:
@@ -336,6 +479,11 @@ def canonicalize_mp_api_payloads_to_read_model(
     window_dates: Sequence[date] | None = None,
     include_normalized: bool = True,
 ) -> MpApiCanonicalizationSummary:
+    latest_snapshot_by_code = _select_latest_snapshots_by_notice(
+        session,
+        pipeline_run_id=pipeline_run_id,
+        window_dates=window_dates,
+    )
     scoped_rows = _select_scoped_payload_rows(
         session,
         pipeline_run_id=pipeline_run_id,
@@ -360,122 +508,131 @@ def canonicalize_mp_api_payloads_to_read_model(
     payload_rows_used = 0
     notice_candidates: set[str] = set()
     for scoped_row in scoped_rows:
-        raw_row = scoped_row.raw_row
-        row_hash_sha256 = _row_hash(
-            payload_sha256=scoped_row.payload_sha256,
-            row_index=scoped_row.row_index,
-            raw_row=raw_row,
+        notice_code = _text_or_none(scoped_row.raw_row.get("CodigoExterno"))
+        enriched_row = _merge_raw_row_with_snapshot(
+            scoped_row.raw_row,
+            latest_snapshot_by_code.get(notice_code or ""),
         )
+        expanded_rows: list[dict[str, Any]] = [enriched_row]
+        if _is_missing_value(enriched_row.get("Codigoitem")) and _is_missing_value(enriched_row.get("CodigoItem")):
+            expanded_rows.extend(_flatten_items_from_row(enriched_row))
+
         row_had_payload = False
+        for synthetic_index, raw_row in enumerate(expanded_rows):
+            row_hash_sha256 = _row_hash(
+                payload_sha256=scoped_row.payload_sha256,
+                row_index=(scoped_row.row_index * 1000) + synthetic_index,
+                raw_row=raw_row,
+            )
 
-        licitacion_payload = build_licitacion_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if licitacion_payload is not None:
-            normalized_licitaciones_rows.append(licitacion_payload)
-            row_had_payload = True
+            licitacion_payload = build_licitacion_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if licitacion_payload is not None:
+                normalized_licitaciones_rows.append(licitacion_payload)
+                row_had_payload = True
 
-        licitacion_item_payload = build_licitacion_item_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if licitacion_item_payload is not None:
-            normalized_licitacion_items_rows.append(licitacion_item_payload)
-            row_had_payload = True
+            licitacion_item_payload = build_licitacion_item_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if licitacion_item_payload is not None:
+                normalized_licitacion_items_rows.append(licitacion_item_payload)
+                row_had_payload = True
 
-        oferta_payload = build_oferta_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if oferta_payload is not None:
-            oferta_payload["supplier_key"] = resolve_supplier_identity_key(raw_row)
-            normalized_ofertas_rows.append(oferta_payload)
-            row_had_payload = True
+            oferta_payload = build_oferta_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if oferta_payload is not None:
+                oferta_payload["supplier_key"] = resolve_supplier_identity_key(raw_row)
+                normalized_ofertas_rows.append(oferta_payload)
+                row_had_payload = True
 
-            supplier_payload = build_supplier_domain_payload(
+                supplier_payload = build_supplier_domain_payload(
+                    raw=raw_row,
+                    source_file_id=source_file_id,
+                )
+                if supplier_payload is not None:
+                    normalized_suppliers_rows.append(supplier_payload)
+
+            silver_notice_payload = build_silver_notice_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if silver_notice_payload is not None:
+                silver_notice_rows.append(silver_notice_payload)
+                notice_candidates.add(str(silver_notice_payload.get("notice_id")))
+                row_had_payload = True
+
+            silver_notice_line_payload = build_silver_notice_line_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if silver_notice_line_payload is not None:
+                silver_notice_line_rows.append(silver_notice_line_payload)
+                row_had_payload = True
+
+            silver_bid_submission_payload = build_silver_bid_submission_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if silver_bid_submission_payload is not None:
+                silver_bid_submission_rows.append(silver_bid_submission_payload)
+                row_had_payload = True
+
+            silver_award_outcome_payload = build_silver_award_outcome_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                row_hash_sha256=row_hash_sha256,
+            )
+            if silver_award_outcome_payload is not None:
+                silver_award_outcome_rows.append(silver_award_outcome_payload)
+                row_had_payload = True
+
+            silver_buying_org_payload = build_silver_buying_org_payload(
                 raw=raw_row,
                 source_file_id=source_file_id,
             )
-            if supplier_payload is not None:
-                normalized_suppliers_rows.append(supplier_payload)
+            if silver_buying_org_payload is not None:
+                silver_buying_org_rows.append(silver_buying_org_payload)
 
-        silver_notice_payload = build_silver_notice_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if silver_notice_payload is not None:
-            silver_notice_rows.append(silver_notice_payload)
-            notice_candidates.add(str(silver_notice_payload.get("notice_id")))
-            row_had_payload = True
+            silver_contracting_unit_payload = build_silver_contracting_unit_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+            )
+            if silver_contracting_unit_payload is not None:
+                silver_contracting_unit_rows.append(silver_contracting_unit_payload)
 
-        silver_notice_line_payload = build_silver_notice_line_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if silver_notice_line_payload is not None:
-            silver_notice_line_rows.append(silver_notice_line_payload)
-            row_had_payload = True
+            silver_supplier_payload = build_silver_supplier_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+            )
+            if silver_supplier_payload is not None:
+                silver_supplier_rows.append(silver_supplier_payload)
 
-        silver_bid_submission_payload = build_silver_bid_submission_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if silver_bid_submission_payload is not None:
-            silver_bid_submission_rows.append(silver_bid_submission_payload)
-            row_had_payload = True
+            silver_category_ref_payload = build_silver_category_ref_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+            )
+            if silver_category_ref_payload is not None:
+                silver_category_ref_rows.append(silver_category_ref_payload)
 
-        silver_award_outcome_payload = build_silver_award_outcome_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            row_hash_sha256=row_hash_sha256,
-        )
-        if silver_award_outcome_payload is not None:
-            silver_award_outcome_rows.append(silver_award_outcome_payload)
-            row_had_payload = True
-
-        silver_buying_org_payload = build_silver_buying_org_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-        )
-        if silver_buying_org_payload is not None:
-            silver_buying_org_rows.append(silver_buying_org_payload)
-
-        silver_contracting_unit_payload = build_silver_contracting_unit_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-        )
-        if silver_contracting_unit_payload is not None:
-            silver_contracting_unit_rows.append(silver_contracting_unit_payload)
-
-        silver_supplier_payload = build_silver_supplier_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-        )
-        if silver_supplier_payload is not None:
-            silver_supplier_rows.append(silver_supplier_payload)
-
-        silver_category_ref_payload = build_silver_category_ref_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-        )
-        if silver_category_ref_payload is not None:
-            silver_category_ref_rows.append(silver_category_ref_payload)
-
-        silver_supplier_participation_payload = build_silver_supplier_participation_payload(
-            raw=raw_row,
-            source_file_id=source_file_id,
-            bid_submission_payload=silver_bid_submission_payload,
-            award_outcome_payload=silver_award_outcome_payload,
-        )
-        if silver_supplier_participation_payload is not None:
-            silver_supplier_participation_rows.append(silver_supplier_participation_payload)
+            silver_supplier_participation_payload = build_silver_supplier_participation_payload(
+                raw=raw_row,
+                source_file_id=source_file_id,
+                bid_submission_payload=silver_bid_submission_payload,
+                award_outcome_payload=silver_award_outcome_payload,
+            )
+            if silver_supplier_participation_payload is not None:
+                silver_supplier_participation_rows.append(silver_supplier_participation_payload)
 
         if row_had_payload:
             payload_rows_used += 1

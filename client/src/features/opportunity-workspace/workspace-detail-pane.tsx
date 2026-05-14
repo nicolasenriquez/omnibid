@@ -11,7 +11,11 @@ import {
   formatStage,
   formatUnavailable,
 } from "@/src/lib/formatters/opportunities";
-import type { OpportunityDetail, WorkspaceTab } from "@/src/types/opportunities";
+import type {
+  OpportunityAvailability,
+  OpportunityDetail,
+  WorkspaceTab,
+} from "@/src/types/opportunities";
 import {
   Button,
   DetailSection,
@@ -38,6 +42,21 @@ type CopyFeedback = {
 
 const CHILECOMPRA_NOTICE_URL =
   "https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx";
+
+const AVAILABILITY_LABELS: Record<OpportunityAvailability, string> = {
+  available: "Disponible",
+  not_yet_public: "Pendiente de publicación",
+  not_applicable: "No aplica",
+  not_reported_by_source: "No informado por fuente",
+  pipeline_missing: "No cargado",
+};
+
+function formatAvailabilityLabel(value: OpportunityAvailability | null | undefined): string {
+  if (!value) {
+    return "No informado por fuente";
+  }
+  return AVAILABILITY_LABELS[value] ?? "No informado por fuente";
+}
 
 function buildChileCompraNoticeUrl(externalNoticeCode: string | null): string | null {
   if (!externalNoticeCode) {
@@ -289,7 +308,7 @@ export function WorkspaceDetailPane({
 
           <DetailSection title="Línea de tiempo">
             {detailState.data.timeline.length === 0 ? (
-              <span>No disponible</span>
+              <span>{`Estado: ${formatAvailabilityLabel(detailState.data.descriptionAvailability)}`}</span>
             ) : (
               detailState.data.timeline.map((event) => (
                 <span key={event.key}>{`${event.label}: ${formatDate(event.date)}`}</span>
@@ -331,7 +350,7 @@ export function WorkspaceDetailPane({
 
           <DetailSection title="Ofertas">
             {orderedOffers.length === 0 ? (
-              <span>Sin ofertas disponibles en la API.</span>
+              <span>{`Ofertas: ${formatAvailabilityLabel(detailState.data.offersAvailability)}`}</span>
             ) : (
               <>
                 <div className="detail-offers-summary">
@@ -432,7 +451,7 @@ export function WorkspaceDetailPane({
 
           <DetailSection title="Órdenes de compra">
             {detailState.data.purchaseOrders.length === 0 ? (
-              <span>Sin órdenes de compra disponibles en la API.</span>
+              <span>{`Órdenes de compra: ${formatAvailabilityLabel(detailState.data.purchaseOrderAvailability)}`}</span>
             ) : (
               detailState.data.purchaseOrders.slice(0, 5).map((order) => (
                 <article key={order.purchaseOrderCode} className="detail-line-card">

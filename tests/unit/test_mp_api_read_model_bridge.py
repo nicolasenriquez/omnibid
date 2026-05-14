@@ -154,6 +154,12 @@ def test_canonicalize_payloads_uses_detail_last_and_expected_conflict_keys(
         lambda *_args, **_kwargs: scoped_rows,
     )
 
+    monkeypatch.setattr(
+        bridge,
+        "_select_latest_snapshots_by_notice",
+        lambda *_args, **_kwargs: {},
+    )
+
     captured_rows: dict[str, list[dict[str, object]]] = {}
     captured_conflicts: dict[str, list[str]] = {}
 
@@ -208,6 +214,12 @@ def test_canonicalize_payloads_can_skip_normalized_upserts(monkeypatch) -> None:
         bridge,
         "_select_scoped_payload_rows",
         lambda *_args, **_kwargs: scoped_rows,
+    )
+
+    monkeypatch.setattr(
+        bridge,
+        "_select_latest_snapshots_by_notice",
+        lambda *_args, **_kwargs: {},
     )
 
     touched_models: list[str] = []
@@ -451,3 +463,128 @@ def test_nulls_do_not_overwrite_existing_non_null_values(
     )
     compiled = str(expr)
     assert "coalesce" in compiled.lower()
+
+
+def test_canonicalize_payloads_merges_snapshot_fields_for_official_state_propagation(monkeypatch) -> None:
+    scoped_rows = [
+        bridge._ScopedPayloadRow(  # noqa: SLF001
+            payload_sha256="sha-1",
+            row_index=0,
+            raw_row={
+                "CodigoExterno": "1274285-76-LR25",
+                "Nombre": "Licitacion base",
+                "Estado": "Publicada",
+                "CodigoEstado": 5,
+                "FechaPublicacion": "08052026",
+                "FechaCierre": "10052026",
+            },
+            mode_rank=1,
+            fetched_at=datetime(2026, 5, 10, 10, 0, 0),
+        )
+    ]
+    snapshot = SimpleNamespace(
+        external_notice_code="1274285-76-LR25",
+        source_mode="detail-by-codigo",
+        codigo_tipo="LR",
+        tipo="Publica",
+        tipo_convocatoria="Abierta",
+        funding_source="Municipal",
+        visibility_amount="Reservado",
+        claim_count=3,
+        description="Descripcion desde snapshot",
+        official_status_code=5,
+        official_status_name="Publicada",
+    )
+    monkeypatch.setattr(bridge, "_select_scoped_payload_rows", lambda *_args, **_kwargs: scoped_rows)
+    monkeypatch.setattr(
+        bridge,
+        "_select_latest_snapshots_by_notice",
+        lambda *_args, **_kwargs: {"1274285-76-LR25": snapshot},
+    )
+
+    captured_rows: dict[str, list[dict[str, object]]] = {}
+
+    def _fake_upsert_rows(_session, model, rows, _conflict_fields):
+        captured_rows[model.__name__] = list(rows)
+        return len(rows)
+
+    monkeypatch.setattr(bridge, "upsert_rows", _fake_upsert_rows)
+
+    bridge.canonicalize_mp_api_payloads_to_read_model(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        source_file_id=uuid4(),
+        pipeline_run_id=uuid4(),
+    )
+
+    silver_notice = captured_rows["SilverNotice"][0]
+    assert silver_notice["procurement_method_code"] == "LR"
+    assert silver_notice["mp_estado_codigo"] == 5
+    assert silver_notice["mp_estado_nombre"] == "Publicada"
+    assert silver_notice["mp_estado_canonical"] == "publicada"
+    assert silver_notice["data_source_kind"] == "api_detail"
+    assert silver_notice["availability_context"] == "current_publicada_detail"
+
+
+def test_canonicalize_payloads_flattens_nested_items_into_line_and_category_rows(monkeypatch) -> None:
+    scoped_rows = [
+        bridge._ScopedPayloadRow(  # noqa: SLF001
+            payload_sha256="sha-2",
+            row_index=0,
+            raw_row={
+                "CodigoExterno": "1274285-76-LR25",
+                "Nombre": "Licitacion base",
+                "Estado": "Publicada",
+                "CodigoEstado": 5,
+                "FechaPublicacion": "08052026",
+                "FechaCierre": "10052026",
+                "Items": {
+                    "Cantidad": 1,
+                    "Listado": [
+                        {
+                            "Correlativo": 1,
+                            "CodigoProducto": "43210000",
+                            "CodigoCategoria": "4321",
+                            "Categoria": "Equipos informaticos",
+                            "NombreProducto": "Servidor",
+                            "Descripcion": "Servidor rack",
+                            "UnidadMedida": "Unidad",
+                            "Cantidad": "2",
+                        }
+                    ],
+                },
+            },
+            mode_rank=2,
+            fetched_at=datetime(2026, 5, 10, 10, 0, 0),
+        )
+    ]
+    monkeypatch.setattr(bridge, "_select_scoped_payload_rows", lambda *_args, **_kwargs: scoped_rows)
+    monkeypatch.setattr(bridge, "_select_latest_snapshots_by_notice", lambda *_args, **_kwargs: {})
+
+    captured_rows: dict[str, list[dict[str, object]]] = {}
+
+    def _fake_upsert_rows(_session, model, rows, _conflict_fields):
+        captured_rows[model.__name__] = list(rows)
+        return len(rows)
+
+    monkeypatch.setattr(bridge, "upsert_rows", _fake_upsert_rows)
+
+    summary = bridge.canonicalize_mp_api_payloads_to_read_model(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        source_file_id=uuid4(),
+        pipeline_run_id=uuid4(),
+    )
+
+    assert summary.upserted_normalized_licitacion_items == 1
+    assert summary.upserted_silver_notice_line == 1
+    assert summary.upserted_silver_category_ref == 1
+
+    normalized_item = captured_rows["NormalizedLicitacionItem"][0]
+    silver_line = captured_rows["SilverNoticeLine"][0]
+    silver_category = captured_rows["SilverCategoryRef"][0]
+
+    assert normalized_item["codigo_item"] == "1"
+    assert normalized_item["codigo_producto_onu"] == "43210000"
+    assert silver_line["item_code"] == "1"
+    assert silver_line["category_level_1"] == "Equipos informaticos"
+    assert silver_category["category_code"] == "4321"
+    assert silver_category["category_name"] == "Equipos informaticos"

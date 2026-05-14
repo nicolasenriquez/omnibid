@@ -23,6 +23,7 @@ function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState): boole
       state.minAmount ||
       state.maxAmount ||
       state.procurementType ||
+      state.sourceView ||
       state.lessThan100Utm ||
       state.page !== WORKSPACE_DEFAULTS.page ||
       state.pageSize !== WORKSPACE_DEFAULTS.pageSize ||
@@ -46,6 +47,7 @@ function buildExplorerScopeKey(state: OpportunityWorkspaceQueryState): string {
     state.minAmount,
     state.maxAmount,
     state.procurementType,
+    state.sourceView,
     state.lessThan100Utm ? "1" : "0",
     String(state.pageSize),
     state.sortBy,

@@ -35,7 +35,7 @@ repos:
 
       - id: frontend-ci-container
         name: frontend lint/type/build (containerized)
-        entry: bash -lc 'docker run --rm -e CI=true -v "$PWD/client:/app" -w /app mcr.microsoft.com/playwright:v1.59.1-noble sh -lc "npm ci && npm run lint && npm run typecheck && npm run build"'
+        entry: bash -lc 'docker run --rm -e CI=true -v "$PWD/client:/app" -w /app mcr.microsoft.com/playwright:v1.59.1-noble sh -lc "corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm install --frozen-lockfile && pnpm lint && pnpm typecheck && pnpm build"'
         language: system
         pass_filenames: false
         stages: [pre-push]

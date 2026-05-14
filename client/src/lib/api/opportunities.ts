@@ -7,7 +7,9 @@ import type {
 
 import { requestJson } from "@/src/lib/api/http";
 
-function filtersToQuery(filters: OpportunityFilters): Record<string, string | number | boolean> {
+export function filtersToQuery(
+  filters: OpportunityFilters,
+): Record<string, string | number | boolean> {
   return {
     q: filters.q ?? "",
     official_status: filters.officialStatus ?? "",
@@ -21,6 +23,7 @@ function filtersToQuery(filters: OpportunityFilters): Record<string, string | nu
     min_amount: filters.minAmount ?? "",
     max_amount: filters.maxAmount ?? "",
     procurement_type: filters.procurementType ?? "",
+    source_view: filters.sourceView ?? "",
     less_than_100_utm: filters.lessThan100Utm ?? "",
     page: filters.page,
     page_size: filters.pageSize,

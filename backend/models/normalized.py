@@ -356,6 +356,11 @@ class SilverNotice(Base):
     procurement_method_code = sa.Column(sa.Text)
     notice_status_name = sa.Column(sa.Text)
     notice_status_code = sa.Column(sa.Text)
+    mp_estado_codigo = sa.Column(sa.Integer)
+    mp_estado_nombre = sa.Column(sa.Text)
+    mp_estado_canonical = sa.Column(sa.Text)
+    data_source_kind = sa.Column(sa.Text)
+    availability_context = sa.Column(sa.Text)
 
     publication_date = sa.Column(sa.DateTime)
     created_date = sa.Column(sa.DateTime)

@@ -140,10 +140,11 @@ class LicitacionNotice(BaseModel):
     tipo: str | None = Field(default=None, alias="Tipo")
     codigo_tipo: str | None = Field(default=None, alias="CodigoTipo")
     tipo_convocatoria: str | None = Field(default=None, alias="TipoConvocatoria")
+    informada: str | None = Field(default=None, alias="Informada")
     dias_cierre_licitacion: int | None = Field(default=None, alias="DiasCierreLicitacion")
     claim_count: int | None = Field(default=None, alias="CantidadReclamos")
-    funding_source: str | None = Field(default=None, alias="FundingSource")
-    visibility_amount: str | None = Field(default=None, alias="VisibilityAmount")
+    funding_source: str | None = Field(default=None, alias="FuenteFinanciamiento")
+    visibility_amount: str | None = Field(default=None, alias="VisibilidadMonto")
 
     @field_validator("publication_date", "close_date", mode="before")
     @classmethod

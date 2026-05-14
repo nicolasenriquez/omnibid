@@ -100,9 +100,9 @@ Validation:
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync ruff check backend/api/opportunities_contract.py backend/api/opportunities_query.py backend/api/routers/opportunities.py tests/unit/test_opportunities_contract_models.py tests/unit/test_opportunities_query.py tests/unit/test_opportunity_workspace_api.py`
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync mypy backend/api/opportunities_contract.py backend/api/opportunities_query.py backend/api/routers/opportunities.py`
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync pytest -q tests/unit/test_opportunities_contract_models.py tests/unit/test_opportunities_query.py tests/unit/test_opportunity_workspace_api.py`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'`
 
 ## Remaining Waterfall Tasks
 
@@ -125,9 +125,9 @@ Progress:
 - Slice 7.4 complete: extracted explorer/radar adapters into `workspace-list-views.tsx`.
 
 Validation:
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'`
 
 ### Task 8 - Normalized builder seam extraction
 

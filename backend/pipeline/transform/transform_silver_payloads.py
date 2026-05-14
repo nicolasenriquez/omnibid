@@ -22,6 +22,76 @@ from backend.pipeline.transform.transform_identity import (
 )
 from backend.pipeline.shared.cleaning import normalize_text_base
 
+DETAIL_SOURCE_MODE = "detail-by-codigo"
+
+OFFICIAL_STATE_BY_CODE: dict[int, tuple[str, str]] = {
+    5: ("Publicada", "publicada"),
+    6: ("Cerrada", "cerrada"),
+    7: ("Desierta", "desierta"),
+    8: ("Adjudicada", "adjudicada"),
+    18: ("Revocada", "revocada"),
+    19: ("Suspendida", "suspendida"),
+}
+OFFICIAL_STATE_BY_NAME: dict[str, tuple[int, str]] = {
+    normalize_text_base(name) or "": (code, canonical)
+    for code, (name, canonical) in OFFICIAL_STATE_BY_CODE.items()
+}
+
+
+def _as_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    return text
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_official_state(*, status_code_raw: Any, status_name_raw: Any) -> tuple[int | None, str | None, str | None]:
+    status_code = _as_int(status_code_raw)
+    status_name = _as_text(status_name_raw)
+
+    if status_code is not None and status_code in OFFICIAL_STATE_BY_CODE:
+        mapped_name, canonical = OFFICIAL_STATE_BY_CODE[status_code]
+        return status_code, status_name or mapped_name, canonical
+
+    status_norm = normalize_text_base(status_name)
+    mapped_by_name = OFFICIAL_STATE_BY_NAME.get(status_norm or "")
+    if mapped_by_name is not None:
+        mapped_code, canonical = mapped_by_name
+        return status_code or mapped_code, status_name, canonical
+
+    return status_code, status_name, status_norm
+
+
+def _derive_data_source_kind(*, source_mode: Any, state_canonical: str | None) -> str:
+    mode = normalize_text_base(_as_text(source_mode))
+    if mode == DETAIL_SOURCE_MODE:
+        return "api_detail"
+    if state_canonical == "publicada":
+        return "api_publicada"
+    if mode in {"active-discovery", "rolling-window"}:
+        return "api_historical"
+    return "api_unknown"
+
+
+def _derive_availability_context(*, source_mode: Any, state_canonical: str | None) -> str:
+    mode = normalize_text_base(_as_text(source_mode))
+    if state_canonical == "publicada":
+        if mode == DETAIL_SOURCE_MODE:
+            return "current_publicada_detail"
+        return "current_publicada_discovery"
+    return "historical_full_cycle"
+
 
 def build_silver_notice_payload(
     raw: dict[str, Any],
@@ -36,10 +106,23 @@ def build_silver_notice_payload(
     created_date = parse_datetime(pick(raw, "FechaCreacion"))
     close_date = parse_datetime(pick(raw, "FechaCierre"))
     award_date = parse_datetime(pick(raw, "FechaAdjudicacion"))
-    procurement_method_name = pick(raw, "Tipo de Adquisicion")
+    procurement_method_name = pick(raw, "Tipo de Adquisicion", "Tipo")
     procurement_method_norm = normalize_text_base(procurement_method_name) or ""
     visibility_norm = normalize_text_base(pick(raw, "VisibilidadMonto")) or ""
     etapas = parse_int(pick(raw, "Etapas"))
+    official_state_code, official_state_name, official_state_canonical = _derive_official_state(
+        status_code_raw=pick(raw, "CodigoEstado"),
+        status_name_raw=pick(raw, "Estado"),
+    )
+    source_mode = pick(raw, "SourceMode", "source_mode")
+    data_source_kind = _derive_data_source_kind(
+        source_mode=source_mode,
+        state_canonical=official_state_canonical,
+    )
+    availability_context = _derive_availability_context(
+        source_mode=source_mode,
+        state_canonical=official_state_canonical,
+    )
 
     days_publication_to_close = None
     if publication_date is not None and close_date is not None:
@@ -62,16 +145,21 @@ def build_silver_notice_payload(
         "notice_description_clean": normalize_text_base(pick(raw, "Descripcion")),
         "procurement_method_name": procurement_method_name,
         "procurement_method_code": pick(raw, "CodigoTipo"),
-        "notice_status_name": pick(raw, "Estado"),
-        "notice_status_code": pick(raw, "CodigoEstado"),
+        "notice_status_name": official_state_name,
+        "notice_status_code": str(official_state_code) if official_state_code is not None else None,
+        "mp_estado_codigo": official_state_code,
+        "mp_estado_nombre": official_state_name,
+        "mp_estado_canonical": official_state_canonical,
+        "data_source_kind": data_source_kind,
+        "availability_context": availability_context,
         "publication_date": publication_date,
         "created_date": created_date,
         "close_date": close_date,
         "award_date": award_date,
         "estimated_award_date": parse_datetime(pick(raw, "FechaEstimadaAdjudicacion")),
         "estimated_amount": parse_decimal(pick(raw, "MontoEstimado")),
-        "currency_code": pick(raw, "CodigoMoneda"),
-        "currency_name": pick(raw, "Moneda Adquisicion"),
+        "currency_code": pick(raw, "CodigoMoneda", "Moneda"),
+        "currency_name": pick(raw, "Moneda Adquisicion", "Moneda"),
         "number_of_bidders_reported": parse_int(pick(raw, "NumeroOferentes")),
         "complaint_count": parse_int(pick(raw, "CantidadReclamos")),
         "days_publication_to_close": days_publication_to_close,
@@ -80,8 +168,12 @@ def build_silver_notice_payload(
         "has_missing_date_chain_flag": (
             publication_date is None or close_date is None or award_date is None
         ),
-        "is_public_tender_flag": "licitacion publica" in procurement_method_norm,
-        "is_private_tender_flag": "licitacion privada" in procurement_method_norm,
+        "is_public_tender_flag": (
+            "licitacion publica" in procurement_method_norm or procurement_method_norm == "publica"
+        ),
+        "is_private_tender_flag": (
+            "licitacion privada" in procurement_method_norm or procurement_method_norm == "privada"
+        ),
         "requires_toma_razon_flag": parse_bool_or_false(pick(raw, "TomaRazon")),
         "multiple_stages_flag": bool((etapas or 0) > 1),
         "hidden_budget_flag": visibility_norm in {"0", "no", "oculto", "reservado"},

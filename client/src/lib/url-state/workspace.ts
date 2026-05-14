@@ -1,6 +1,7 @@
 import type {
   OpportunityFilters,
   ProcurementTypeFilter,
+  SourceViewFilter,
   OpportunitySortDirection,
   OpportunitySortField,
   OpportunityStage,
@@ -20,6 +21,7 @@ const VALID_SORT_FIELDS: OpportunitySortField[] = [
 ];
 const VALID_SORT_DIRECTIONS: OpportunitySortDirection[] = ["asc", "desc"];
 const VALID_PROCUREMENT_TYPES: ProcurementTypeFilter[] = ["public", "private", "service"];
+const VALID_SOURCE_VIEWS: SourceViewFilter[] = ["publicadas"];
 
 const DEFAULT_QUERY_STATE: OpportunityWorkspaceQueryState = {
   tab: "explorer",
@@ -36,6 +38,7 @@ const DEFAULT_QUERY_STATE: OpportunityWorkspaceQueryState = {
   minAmount: "",
   maxAmount: "",
   procurementType: "",
+  sourceView: "",
   lessThan100Utm: false,
   page: 1,
   pageSize: 20,
@@ -96,6 +99,14 @@ function parseProcurementType(value: string | null): ProcurementTypeFilter | "" 
   return VALID_PROCUREMENT_TYPES.includes(procurementType) ? procurementType : "";
 }
 
+function parseSourceView(value: string | null): SourceViewFilter | "" {
+  if (!value) {
+    return "";
+  }
+  const sourceView = value as SourceViewFilter;
+  return VALID_SOURCE_VIEWS.includes(sourceView) ? sourceView : "";
+}
+
 function parseBoolean(value: string | null): boolean {
   return value === "true";
 }
@@ -111,7 +122,7 @@ export function parseWorkspaceQueryState(
   return {
     tab: parseTab(searchParams.get("tab")),
     selectedNoticeId: searchParams.get("selected"),
-    q: searchParams.get("q") ?? DEFAULT_QUERY_STATE.q,
+    q: DEFAULT_QUERY_STATE.q,
     officialStatus: searchParams.get("status") ?? DEFAULT_QUERY_STATE.officialStatus,
     stage: parseStage(searchParams.get("stage")),
     buyerRegion: searchParams.get("region") ?? DEFAULT_QUERY_STATE.buyerRegion,
@@ -124,6 +135,7 @@ export function parseWorkspaceQueryState(
     minAmount: searchParams.get("min_amount") ?? DEFAULT_QUERY_STATE.minAmount,
     maxAmount: searchParams.get("max_amount") ?? DEFAULT_QUERY_STATE.maxAmount,
     procurementType: parseProcurementType(searchParams.get("procurement_type")),
+    sourceView: parseSourceView(searchParams.get("source_view")),
     lessThan100Utm: parseBoolean(searchParams.get("less_than_100_utm")),
     page: parsePositiveInteger(searchParams.get("page"), DEFAULT_QUERY_STATE.page),
     pageSize: parsePositiveInteger(
@@ -137,7 +149,6 @@ export function parseWorkspaceQueryState(
 
 export function toFilters(queryState: OpportunityWorkspaceQueryState): OpportunityFilters {
   return {
-    q: queryState.q || undefined,
     officialStatus: queryState.officialStatus || undefined,
     stage: queryState.stage || undefined,
     buyerRegion: queryState.buyerRegion || undefined,
@@ -149,6 +160,7 @@ export function toFilters(queryState: OpportunityWorkspaceQueryState): Opportuni
     minAmount: parseAmount(queryState.minAmount),
     maxAmount: parseAmount(queryState.maxAmount),
     procurementType: queryState.procurementType || undefined,
+    sourceView: queryState.sourceView || undefined,
     lessThan100Utm: queryState.lessThan100Utm || undefined,
     page: queryState.page,
     pageSize: queryState.pageSize,
@@ -178,7 +190,7 @@ export function patchWorkspaceQuery(
 
   setOrDelete("tab", merged.tab !== DEFAULT_QUERY_STATE.tab ? merged.tab : null);
   setOrDelete("selected", merged.selectedNoticeId);
-  setOrDelete("q", merged.q.trim() ? merged.q.trim() : null);
+  params.delete("q");
   setOrDelete("status", merged.officialStatus.trim() ? merged.officialStatus.trim() : null);
   setOrDelete("stage", merged.stage || null);
   setOrDelete("region", merged.buyerRegion.trim() ? merged.buyerRegion.trim() : null);
@@ -196,6 +208,7 @@ export function patchWorkspaceQuery(
   setOrDelete("min_amount", merged.minAmount.trim() ? merged.minAmount.trim() : null);
   setOrDelete("max_amount", merged.maxAmount.trim() ? merged.maxAmount.trim() : null);
   setOrDelete("procurement_type", merged.procurementType || null);
+  setOrDelete("source_view", merged.sourceView || null);
   setOrDelete("less_than_100_utm", merged.lessThan100Utm ? "true" : null);
   setOrDelete("page", merged.page === DEFAULT_QUERY_STATE.page ? null : String(merged.page));
   setOrDelete(

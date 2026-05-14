@@ -41,9 +41,9 @@ From repo root:
 
 ```bash
 rtk just dev
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'
 ```
 
 ## Code Paths
