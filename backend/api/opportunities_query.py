@@ -112,7 +112,7 @@ coalesce(sn.notice_title, bi.normalized_title) ilike :q
             or bi.buyer_name ilike :q
             or bi.primary_category ilike :q
 """,
-    buyer_region_clause="bi.buyer_region ilike :buyer_region",
+    buyer_region_clause="coalesce(bi.buyer_region, ls.snapshot_buyer_region) ilike :buyer_region",
     primary_category_clause="bi.primary_category ilike :primary_category",
     less_than_100_utm_clause="bi.flag_menos_100_utm = :less_than_100_utm",
     procurement_public_expr="coalesce(sn.is_public_tender_flag, bi.flag_licitacion_publica)",
@@ -132,7 +132,7 @@ coalesce(sn.notice_title, nl.nombre) ilike :q
             or sn.external_notice_code ilike :q
             or nl.nombre_unidad ilike :q
 """,
-    buyer_region_clause="nl.region_unidad ilike :buyer_region",
+    buyer_region_clause="coalesce(nl.region_unidad, ls.snapshot_buyer_region) ilike :buyer_region",
     primary_category_clause="""
 exists (
             select 1 from normalized_licitacion_items nli

@@ -166,15 +166,46 @@ LIST_SQL = sa.text(
 
 COUNT_SQL = sa.text(
     f"""
+    with latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.buyer_unit_region as snapshot_buyer_region
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    )
     select count(*) as total
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
     {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )
 
 SUMMARY_SQL = sa.text(
     f"""
+    with latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.buyer_unit_region as snapshot_buyer_region
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    )
     select
         count(*) as total_opportunities,
         count(*) filter (where coalesce(sn.close_date, nl.fecha_cierre) is null) as unknown_stage,
@@ -216,6 +247,7 @@ SUMMARY_SQL = sa.text(
         ) as total_estimated_amount
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
     {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )

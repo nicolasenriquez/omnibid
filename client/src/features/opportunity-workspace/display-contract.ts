@@ -41,8 +41,8 @@ export const PROCUREMENT_TYPE_LABELS = {
 
 export const AVAILABILITY_CAUSE_LABELS: Record<OpportunityAvailability, string> = {
   available: "Disponible",
-  not_yet_public: "Aún no aplica",
-  not_applicable: "Aún no aplica",
+  not_yet_public: "Aún no publicado",
+  not_applicable: "No aplica",
   pending_detail: "Pendiente de detalle",
   not_reported_by_source: "No informado por la fuente",
   pipeline_missing: "Histórico no cargado",

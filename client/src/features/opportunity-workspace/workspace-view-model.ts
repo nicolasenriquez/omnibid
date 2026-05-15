@@ -365,7 +365,7 @@ export function getActiveFilterChips(state: OpportunityWorkspaceQueryState): Wor
         mode: "abiertas",
         stage: "",
         sortBy: "close_date",
-        sortOrder: "asc",
+        sortOrder: "desc",
       }),
     );
   }
