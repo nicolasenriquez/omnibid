@@ -101,6 +101,7 @@ def test_list_opportunities_serializes_dates_and_decimals() -> None:
                         "informada": "No",
                         "visibilidad_monto": "Visible",
                         "fuente_financiamiento": "Municipal",
+                        "complaint_count": 3,
                         "estimated_amount": Decimal("42.50"),
                         "currency_code": "CLP",
                         "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
@@ -137,6 +138,7 @@ def test_list_opportunities_serializes_dates_and_decimals() -> None:
     assert item["informada"] == "No"
     assert item["visibilidadMonto"] == "Visible"
     assert item["fuenteFinanciamiento"] == "Municipal"
+    assert item["complaintCount"] == 3
     assert item["procurementType"] == "public"
     assert item["buyerCommune"] == "Santiago"
     assert item["lineCount"] == 2
@@ -204,6 +206,7 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
                         "informada": "No",
                         "visibilidad_monto": "Visible",
                         "fuente_financiamiento": "Municipal",
+                        "complaint_count": 4,
                         "estimated_amount": Decimal("42.50"),
                         "currency_code": "CLP",
                         "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
@@ -281,6 +284,8 @@ def test_opportunity_detail_returns_line_certainty_contract() -> None:
     assert payload["informada"] == "No"
     assert payload["visibilidadMonto"] == "Visible"
     assert payload["fuenteFinanciamiento"] == "Municipal"
+    assert payload["complaintCount"] == 4
+    assert payload["noticeDescriptionRaw"] == "Detalle de servicios"
     assert payload["buyer"]["buyerCommune"] == "Santiago"
     assert payload["participantsAvailability"] == "available"
     assert payload["offersAvailability"] == "available"
@@ -325,6 +330,7 @@ def test_opportunity_detail_publicada_missing_postclose_data_is_not_yet_public()
                         "informada": "No",
                         "visibilidad_monto": "Visible",
                         "fuente_financiamiento": None,
+                        "complaint_count": 1,
                         "estimated_amount": None,
                         "currency_code": "CLP",
                         "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
@@ -353,7 +359,7 @@ def test_opportunity_detail_publicada_missing_postclose_data_is_not_yet_public()
     assert payload["offersAvailability"] == "not_yet_public"
     assert payload["awardAvailability"] == "not_yet_public"
     assert payload["purchaseOrderAvailability"] == "not_yet_public"
-    assert payload["descriptionAvailability"] == "not_reported_by_source"
+    assert payload["descriptionAvailability"] == "pending_detail"
     assert payload["offersAvailability"] != "pipeline_missing"
     assert payload["purchaseOrderAvailability"] != "pipeline_missing"
 
@@ -380,6 +386,7 @@ def test_opportunity_detail_informada_without_offers_is_not_reported_by_source()
                         "informada": "Si",
                         "visibilidad_monto": "Visible",
                         "fuente_financiamiento": None,
+                        "complaint_count": None,
                         "estimated_amount": None,
                         "currency_code": "CLP",
                         "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
@@ -432,6 +439,7 @@ def test_opportunity_detail_non_publicada_missing_data_marks_pipeline_missing() 
                         "informada": "No",
                         "visibilidad_monto": "Visible",
                         "fuente_financiamiento": None,
+                        "complaint_count": None,
                         "estimated_amount": None,
                         "currency_code": "CLP",
                         "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
@@ -461,6 +469,56 @@ def test_opportunity_detail_non_publicada_missing_data_marks_pipeline_missing() 
     assert payload["awardAvailability"] == "pipeline_missing"
     assert payload["purchaseOrderAvailability"] == "pipeline_missing"
     assert payload["descriptionAvailability"] == "pipeline_missing"
+
+
+def test_opportunity_detail_api_detail_missing_description_is_not_reported_by_source() -> None:
+    session = _DummySession(
+        [
+            _MappingResult(
+                [
+                    {
+                        "notice_id": "301-1-LP26",
+                        "external_notice_code": "301-1-LP26",
+                        "title": "Compra detalle sin descripcion",
+                        "notice_description_raw": None,
+                        "official_status": "Publicada",
+                        "mp_estado_codigo": 5,
+                        "mp_estado_nombre": "Publicada",
+                        "mp_estado_canonical": "publicada",
+                        "data_source_kind": "api_detail",
+                        "availability_context": "current_publicada_detail",
+                        "codigo_tipo": "L1",
+                        "tipo": "Licitacion Publica",
+                        "tipo_convocatoria": "1",
+                        "informada": "No",
+                        "visibilidad_monto": "Visible",
+                        "fuente_financiamiento": None,
+                        "complaint_count": 2,
+                        "estimated_amount": None,
+                        "currency_code": "CLP",
+                        "publication_date": datetime(2026, 4, 1, tzinfo=UTC),
+                        "close_date": datetime(2026, 4, 30, tzinfo=UTC),
+                        "award_date": None,
+                        "estimated_award_date": None,
+                        "created_date": None,
+                        "buyer_name": "Municipalidad",
+                        "buyer_region": "RM",
+                        "buyer_commune": "Santiago",
+                        "contracting_unit_code": "U-1",
+                        "contracting_unit_name": "Compras",
+                        "derived_stage": "closing_soon",
+                    }
+                ]
+            ),
+            _MappingResult([]),
+            _MappingResult([]),
+            _MappingResult([]),
+        ]
+    )
+
+    payload = get_opportunity_detail("301-1-LP26", db=session)  # type: ignore[arg-type]
+
+    assert payload["descriptionAvailability"] == "not_reported_by_source"
 
 
 def test_opportunities_accepts_extended_filters() -> None:
@@ -501,8 +559,11 @@ def test_opportunities_queries_coalesce_display_fields_with_normalized_fallback(
     assert "coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount" in list_sql
     assert "coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date" in list_sql
     assert "coalesce(sn.close_date, bi.normalized_close_date) as close_date" in list_sql
+    assert "coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count" in list_sql
     assert "coalesce(bi.buyer_commune, ls.snapshot_buyer_commune) as buyer_commune" in list_sql
     assert "nullif(trim(asp.payload_json ->> 'Informada'), '') as informada" in list_sql
+    assert "when m.source_mode = 'detail-by-codigo' then 0" in list_sql
     assert "coalesce(sn.mp_estado_codigo, ls.snapshot_mp_estado_codigo) as mp_estado_codigo" in detail_sql
+    assert "coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count" in detail_sql
     assert "coalesce(sn.notice_status_name, bi.normalized_official_status)" in detail_sql
     assert "coalesce(sn.close_date, nl.fecha_cierre)" in summary_sql

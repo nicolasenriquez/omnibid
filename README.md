@@ -75,30 +75,63 @@ Current product direction:
 
 ```mermaid
 flowchart LR
-  A[Source CSV Files<br/>licitaciones + ordenes_compra] --> B[Raw Ingestion]
-  B --> C[Normalized Canonical Tables]
-  C --> D[Silver Procurement Cycle]
-  D --> E[Deterministic Enrichments]
-  D --> F[Versioned NLP Annotations]
-  E --> G[(PostgreSQL)]
-  F --> G
-  G --> H[Operations API<br/>health, runs, files, datasets summary]
-  G --> I[Read APIs<br/>opportunities]
-  I --> J[Next.js Opportunity Workspace<br/>/licitaciones]
-  G --> K[Future Gold Layer<br/>scores/forecasting/anomalies]
+  subgraph Sources["Data Sources"]
+    A[CSV Drops<br/>Datos Abiertos] --> C[pipeline/extract<br/>Profiling + Contracts]
+    B[MP API<br/>Mercado Publico] --> D[pipeline/extract<br/>Sync Modes + Snapshots]
+  end
+
+  subgraph Pipeline["ETL Pipeline"]
+    C --> E[pipeline/load<br/>Raw Ingestion<br/>Queue + Checkpoints]
+    D --> E
+    E --> F[pipeline/transform<br/>Normalized Entities<br/>Silver Procurement Cycle<br/>Upsert Engine + Quality Gates]
+  end
+
+  subgraph Storage["PostgreSQL"]
+    F --> G[(Normalized<br/>licitaciones, items,<br/>ofertas, OC, buyers,<br/>suppliers, categories)]
+    F --> H[(Silver<br/>notice, notice_line,<br/>bid, award, PO, POL,<br/>buying_org, supplier,<br/>category_ref, links)]
+    F --> I[(Operational<br/>pipeline_jobs,<br/>ingestion_units,<br/>source_checkpoints)]
+  end
+
+  subgraph Serve["API + Frontend"]
+    G --> J[Operations API<br/>health, runs, files,<br/>datasets, manual upload]
+    H --> K[Opportunities API<br/>list, summary, detail,<br/>source_view filters]
+    K --> L[Next.js Workspace<br/>/licitaciones]
+  end
+
+  subgraph Orchestration["pipeline/orchestration"]
+    M[daily_pipeline.py<br/>rolling-window → detail<br/>→ canonicalization → postprocess]
+    N[sync.py<br/>single-mode operator]
+    O[worker.py<br/>queue worker]
+    M -.-> D
+    N -.-> D
+    O -.-> I
+  end
 ```
 
 ## Core Workflow
 
 ```mermaid
 flowchart TD
-  S1[1. Register source files] --> S2[2. Profile raw datasets]
-  S2 --> S3[3. Ingest raw records with lineage]
-  S3 --> S4[4. Build normalized entities]
-  S4 --> S5[5. Build Silver procurement-cycle entities]
-  S5 --> S6[6. Refresh deterministic enrichments]
-  S6 --> S7[7. Build versioned NLP annotation entities]
-  S7 --> S8[8. Serve operations endpoints + readiness evidence]
+  subgraph CSV["CSV Pipeline"]
+    C1[1. Register source files] --> C2[2. Profile & validate columns]
+    C2 --> C3[3. Ingest raw records<br/>with SHA-256 lineage]
+    C3 --> C4[4. Build normalized & Silver<br/>entities from CSV]
+  end
+
+  subgraph API["MP API Pipeline (Daily)"]
+    A1[1. Rolling-window sync<br/>fetch active notices by date] --> A2[2. Detail enrichment<br/>fetch full detail per notice]
+    A2 --> A3[3. Canonicalization<br/>snapshots → Normalized + Silver]
+    A3 --> A4[4. Silver postprocess<br/>enrichment counts + PO links]
+  end
+
+  C4 --> DB[(PostgreSQL<br/>Normalized + Silver)]
+  A4 --> DB
+
+  DB --> S1[Operations API<br/>health, runs, files]
+  DB --> S2[Opportunities API<br/>list, summary, detail]
+  S2 --> S3[Next.js Workspace<br/>/licitaciones]
+
+  Q[pipeline_jobs queue<br/>claim_next_job → worker →<br/>retry_scheduled / dead_letter] -.->|async job processing| DB
 ```
 
 ## Repository Layout
@@ -111,9 +144,13 @@ flowchart TD
 │   ├── db/                       # DB base/session wiring
 │   ├── integrations/             # external API integration lanes
 │   │   └── mercado_publico/      # Mercado Publico notice sync client, store, and orchestrator
-│   ├── ingestion/                # ingestion contracts and source registration
+│   ├── pipeline/                 # ETL pipeline stages (extract → transform → load → orchestration)
+│   │   ├── extract/              # API clients, file contracts
+│   │   ├── transform/            # normalization, upsert engine, quality gates
+│   │   ├── load/                 # persistence, queue management
+│   │   ├── orchestration/        # daily pipeline, sync, worker
+│   │   └── shared/               # cleaning, validation utilities
 │   ├── models/                   # operational/raw/normalized/silver ORM models
-│   ├── normalized/               # deterministic transform builders
 │   ├── observability/            # structured logging utilities
 │   └── main.py
 ├── client/                       # Next.js Opportunity Workspace frontend
@@ -137,7 +174,7 @@ flowchart TD
 Use this routing before making changes:
 
 - Backend/API: `backend/api/routers/`, `backend/core/`, `backend/db/`, `backend/models/`
-- Data transforms/pipeline: `backend/ingestion/`, `backend/normalized/`, `scripts/`
+- Data transforms/pipeline: `backend/pipeline/extract/`, `backend/pipeline/transform/`, `backend/pipeline/load/`, `backend/pipeline/orchestration/`, `scripts/`
 - External API ingestion: `backend/integrations/mercado_publico/`, `scripts/fetch_mp_api.py`
 - Migrations/schema: `alembic/versions/` plus `backend/models/`; Alembic is source of truth
 - Frontend workspace: `client/app/licitaciones/`, `client/src/features/opportunity-workspace/`, `client/src/lib/api/`
@@ -169,7 +206,7 @@ Docker runbook: [`docs/runbooks/docker-local.md`](docs/runbooks/docker-local.md)
 - Docker Desktop
 - `just`
 - `rtk` for agent-issued local workflow commands when available
-- Node.js/npm only when running the frontend in `client/`
+- Corepack-enabled `pnpm` (v11.0.8) and Node.js for the frontend in `client/`
 
 ### Configure Environment
 

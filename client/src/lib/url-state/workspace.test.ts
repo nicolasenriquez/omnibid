@@ -16,6 +16,7 @@ describe("workspace url state", () => {
     const state = parseWorkspaceQueryState(params);
 
     expect(state.q).toBe("");
+    expect(state.mode).toBe("abiertas");
     expect(state.sourceView).toBe("publicadas");
     expect(state.buyerRegion).toBe("Región Metropolitana de Santiago");
     expect(state.page).toBe(2);
@@ -49,5 +50,47 @@ describe("workspace url state", () => {
     expect(filters.sourceView).toBe("publicadas");
     expect(filters.buyerRegion).toBe("Región de Valparaíso");
     expect(filters.officialStatus).toBe("publicada");
+  });
+
+  it("serializes and parses historical mode from URL query", () => {
+    const next = patchWorkspaceQuery("/licitaciones", new URLSearchParams(), {
+      mode: "historicas",
+      page: 1,
+    });
+
+    const parsed = new URL(next, "https://example.test");
+    expect(parsed.searchParams.get("mode")).toBe("historicas");
+
+    const state = parseWorkspaceQueryState(parsed.searchParams);
+    expect(state.mode).toBe("historicas");
+  });
+
+  it("defaults both modes to descending order", () => {
+    const state = parseWorkspaceQueryState(new URLSearchParams());
+    expect(WORKSPACE_DEFAULTS.sortOrder).toBe("desc");
+    expect(state.sortOrder).toBe("desc");
+  });
+
+  it("preserves sourceView explicitly and does not infer it from mode", () => {
+    const abiertasFilters = toFilters({
+      ...WORKSPACE_DEFAULTS,
+      mode: "abiertas",
+      sourceView: "",
+    });
+    expect(abiertasFilters.sourceView).toBeUndefined();
+
+    const abiertasExplicitFilters = toFilters({
+      ...WORKSPACE_DEFAULTS,
+      mode: "abiertas",
+      sourceView: "publicadas",
+    });
+    expect(abiertasExplicitFilters.sourceView).toBe("publicadas");
+
+    const historicasFilters = toFilters({
+      ...WORKSPACE_DEFAULTS,
+      mode: "historicas",
+      sourceView: "publicadas",
+    });
+    expect(historicasFilters.sourceView).toBe("publicadas");
   });
 });

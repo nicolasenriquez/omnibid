@@ -142,8 +142,8 @@ Validation gate:
 - pipeline smoke with `just docker-pipeline-full` (or targeted equivalent)
 
 Progress:
-- Extracted quality-gate module seam to `backend/normalized/quality_gate.py` and rewired `scripts/build_normalized.py`.
-- Extracted upsert engine module seam to `backend/normalized/upsert_engine.py` and rewired `scripts/build_normalized.py`.
+- Extracted quality-gate module seam to `backend/normalized/quality_gate.py` (canonical: `backend/pipeline/transform/quality_gate.py`) and rewired `scripts/build_normalized.py`.
+- Extracted upsert engine module seam to `backend/normalized/upsert_engine.py` (canonical: `backend/pipeline/transform/upsert_engine.py`) and rewired `scripts/build_normalized.py`.
 - Preserved script-level API compatibility for existing normalized tests (re-exported expected helpers/constants from script surface).
 
 Validation:
@@ -167,7 +167,7 @@ Progress:
 - Removed strict-type bypasses from `pyproject.toml` for:
   - `backend/api/routers/opportunities.py`
   - `backend/api/routers/operations.py`
-  - `backend/ingestion/manual_uploads.py`
+  - `backend/ingestion/manual_uploads.py` (canonical: `backend/pipeline/`)
   - `scripts/ingest_raw.py`
 - Kept bypasses for:
   - `backend/api/routers/manual_uploads.py`

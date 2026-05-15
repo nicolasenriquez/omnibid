@@ -8,6 +8,7 @@ import {
 } from "@/src/lib/formatters/opportunities";
 import {
   PROCUREMENT_TYPE_LABELS,
+  WORKSPACE_MODE_LABELS,
   WORKSPACE_TAB_LABELS,
 } from "@/src/features/opportunity-workspace/display-contract";
 import type {
@@ -15,6 +16,7 @@ import type {
 } from "@/src/types/manual-uploads";
 import type {
   OpportunityListItem,
+  WorkspaceDataMode,
   OpportunitySortDirection,
   OpportunitySortField,
   OpportunityStage,
@@ -42,6 +44,11 @@ export const STAGE_COLUMNS: OpportunityStage[] = [
 export const TAB_OPTIONS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: "explorer", label: WORKSPACE_TAB_LABELS.explorer },
   { id: "radar", label: WORKSPACE_TAB_LABELS.radar },
+];
+
+export const MODE_OPTIONS: Array<{ id: WorkspaceDataMode; label: string }> = [
+  { id: "abiertas", label: WORKSPACE_MODE_LABELS.abiertas },
+  { id: "historicas", label: WORKSPACE_MODE_LABELS.historicas },
 ];
 
 export const MANUAL_UPLOAD_DATASET_OPTIONS: Array<{
@@ -143,6 +150,12 @@ export type WorkspaceFilterChip = {
   label: string;
   patch: Partial<OpportunityWorkspaceQueryState>;
 };
+
+export function shouldResetWorkspaceSearchOnChipPatch(
+  patch: Partial<OpportunityWorkspaceQueryState>,
+): boolean {
+  return patch.q === "";
+}
 
 function createFilterChip(
   key: string,
@@ -346,6 +359,17 @@ export function formatToday(value: Date): string {
 export function getActiveFilterChips(state: OpportunityWorkspaceQueryState): WorkspaceFilterChip[] {
   const chips: WorkspaceFilterChip[] = [];
 
+  if (state.mode === "historicas") {
+    chips.push(
+      createFilterChip("mode", "Modo: Históricas", {
+        mode: "abiertas",
+        stage: "",
+        sortBy: "close_date",
+        sortOrder: "asc",
+      }),
+    );
+  }
+
   if (state.q.trim()) {
     chips.push(createFilterChip("q", `Búsqueda: ${state.q.trim()}`, { q: "" }));
   }
@@ -360,7 +384,7 @@ export function getActiveFilterChips(state: OpportunityWorkspaceQueryState): Wor
   }
   if (state.sourceView) {
     chips.push(
-      createFilterChip("sourceView", "Vista: Publicadas / Activas", {
+      createFilterChip("sourceView", "Cobertura: Publicadas / Activas", {
         sourceView: "",
       }),
     );

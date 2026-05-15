@@ -36,6 +36,7 @@ import {
 } from "@/src/lib/formatters/opportunities";
 import { ThemeToggle } from "@/src/components/theme-toggle";
 import { WorkspaceDetailPane } from "@/src/features/opportunity-workspace/workspace-detail-pane";
+import { WORKSPACE_MODE_LABELS } from "@/src/features/opportunity-workspace/display-contract";
 import {
   WorkspaceExplorerTable,
   WorkspaceRadarBoard,
@@ -60,6 +61,7 @@ import {
   MANUAL_UPLOAD_DATASET_OPTIONS,
   metricClassName,
   metricKeyToStage,
+  MODE_OPTIONS,
   OFFICIAL_STATUS_FILTER_OPTIONS,
   parseAmountInput,
   PRIMARY_METRIC_KEYS,
@@ -68,6 +70,7 @@ import {
   TAB_OPTIONS,
   toManualUploadError,
   toReadableError,
+  shouldResetWorkspaceSearchOnChipPatch,
   uniqueByNoticeId,
   UPLOAD_CONSOLE_SEED,
   WATCHLIST_STORAGE_KEY,
@@ -86,6 +89,7 @@ import type {
   OpportunitySortField,
   OpportunityStage,
   OpportunitySummaryResponse,
+  WorkspaceDataMode,
   WorkspaceTab,
 } from "@/src/types/opportunities";
 import {
@@ -708,6 +712,8 @@ export function OpportunityWorkspace() {
         ? `${formatCount(listItems.length)} en radar`
         : `${formatCount(listState.data.total)} licitaciones`
       : "Resultados pendientes";
+  const modeLabel = WORKSPACE_MODE_LABELS[queryState.mode];
+  const modeCoverageLabel = "Mismo universo de oportunidades, distinta vista.";
 
   useEffect(() => {
     if (!canAutoLoadMore || queryState.tab !== "explorer") {
@@ -748,6 +754,23 @@ export function OpportunityWorkspace() {
 
   const handleTabChange = (tab: WorkspaceTab) => {
     refreshList({ tab, page: 1 });
+  };
+
+  const handleModeChange = (mode: WorkspaceDataMode) => {
+    if (mode === queryState.mode) {
+      return;
+    }
+
+    const patch: Partial<typeof queryState> = {
+      mode,
+      page: 1,
+      selectedNoticeId: null,
+      tab: queryState.tab,
+      sortBy: mode === "abiertas" ? "close_date" : "publication_date",
+      sortOrder: "desc",
+    };
+
+    refreshList(patch);
   };
 
   const handleStagePulse = (stage: OpportunityStage | "") => {
@@ -816,8 +839,8 @@ export function OpportunityWorkspace() {
       lessThan100Utm: false,
       page: 1,
       selectedNoticeId: null,
-      sortBy: WORKSPACE_DEFAULTS.sortBy,
-      sortOrder: WORKSPACE_DEFAULTS.sortOrder,
+      sortBy: queryState.mode === "abiertas" ? WORKSPACE_DEFAULTS.sortBy : "publication_date",
+      sortOrder: queryState.mode === "abiertas" ? WORKSPACE_DEFAULTS.sortOrder : "desc",
       pageSize: WORKSPACE_DEFAULTS.pageSize,
     });
   };
@@ -1131,22 +1154,30 @@ export function OpportunityWorkspace() {
                 lista local de seguimiento y el Centro de Ingesta sigue separado.
               </p>
               <div className="workspace-header__meta" aria-label="Estado del espacio">
+                <Badge>{`Modo ${modeLabel}`}</Badge>
                 <Badge>{queryState.tab === "radar" ? "Radar activo" : "Lista activa"}</Badge>
-                <span>{activeFilters ? "Filtros aplicados" : "Vista base"}</span>
+                <span>{hasActiveFilters ? "Filtros aplicados" : "Vista base"}</span>
                 <span>{apiStatusLabel}</span>
                 <span>{todayLabel}</span>
               </div>
             </div>
             <div className="workspace-header__aside">
+              <Tabs
+                label="Modo de datos"
+                value={queryState.mode}
+                options={MODE_OPTIONS}
+                onChange={handleModeChange}
+              />
               <section className="workspace-mode" aria-label="Vista rápida">
                 <div className="workspace-mode__topline">
                   <span className="workspace-mode__label">Vista rápida</span>
-                  <span>{`${activeFilters ? activeFilterChips.length : 0} filtros`}</span>
+                  <span>{modeLabel}</span>
                 </div>
                 <div className="workspace-mode__hero" aria-label="Resumen operativo">
                   <div>
                     <small>{queryState.tab === "radar" ? "Radar activo" : "Lista activa"}</small>
                     <strong>{resultStatusLabel}</strong>
+                    <span>{modeCoverageLabel}</span>
                   </div>
                   <Badge>{apiStatusLabel}</Badge>
                 </div>
@@ -1193,7 +1224,7 @@ export function OpportunityWorkspace() {
                 onChange={handleTabChange}
               />
               <div className="workspace-toolbar__summary">
-                <strong>{queryState.tab === "explorer" ? "Lista" : "Radar"}</strong>
+                <strong>{`${modeLabel} · ${queryState.tab === "explorer" ? "Lista" : "Radar"}`}</strong>
                 <span>{resultStatusLabel}</span>
                 <Chip>{getSortLabel(queryState.sortBy, queryState.sortOrder)}</Chip>
                 <Chip>{`Radar ${formatCount(watchlistNoticeIds.length)}`}</Chip>
@@ -1241,7 +1272,9 @@ export function OpportunityWorkspace() {
               <span className="workspace-kicker">Pulso de oportunidades</span>
               <p>
                 {summaryState.status === "success"
-                  ? "Resumen simple por etapa, monto y señales disponibles."
+                  ? queryState.mode === "abiertas"
+                    ? "Pulso diario de licitaciones abiertas con señales de avance."
+                    : "Pulso histórico del ciclo completo con evidencia consolidada."
                   : "El resumen aparece cuando responde la API de oportunidades."}
               </p>
             </div>
@@ -1399,28 +1432,15 @@ export function OpportunityWorkspace() {
               </div>
 
               <div className="filter-field">
-                <label className="ui-label" htmlFor="workspace-source-view">
-                  Vista
-                </label>
-                <Select
-                  id="workspace-source-view"
-                  value={queryState.sourceView}
-                  onChange={(event) =>
-                    refreshList({
-                      sourceView: event.target.value as typeof queryState.sourceView,
-                      page: 1,
-                      selectedNoticeId: null,
-                    })
-                  }
-                >
-                  <option value="">Todas</option>
-                  <option value="publicadas">Publicadas / Activas</option>
-                </Select>
+                <span className="ui-label">Cobertura</span>
+                <Chip>
+                  {modeCoverageLabel}
+                </Chip>
               </div>
 
               <div className="filter-field">
                 <label className="ui-label" htmlFor="workspace-stage">
-                  Etapa derivada
+                  {queryState.mode === "abiertas" ? "Etapa activa" : "Etapa histórica"}
                 </label>
                 <Select
                   id="workspace-stage"
@@ -1434,11 +1454,22 @@ export function OpportunityWorkspace() {
                   }
                 >
                   <option value="">Todas</option>
-                  <option value="open">Abierta</option>
-                  <option value="closing_soon">Cierra pronto</option>
-                  <option value="closed">Cerrada</option>
-                  <option value="awarded">Adjudicada</option>
-                  <option value="revoked_or_suspended">Revocada o suspendida</option>
+                  {queryState.mode === "abiertas" ? (
+                    <>
+                      <option value="open">Abierta</option>
+                      <option value="closing_soon">Cierra pronto</option>
+                      <option value="unknown">Sin clasificar</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="closed">Cerrada</option>
+                      <option value="awarded">Adjudicada</option>
+                      <option value="revoked_or_suspended">Revocada o suspendida</option>
+                      <option value="open">Abierta</option>
+                      <option value="closing_soon">Cierra pronto</option>
+                      <option value="unknown">Sin clasificar</option>
+                    </>
+                  )}
                 </Select>
               </div>
 
@@ -1674,7 +1705,13 @@ export function OpportunityWorkspace() {
                     type="button"
                     className="active-filter-chip"
                     aria-label={`Quitar filtro ${chip.label}`}
-                    onClick={() => refreshList(chip.patch)}
+                    onClick={() => {
+                      if (shouldResetWorkspaceSearchOnChipPatch(chip.patch)) {
+                        setQuerySearch("");
+                        setAppliedSearch("");
+                      }
+                      refreshList(chip.patch);
+                    }}
                   >
                     <span>{chip.label}</span>
                     <X size={12} aria-hidden="true" />
@@ -2210,6 +2247,7 @@ export function OpportunityWorkspace() {
 
         <WorkspaceDetailPane
           selectedNoticeId={queryState.selectedNoticeId}
+          mode={queryState.mode}
           tab={queryState.tab}
           detailState={detailState}
           onClose={handleCloseDetail}

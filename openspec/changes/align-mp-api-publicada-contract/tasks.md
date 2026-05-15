@@ -92,7 +92,7 @@
   Notes: Use `Pendiente de publicación`, `No aplica`, `No informado por fuente`, and `No cargado` where appropriate.
   Notes: Detail-pane empty offers/purchase-orders/timeline states now use lifecycle availability labels derived from backend availability fields.
 - [x] 7.3 Add a test or local verification for the discovery filter behavior if the client already has UI tests in scope.
-  Notes: No client UI test suite is currently scoped for this workspace filter flow; completed local verification with `npm run typecheck` and `npm run lint` in `client/` after wiring `source_view` query serialization.
+  Notes: No client UI test suite is currently scoped for this workspace filter flow; completed local verification with `pnpm run typecheck` and `pnpm run lint` in `client/` after wiring `source_view` query serialization.
 - [x] 7.4 Add filtering UI state split for search: `querySearch` (draft, app-local) vs applied API filters.
   Notes: Keep `querySearch` out of URL params; only applied filters should drive API requests.
   Notes: Implemented app-local draft/applied search state in the workspace; URL/query-state no longer persists `q`.
@@ -113,13 +113,13 @@
   Notes: Centralized lifecycle status filter options in shared view-model constants and rendered them from the filter select to avoid contract drift.
 - [x] 7.10 Add focused frontend tests for filtering-only behavior.
   Notes: Cover draft vs applied search state, no per-keystroke network trigger, `source_view=publicadas` emission, and region/state filter serialization.
-  Notes: Added Vitest test suite and focused tests for URL/query serialization, API query mapping, source-view chip/status labels; executed `npm run test`, `npm run typecheck`, and `npm run lint` in `client/`.
+  Notes: Added Vitest test suite and focused tests for URL/query serialization, API query mapping, source-view chip/status labels; executed `pnpm run test`, `pnpm run typecheck`, and `pnpm run lint` in `client/`.
 
 ## 8. Final validation
 
 - [x] 8.1 Run the relevant unit tests for parsing, refresh, and opportunity contract changes.
   Notes: Ran `rtk uv run pytest -q tests/unit/test_mercado_publico_schemas.py tests/unit/test_mp_api_notice_refresh.py tests/unit/test_mp_api_read_model_bridge.py tests/unit/test_opportunities_query.py tests/unit/test_opportunities_contract_models.py tests/unit/test_opportunity_workspace_api.py` -> `42 passed`.
 - [x] 8.2 Run the relevant quality gates for the touched backend and client slices.
-  Notes: Backend gates passed: `ruff check` on touched backend/tests and `mypy` on touched backend modules. Client gates passed: `npm run test`, `npm run typecheck`, `npm run lint`.
+  Notes: Backend gates passed: `ruff check` on touched backend/tests and `mypy` on touched backend modules. Client gates passed: `pnpm run test`, `pnpm run typecheck`, `pnpm run lint`.
 - [x] 8.3 Verify the change does not alter historical CSV behavior.
   Notes: Historical CSV-path guard tests passed via `rtk uv run pytest -q tests/unit/test_normalized_transform.py tests/unit/test_normalized_loader_helpers.py` -> `43 passed`; opportunities normalized fallback assertions remain covered in opportunities API tests.

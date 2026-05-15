@@ -61,6 +61,7 @@ LIST_SQL = sa.text(
             m.tipo_convocatoria as snapshot_tipo_convocatoria,
             m.funding_source as snapshot_funding_source,
             m.visibility_amount as snapshot_visibility_amount,
+            m.claim_count as snapshot_complaint_count,
             m.buyer_unit_region as snapshot_buyer_region,
             m.buyer_unit_commune as snapshot_buyer_commune,
             m.official_status_code as snapshot_mp_estado_codigo,
@@ -108,6 +109,7 @@ LIST_SQL = sa.text(
         lp.informada,
         coalesce(ls.snapshot_visibility_amount, bi.normalized_visibility_amount) as visibilidad_monto,
         ls.snapshot_funding_source as fuente_financiamiento,
+        coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count,
         coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
         coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
@@ -250,6 +252,7 @@ DETAIL_SQL = sa.text(
             m.tipo_convocatoria as snapshot_tipo_convocatoria,
             m.funding_source as snapshot_funding_source,
             m.visibility_amount as snapshot_visibility_amount,
+            m.claim_count as snapshot_complaint_count,
             m.buyer_unit_region as snapshot_buyer_region,
             m.buyer_unit_commune as snapshot_buyer_commune,
             m.official_status_code as snapshot_mp_estado_codigo,
@@ -298,6 +301,7 @@ DETAIL_SQL = sa.text(
         lp.informada,
         coalesce(ls.snapshot_visibility_amount, bi.normalized_visibility_amount) as visibilidad_monto,
         ls.snapshot_funding_source as fuente_financiamiento,
+        coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count,
         coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
         coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
@@ -495,13 +499,18 @@ def _derive_availability(
     has_data: bool,
     state_canonical: str | None,
     is_api_source: bool,
+    data_source_kind: str | None,
     informada: bool,
 ) -> str:
     if has_data:
         return "available"
 
     if kind == "description":
-        return "not_reported_by_source" if is_api_source else "pipeline_missing"
+        if not is_api_source:
+            return "pipeline_missing"
+        if _normalized_text(data_source_kind) != "api_detail":
+            return "pending_detail"
+        return "not_reported_by_source"
 
     if state_canonical == "publicada":
         if kind in {"participants", "offers"} and informada:
@@ -727,6 +736,7 @@ def get_opportunity_detail(
         has_data=has_participants_data,
         state_canonical=state_canonical,
         is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
         informada=informada,
     )
     offers_availability = _derive_availability(
@@ -734,6 +744,7 @@ def get_opportunity_detail(
         has_data=has_offers_data,
         state_canonical=state_canonical,
         is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
         informada=informada,
     )
     award_availability = _derive_availability(
@@ -741,6 +752,7 @@ def get_opportunity_detail(
         has_data=has_award_data,
         state_canonical=state_canonical,
         is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
         informada=informada,
     )
     purchase_order_availability = _derive_availability(
@@ -748,6 +760,7 @@ def get_opportunity_detail(
         has_data=has_purchase_order_data,
         state_canonical=state_canonical,
         is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
         informada=informada,
     )
     description_availability = _derive_availability(
@@ -755,6 +768,7 @@ def get_opportunity_detail(
         has_data=has_description_data,
         state_canonical=state_canonical,
         is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
         informada=informada,
     )
 
@@ -774,6 +788,8 @@ def get_opportunity_detail(
         "informada": detail.get("informada"),
         "visibilidadMonto": detail.get("visibilidadMonto"),
         "fuenteFinanciamiento": detail.get("fuenteFinanciamiento"),
+        "complaintCount": detail.get("complaintCount"),
+        "noticeDescriptionRaw": detail.get("noticeDescriptionRaw"),
         "derivedStage": detail.get("derivedStage"),
         "estimatedAmount": detail.get("estimatedAmount"),
         "currencyCode": detail.get("currencyCode"),

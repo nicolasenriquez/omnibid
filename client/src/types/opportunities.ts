@@ -20,6 +20,7 @@ export const RELATIONSHIP_CERTAINTIES = [
 export type RelationshipCertainty = (typeof RELATIONSHIP_CERTAINTIES)[number];
 
 export type WorkspaceTab = "radar" | "explorer";
+export type WorkspaceDataMode = "abiertas" | "historicas";
 
 export type OpportunitySortField =
   | "close_date"
@@ -34,6 +35,7 @@ export type OpportunityAvailability =
   | "available"
   | "not_yet_public"
   | "not_applicable"
+  | "pending_detail"
   | "not_reported_by_source"
   | "pipeline_missing";
 
@@ -70,10 +72,15 @@ export type OpportunityListItem = {
   externalNoticeCode: string | null;
   title: string;
   officialStatus: string | null;
+  tipo?: string | null;
+  tipoConvocatoria?: string | null;
+  visibilidadMonto?: string | null;
   derivedStage: OpportunityStage;
   buyerName: string | null;
   buyerRegion: string | null;
+  buyerCommune?: string | null;
   primaryCategory: string | null;
+  complaintCount?: number | null;
   estimatedAmount: number | null;
   currencyCode: string | null;
   publicationDate: string | null;
@@ -165,6 +172,8 @@ export type OpportunityDetail = {
   informada?: string | null;
   visibilidadMonto?: string | null;
   fuenteFinanciamiento?: string | null;
+  complaintCount?: number | null;
+  noticeDescriptionRaw?: string | null;
   estimatedAmount: number | null;
   currencyCode: string | null;
   participantsAvailability?: OpportunityAvailability;
@@ -193,6 +202,7 @@ export type OpportunitySummaryResponse = {
 };
 
 export type OpportunityWorkspaceQueryState = {
+  mode: WorkspaceDataMode;
   tab: WorkspaceTab;
   selectedNoticeId: string | null;
   q: string;

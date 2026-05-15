@@ -77,7 +77,7 @@
   Acceptance: API loading/failure/empty states do not collapse layout or show misleading data.
 - [x] 7.2 Validate frontend quality gates and runtime behavior.
   Notes: use frontend-local checks for TypeScript/lint/build if available; use Docker-first backend runtime if API-backed smoke data is needed.
-  Notes: validated with `npm.cmd run typecheck`, `npm.cmd run lint`, and `npm.cmd run build`; build required elevated execution after sandboxed `spawn EPERM`.
+  Notes: validated with `pnpm run typecheck`, `pnpm run lint`, and `pnpm run build`; build required elevated execution after sandboxed `spawn EPERM`.
   Acceptance: validation results are reported with exact commands and any blockers.
 - [x] 7.3 Update docs or product notes if final labels, boundaries, or validation steps differ from current documentation.
   Notes: keep docs concise and implementation-aligned.

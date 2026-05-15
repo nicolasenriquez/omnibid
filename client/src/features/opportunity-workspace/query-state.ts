@@ -11,7 +11,8 @@ import type { OpportunityWorkspaceQueryState } from "@/src/types/opportunities";
 
 function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState): boolean {
   return Boolean(
-    state.q.trim() ||
+    state.mode !== WORKSPACE_DEFAULTS.mode ||
+      state.q.trim() ||
       state.officialStatus ||
       state.stage ||
       state.buyerRegion ||
@@ -34,6 +35,7 @@ function hasActiveWorkspaceFilters(state: OpportunityWorkspaceQueryState): boole
 
 function buildExplorerScopeKey(state: OpportunityWorkspaceQueryState): string {
   return [
+    state.mode,
     state.tab,
     state.q.trim(),
     state.officialStatus,

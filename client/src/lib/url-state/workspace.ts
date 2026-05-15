@@ -5,6 +5,7 @@ import type {
   OpportunitySortDirection,
   OpportunitySortField,
   OpportunityStage,
+  WorkspaceDataMode,
   OpportunityWorkspaceQueryState,
   WorkspaceTab,
 } from "@/src/types/opportunities";
@@ -13,6 +14,7 @@ import { OPPORTUNITY_STAGES } from "@/src/types/opportunities";
 type ReadOnlyParams = Pick<URLSearchParams, "get" | "toString">;
 
 const VALID_TABS: WorkspaceTab[] = ["radar", "explorer"];
+const VALID_MODES: WorkspaceDataMode[] = ["abiertas", "historicas"];
 const VALID_SORT_FIELDS: OpportunitySortField[] = [
   "close_date",
   "publication_date",
@@ -24,6 +26,7 @@ const VALID_PROCUREMENT_TYPES: ProcurementTypeFilter[] = ["public", "private", "
 const VALID_SOURCE_VIEWS: SourceViewFilter[] = ["publicadas"];
 
 const DEFAULT_QUERY_STATE: OpportunityWorkspaceQueryState = {
+  mode: "abiertas",
   tab: "explorer",
   selectedNoticeId: null,
   q: "",
@@ -43,7 +46,7 @@ const DEFAULT_QUERY_STATE: OpportunityWorkspaceQueryState = {
   page: 1,
   pageSize: 20,
   sortBy: "close_date",
-  sortOrder: "asc",
+  sortOrder: "desc",
 };
 
 function parsePositiveInteger(value: string | null, fallback: number): number {
@@ -99,6 +102,14 @@ function parseProcurementType(value: string | null): ProcurementTypeFilter | "" 
   return VALID_PROCUREMENT_TYPES.includes(procurementType) ? procurementType : "";
 }
 
+function parseMode(value: string | null): WorkspaceDataMode {
+  if (!value) {
+    return DEFAULT_QUERY_STATE.mode;
+  }
+  const mode = value as WorkspaceDataMode;
+  return VALID_MODES.includes(mode) ? mode : DEFAULT_QUERY_STATE.mode;
+}
+
 function parseSourceView(value: string | null): SourceViewFilter | "" {
   if (!value) {
     return "";
@@ -119,7 +130,9 @@ function parseAmount(value: string): number | undefined {
 export function parseWorkspaceQueryState(
   searchParams: URLSearchParams | ReadOnlyParams,
 ): OpportunityWorkspaceQueryState {
+  const parsedMode = parseMode(searchParams.get("mode"));
   return {
+    mode: parsedMode,
     tab: parseTab(searchParams.get("tab")),
     selectedNoticeId: searchParams.get("selected"),
     q: DEFAULT_QUERY_STATE.q,
@@ -189,6 +202,7 @@ export function patchWorkspaceQuery(
   };
 
   setOrDelete("tab", merged.tab !== DEFAULT_QUERY_STATE.tab ? merged.tab : null);
+  setOrDelete("mode", merged.mode !== DEFAULT_QUERY_STATE.mode ? merged.mode : null);
   setOrDelete("selected", merged.selectedNoticeId);
   params.delete("q");
   setOrDelete("status", merged.officialStatus.trim() ? merged.officialStatus.trim() : null);

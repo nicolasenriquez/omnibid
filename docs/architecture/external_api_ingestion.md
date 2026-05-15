@@ -67,7 +67,8 @@ Key rules:
 
 - `backend/integrations/mercado_publico/sync.py`
 - `scripts/fetch_mp_api.py`
-- `backend/pipeline/application.py`
+- `backend/pipeline/orchestration/daily_pipeline.py`
+- `backend/pipeline/orchestration/sync.py`
 - `scripts/run_mp_api_daily_pipeline.py`
 
 Modes:

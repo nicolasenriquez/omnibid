@@ -32,11 +32,11 @@ Change: `mp-api-pipeline-hardening` (Sections 1–5)
 
 ### 2. Field-level anti-degradation via PostgreSQL `coalesce(nullif(btrim(incoming), ''), existing)`
 
-- Decision: The existing upsert engine in `backend/normalized/upsert_engine.py` uses `_build_complete_only_update_expr` which wraps incoming values with `coalesce` against the target column. For text columns, a `nullif(btrim(incoming), '')` guard is applied so blank strings are treated as NULL. For non-text columns, `coalesce(incoming, existing)` is used directly.
+- Decision: The existing upsert engine in `backend/pipeline/transform/upsert_engine.py` uses `_build_complete_only_update_expr` which wraps incoming values with `coalesce` against the target column. For text columns, a `nullif(btrim(incoming), '')` guard is applied so blank strings are treated as NULL. For non-text columns, `coalesce(incoming, existing)` is used directly.
 - Why: This guarantees that a lower-priority source (e.g., summary-mode data) never overwrites a higher-priority source's non-null values with NULL. PostgreSQL `coalesce` returns the first non-null argument, meaning NULL incoming values leave existing values intact. The `nullif`/`btrim` pattern for text columns prevents whitespace-only strings from counting as valid values.
 - Code areas:
-  - `backend/normalized/upsert_engine.py` — `_build_complete_only_update_expr`
-  - `backend/normalized/mp_api_read_model_bridge.py` — `canonicalize_api_snapshots_to_normalized`
+  - `backend/pipeline/transform/upsert_engine.py` — `_build_complete_only_update_expr`
+  - `backend/pipeline/transform/mp_api_read_model_bridge.py` — `canonicalize_api_snapshots_to_normalized`
 
 ### 3. Alembic migrations with additive nullable columns and new tables with UUID PK server defaults
 
@@ -52,7 +52,7 @@ Change: `mp-api-pipeline-hardening` (Sections 1–5)
 - Decision: In `canonicalize_api_snapshots_to_normalized`, snapshots are fetched ordered by `synced_at DESC`, and only the latest snapshot per `external_notice_code` is used for canonicalization. This implements the `detail-by-codigo > rolling-window > active-discovery` priority implicitly because detail snapshots always have a later `synced_at` when ingested within the same pipeline run.
 - Why: The pipeline runs detail-by-codigo immediately after rolling-window in the same pipeline run. The `ORDER BY synced_at DESC` + `latest_by_code` dedup naturally selects the detail snapshot when both exist. This avoids complex priority-tagging logic.
 - Code areas:
-  - `backend/normalized/mp_api_read_model_bridge.py` — `canonicalize_api_snapshots_to_normalized`
+  - `backend/pipeline/transform/mp_api_read_model_bridge.py` — `canonicalize_api_snapshots_to_normalized`
 
 ## Validation Linkage
 

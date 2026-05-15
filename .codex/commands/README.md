@@ -65,7 +65,7 @@ You can also use official OpenSpec skills directly when better fit:
 Current repo paths:
 
 - Backend/API: `backend/`, especially `backend/api/routers/`
-- Data pipeline: `backend/ingestion/`, `backend/normalized/`, `scripts/`
+- Data pipeline: `backend/pipeline/extract/`, `backend/pipeline/transform/`, `backend/pipeline/load/`, `backend/pipeline/orchestration/`, `scripts/`
 - Database schema: `backend/models/` plus `alembic/versions/`
 - Frontend: `client/`, especially `client/app/licitaciones/` and `client/src/features/opportunity-workspace/`
 - Runtime: Docker-first via `just docker-start`, `just docker-pipeline-full`, `just docker-smoke`

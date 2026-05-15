@@ -8,10 +8,7 @@ Document the ETL pipeline module layout, stage responsibilities, run commands, a
 
 ```
 backend/pipeline/
-  __init__.py              # Pipeline application modules
-  application.py           # Orchestration entrypoints (raw ingest, normalized build, MP API daily)
-  worker.py                # Ingestion queue worker
-  ingestion_units.py       # Ingestion unit lineage contracts
+  __init__.py              # Pipeline module boundary
 
   extract/                 # Extraction stage — API clients, file contracts, data entry points
     __init__.py
@@ -21,6 +18,12 @@ backend/pipeline/
 
   load/                    # Load stage — persistence, queue management, checkpoint logic
     __init__.py
+
+  orchestration/           # Orchestration — daily pipeline, sync, worker entrypoints
+    __init__.py
+    daily_pipeline.py      # Orchestration entrypoints (raw ingest, normalized build, MP API daily)
+    sync.py                # Mercado Publico API sync logic
+    worker.py              # Ingestion queue worker
 
   shared/                  # Shared utilities — cleaning, validation, common helpers
     __init__.py
@@ -41,6 +44,16 @@ scripts/
   run_ingestion_jobs.py    # Ingestion queue worker runner
 ```
 
+## Backward-Compatible Shims
+
+The pipeline hardening migration (`openspec/changes/mp-api-pipeline-hardening/`) moved canonical code into `backend/pipeline/`. Two legacy directories persist as backward-compatible re-export shims until all callers are migrated:
+
+- `backend/normalized/transform.py` — re-exports symbols from `backend/pipeline/transform/` modules. Actively imported by `backend/pipeline/transform/mp_api_read_model_bridge.py`.
+- `backend/normalized/transform_annotations.py` — re-exports from `backend/nlp/`.
+- `backend/ingestion/manual_uploads.py` — original implementation; actively imported by `backend/api/routers/manual_uploads.py`.
+
+When documenting, always reference the canonical `backend/pipeline/` locations. Do not write new imports against the legacy paths.
+
 ## Stage Responsibilities
 
 ### Extract
@@ -49,7 +62,7 @@ Entry point for all external data into the pipeline. Current module boundary est
 
 - **Input**: External API endpoints, CSV files, manual uploads
 - **Output**: Parsed domain objects (e.g., `LicitacionNotice`, CSV row mappings)
-- **Contracts**: API response schemas (`backend/integrations/mercado_publico/schemas.py`), file column requirements (`backend/ingestion/contracts.py`)
+- **Contracts**: API response schemas (`backend/pipeline/extract/mp_api_schemas.py`), file column requirements (`backend/pipeline/extract/file_contracts.py`)
 
 ### Transform
 
@@ -128,7 +141,7 @@ Environment-specific overrides live under `environments.*` in the same file.
 
 4. **Config**: Add source-specific sections to `config/pipeline.yaml` (endpoints, rate limits, retry policy). Add environment override sections for dev/test/prod.
 
-5. **Orchestration**: Add a sync mode to `application.py` and a CLI entrypoint in `scripts/`. Add just recipes in `justfile` for the Docker path.
+5. **Orchestration**: Add a sync mode to `orchestration/daily_pipeline.py` and a CLI entrypoint in `scripts/`. Add just recipes in `justfile` for the Docker path.
 
 6. **Tests**: Add unit tests for parsing (response → domain object), persistence (domain object → snapshot row), and canonicalization (snapshot → normalized payload). Use the `tests/fixtures/` directory for real payload fixtures.
 
