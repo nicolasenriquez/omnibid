@@ -1,0 +1,56 @@
+# Pipeline Operational Configuration
+# ==================================
+# Centralized config for pipeline batch sizes, retry policies, rate limits,
+# API endpoint templates, and environment-specific overrides.
+#
+# Secrets (API keys, DB passwords) MUST NOT be stored here.
+# Secrets belong in .env / environment variables consumed by backend/core/config.py.
+
+pipeline:
+  raw_chunk_size: 5000
+  normalized_fetch_size: 10000
+  normalized_chunk_size: 500
+
+mercado_publico_api:
+  base_url: "https://api.mercadopublico.cl/servicios/v1/publico"
+  endpoints:
+    licitaciones: "/licitaciones.json"
+
+  timeout_seconds: 30.0
+  cache_ttl_seconds: 900
+
+  rate_limit:
+    daily_request_limit: 10000
+
+  retry:
+    max_attempts: 3         # retry_budget + 1
+    base_backoff_seconds: 2
+    cap_backoff_seconds: 120
+
+  rolling_window:
+    default_window_days: 4
+
+  detail_enrichment:
+    backfill_interval_days: 7
+    max_candidates_default: null   # null = no limit; set integer to cap
+
+# ---------------------------------------------------------------------------
+# Environment overrides (non-secret values only).
+# Applied by merging onto the defaults above when APP_ENV matches.
+# ---------------------------------------------------------------------------
+environments:
+  development:
+    mercado_publico_api:
+      daily_request_limit: 50
+      rolling_window:
+        default_window_days: 1
+
+  test:
+    mercado_publico_api:
+      daily_request_limit: 10
+      rolling_window:
+        default_window_days: 1
+
+  production:
+    # production inherits defaults — override only what differs
+    {}

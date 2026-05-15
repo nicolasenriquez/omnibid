@@ -20,6 +20,7 @@ export const RELATIONSHIP_CERTAINTIES = [
 export type RelationshipCertainty = (typeof RELATIONSHIP_CERTAINTIES)[number];
 
 export type WorkspaceTab = "radar" | "explorer";
+export type WorkspaceDataMode = "abiertas" | "historicas";
 
 export type OpportunitySortField =
   | "close_date"
@@ -29,6 +30,14 @@ export type OpportunitySortField =
 
 export type OpportunitySortDirection = "asc" | "desc";
 export type ProcurementTypeFilter = "public" | "private" | "service";
+export type SourceViewFilter = "publicadas";
+export type OpportunityAvailability =
+  | "available"
+  | "not_yet_public"
+  | "not_applicable"
+  | "pending_detail"
+  | "not_reported_by_source"
+  | "pipeline_missing";
 
 export type OpportunitySummaryMetric = {
   key: string;
@@ -50,6 +59,7 @@ export type OpportunityFilters = {
   minAmount?: number;
   maxAmount?: number;
   procurementType?: ProcurementTypeFilter;
+  sourceView?: SourceViewFilter;
   lessThan100Utm?: boolean;
   page: number;
   pageSize: number;
@@ -62,10 +72,15 @@ export type OpportunityListItem = {
   externalNoticeCode: string | null;
   title: string;
   officialStatus: string | null;
+  tipo?: string | null;
+  tipoConvocatoria?: string | null;
+  visibilidadMonto?: string | null;
   derivedStage: OpportunityStage;
   buyerName: string | null;
   buyerRegion: string | null;
+  buyerCommune?: string | null;
   primaryCategory: string | null;
+  complaintCount?: number | null;
   estimatedAmount: number | null;
   currencyCode: string | null;
   publicationDate: string | null;
@@ -135,6 +150,7 @@ export type OpportunityPurchaseOrderEvidence = {
 export type OpportunityBuyerSnapshot = {
   buyerName: string | null;
   buyerRegion: string | null;
+  buyerCommune?: string | null;
   contractingUnitName: string | null;
   contractingUnitCode: string | null;
 };
@@ -145,8 +161,26 @@ export type OpportunityDetail = {
   title: string;
   officialStatus: string | null;
   derivedStage: OpportunityStage;
+  mpEstadoCodigo?: number | null;
+  mpEstadoNombre?: string | null;
+  mpEstadoCanonical?: string | null;
+  dataSourceKind?: string | null;
+  availabilityContext?: string | null;
+  codigoTipo?: string | null;
+  tipo?: string | null;
+  tipoConvocatoria?: string | null;
+  informada?: string | null;
+  visibilidadMonto?: string | null;
+  fuenteFinanciamiento?: string | null;
+  complaintCount?: number | null;
+  noticeDescriptionRaw?: string | null;
   estimatedAmount: number | null;
   currencyCode: string | null;
+  participantsAvailability?: OpportunityAvailability;
+  offersAvailability?: OpportunityAvailability;
+  awardAvailability?: OpportunityAvailability;
+  purchaseOrderAvailability?: OpportunityAvailability;
+  descriptionAvailability?: OpportunityAvailability;
   buyer: OpportunityBuyerSnapshot;
   relationshipSummary: RelationshipCertainty;
   timeline: OpportunityTimelineEvent[];
@@ -168,6 +202,7 @@ export type OpportunitySummaryResponse = {
 };
 
 export type OpportunityWorkspaceQueryState = {
+  mode: WorkspaceDataMode;
   tab: WorkspaceTab;
   selectedNoticeId: string | null;
   q: string;
@@ -182,6 +217,7 @@ export type OpportunityWorkspaceQueryState = {
   minAmount: string;
   maxAmount: string;
   procurementType: ProcurementTypeFilter | "";
+  sourceView: SourceViewFilter | "";
   lessThan100Utm: boolean;
   page: number;
   pageSize: number;

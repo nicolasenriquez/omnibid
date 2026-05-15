@@ -38,6 +38,10 @@ LIST_SQL = sa.text(
             nl.fecha_cierre as normalized_close_date,
             nl.nombre_unidad as buyer_name,
             nl.region_unidad as buyer_region,
+            nl.comuna_unidad as buyer_commune,
+            nl.tipo as normalized_tipo,
+            nl.tipo_convocatoria as normalized_tipo_convocatoria,
+            nl.visibilidad_monto_raw as normalized_visibility_amount,
             nl.tipo_adquisicion_norm as procurement_method,
             nl.flag_licitacion_publica,
             nl.flag_licitacion_privada,
@@ -47,12 +51,65 @@ LIST_SQL = sa.text(
         from normalized_licitaciones nl
         left join normalized_licitacion_items nli
             on nli.codigo_externo = nl.codigo_externo
+    ),
+    latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.payload_id,
+            m.tipo as snapshot_tipo,
+            m.codigo_tipo as snapshot_codigo_tipo,
+            m.tipo_convocatoria as snapshot_tipo_convocatoria,
+            m.funding_source as snapshot_funding_source,
+            m.visibility_amount as snapshot_visibility_amount,
+            m.claim_count as snapshot_complaint_count,
+            m.buyer_unit_region as snapshot_buyer_region,
+            m.buyer_unit_commune as snapshot_buyer_commune,
+            m.official_status_code as snapshot_mp_estado_codigo,
+            m.official_status_name as snapshot_mp_estado_nombre
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    ),
+    latest_payload as (
+        select
+            ls.external_notice_code,
+            nullif(trim(asp.payload_json ->> 'Informada'), '') as informada
+        from latest_snapshot ls
+        left join api_source_payload asp
+            on asp.id = ls.payload_id
     )
     select
         sn.notice_id,
         sn.external_notice_code,
         coalesce(sn.notice_title, bi.normalized_title) as title,
         coalesce(sn.notice_status_name, bi.normalized_official_status) as official_status,
+        coalesce(sn.mp_estado_codigo, ls.snapshot_mp_estado_codigo) as mp_estado_codigo,
+        coalesce(
+            sn.mp_estado_nombre,
+            ls.snapshot_mp_estado_nombre,
+            sn.notice_status_name,
+            bi.normalized_official_status
+        ) as mp_estado_nombre,
+        coalesce(
+            sn.mp_estado_canonical,
+            lower(coalesce(ls.snapshot_mp_estado_nombre, sn.notice_status_name, bi.normalized_official_status))
+        ) as mp_estado_canonical,
+        sn.data_source_kind,
+        sn.availability_context,
+        coalesce(sn.procurement_method_code, ls.snapshot_codigo_tipo) as codigo_tipo,
+        coalesce(sn.procurement_method_name, ls.snapshot_tipo, bi.normalized_tipo) as tipo,
+        coalesce(ls.snapshot_tipo_convocatoria, bi.normalized_tipo_convocatoria) as tipo_convocatoria,
+        lp.informada,
+        coalesce(ls.snapshot_visibility_amount, bi.normalized_visibility_amount) as visibilidad_monto,
+        ls.snapshot_funding_source as fuente_financiamiento,
+        coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count,
         coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
         coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
@@ -62,7 +119,8 @@ LIST_SQL = sa.text(
         sn.notice_supplier_count as supplier_count,
         sn.notice_purchase_order_count as purchase_order_count,
         bi.buyer_name,
-        bi.buyer_region,
+        coalesce(bi.buyer_region, ls.snapshot_buyer_region) as buyer_region,
+        coalesce(bi.buyer_commune, ls.snapshot_buyer_commune) as buyer_commune,
         bi.primary_category,
         case
             when coalesce(sn.is_public_tender_flag, bi.flag_licitacion_publica) then 'public'
@@ -89,6 +147,8 @@ LIST_SQL = sa.text(
         end as derived_stage
     from silver_notice sn
     left join buyer_info bi on bi.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
+    left join latest_payload lp on lp.external_notice_code = sn.notice_id
     {LIST_FILTER_SQL}
     order by
         case when :sort_by = 'close_date' and :sort_order = 'asc' then coalesce(sn.close_date, bi.normalized_close_date) end asc nulls last,
@@ -106,15 +166,46 @@ LIST_SQL = sa.text(
 
 COUNT_SQL = sa.text(
     f"""
+    with latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.buyer_unit_region as snapshot_buyer_region
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    )
     select count(*) as total
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
     {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )
 
 SUMMARY_SQL = sa.text(
     f"""
+    with latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.buyer_unit_region as snapshot_buyer_region
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    )
     select
         count(*) as total_opportunities,
         count(*) filter (where coalesce(sn.close_date, nl.fecha_cierre) is null) as unknown_stage,
@@ -134,6 +225,15 @@ SUMMARY_SQL = sa.text(
             where lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) like '%revocada%'
                or lower(coalesce(coalesce(sn.notice_status_name, nl.estado), '')) like '%suspendida%'
         ) as revoked_or_suspended,
+        count(*) filter (
+            where coalesce(sn.mp_estado_canonical, lower(nl.estado)) = 'publicada'
+        ) as mp_publicada,
+        count(*) filter (
+            where coalesce(sn.data_source_kind, '') in ('api_publicada', 'api_detail')
+        ) as source_publicadas,
+        count(*) filter (
+            where coalesce(sn.availability_context, '') in ('current_publicada_discovery', 'current_publicada_detail')
+        ) as availability_publicadas,
         count(*) filter (where coalesce(sn.estimated_amount, nl.monto_estimado) is not null) as with_estimated_amount,
         coalesce(
             avg(coalesce(sn.estimated_amount, nl.monto_estimado))
@@ -147,6 +247,7 @@ SUMMARY_SQL = sa.text(
         ) as total_estimated_amount
     from silver_notice sn
     left join normalized_licitaciones nl on nl.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
     {COUNT_AND_SUMMARY_FILTER_SQL}
     """
 )
@@ -157,23 +258,82 @@ DETAIL_SQL = sa.text(
         select
             nl.codigo_externo,
             nl.nombre as normalized_title,
+            nl.descripcion as normalized_description,
             nl.estado as normalized_official_status,
             nl.monto_estimado as normalized_estimated_amount,
             nl.nombre_unidad as buyer_name,
             nl.region_unidad as buyer_region,
+            nl.comuna_unidad as buyer_commune,
             nl.codigo_unidad as contracting_unit_code,
             nl.nombre_unidad as contracting_unit_name,
+            nl.tipo as normalized_tipo,
+            nl.tipo_convocatoria as normalized_tipo_convocatoria,
+            nl.visibilidad_monto_raw as normalized_visibility_amount,
             nl.fecha_publicacion as normalized_publication_date,
             nl.fecha_cierre as normalized_close_date,
             nl.fecha_adjudicacion as normalized_award_date,
             nl.fecha_estimada_adjudicacion as normalized_estimated_award_date
         from normalized_licitaciones nl
+    ),
+    latest_snapshot as (
+        select distinct on (m.external_notice_code)
+            m.external_notice_code,
+            m.payload_id,
+            m.tipo as snapshot_tipo,
+            m.codigo_tipo as snapshot_codigo_tipo,
+            m.tipo_convocatoria as snapshot_tipo_convocatoria,
+            m.funding_source as snapshot_funding_source,
+            m.visibility_amount as snapshot_visibility_amount,
+            m.claim_count as snapshot_complaint_count,
+            m.buyer_unit_region as snapshot_buyer_region,
+            m.buyer_unit_commune as snapshot_buyer_commune,
+            m.official_status_code as snapshot_mp_estado_codigo,
+            m.official_status_name as snapshot_mp_estado_nombre
+        from mercado_publico_notice_snapshot m
+        order by
+            m.external_notice_code,
+            case
+                when m.source_mode = 'detail-by-codigo' then 0
+                when m.source_mode = 'rolling-window' then 1
+                else 2
+            end asc,
+            m.synced_at desc,
+            m.id desc
+    ),
+    latest_payload as (
+        select
+            ls.external_notice_code,
+            nullif(trim(asp.payload_json ->> 'Informada'), '') as informada
+        from latest_snapshot ls
+        left join api_source_payload asp
+            on asp.id = ls.payload_id
     )
     select
         sn.notice_id,
         sn.external_notice_code,
         coalesce(sn.notice_title, bi.normalized_title) as title,
+        coalesce(sn.notice_description_raw, bi.normalized_description) as notice_description_raw,
         coalesce(sn.notice_status_name, bi.normalized_official_status) as official_status,
+        coalesce(sn.mp_estado_codigo, ls.snapshot_mp_estado_codigo) as mp_estado_codigo,
+        coalesce(
+            sn.mp_estado_nombre,
+            ls.snapshot_mp_estado_nombre,
+            sn.notice_status_name,
+            bi.normalized_official_status
+        ) as mp_estado_nombre,
+        coalesce(
+            sn.mp_estado_canonical,
+            lower(coalesce(ls.snapshot_mp_estado_nombre, sn.notice_status_name, bi.normalized_official_status))
+        ) as mp_estado_canonical,
+        sn.data_source_kind,
+        sn.availability_context,
+        coalesce(sn.procurement_method_code, ls.snapshot_codigo_tipo) as codigo_tipo,
+        coalesce(sn.procurement_method_name, ls.snapshot_tipo, bi.normalized_tipo) as tipo,
+        coalesce(ls.snapshot_tipo_convocatoria, bi.normalized_tipo_convocatoria) as tipo_convocatoria,
+        lp.informada,
+        coalesce(ls.snapshot_visibility_amount, bi.normalized_visibility_amount) as visibilidad_monto,
+        ls.snapshot_funding_source as fuente_financiamiento,
+        coalesce(sn.complaint_count, ls.snapshot_complaint_count) as complaint_count,
         coalesce(sn.estimated_amount, bi.normalized_estimated_amount) as estimated_amount,
         sn.currency_code,
         coalesce(sn.publication_date, bi.normalized_publication_date) as publication_date,
@@ -182,7 +342,8 @@ DETAIL_SQL = sa.text(
         coalesce(sn.estimated_award_date, bi.normalized_estimated_award_date) as estimated_award_date,
         sn.created_date,
         bi.buyer_name,
-        bi.buyer_region,
+        coalesce(bi.buyer_region, ls.snapshot_buyer_region) as buyer_region,
+        coalesce(bi.buyer_commune, ls.snapshot_buyer_commune) as buyer_commune,
         bi.contracting_unit_code,
         bi.contracting_unit_name,
         case
@@ -196,6 +357,8 @@ DETAIL_SQL = sa.text(
         end as derived_stage
     from silver_notice sn
     left join buyer_info bi on bi.codigo_externo = sn.notice_id
+    left join latest_snapshot ls on ls.external_notice_code = sn.notice_id
+    left join latest_payload lp on lp.external_notice_code = sn.notice_id
     where sn.notice_id = :notice_id
     """
 )
@@ -353,6 +516,47 @@ def _purchase_order_contract_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalized_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_informada(value: Any) -> bool:
+    normalized = _normalized_text(value)
+    return normalized in {"si", "sí", "true", "1", "informada"}
+
+
+def _derive_availability(
+    *,
+    kind: str,
+    has_data: bool,
+    state_canonical: str | None,
+    is_api_source: bool,
+    data_source_kind: str | None,
+    informada: bool,
+) -> str:
+    if has_data:
+        return "available"
+
+    if kind == "description":
+        if not is_api_source:
+            return "pipeline_missing"
+        if _normalized_text(data_source_kind) != "api_detail":
+            return "pending_detail"
+        return "not_reported_by_source"
+
+    if state_canonical == "publicada":
+        if kind in {"participants", "offers"} and informada:
+            return "not_reported_by_source"
+        return "not_yet_public"
+
+    if kind in {"award", "purchase_order"} and state_canonical in {"desierta", "revocada", "suspendida"}:
+        return "not_applicable"
+
+    if is_api_source:
+        return "not_reported_by_source"
+    return "pipeline_missing"
+
+
 @router.get("", response_model=OpportunityListResponse)
 def list_opportunities(
     page: int = Query(default=1, ge=1, le=OPPORTUNITY_PAGE_MAX),
@@ -376,6 +580,7 @@ def list_opportunities(
     procurement_type: str | None = Query(default=None, pattern=r"^(public|private|service)$"),
     less_than_100_utm: bool | None = Query(default=None),
     stage: str | None = Query(default=None),
+    source_view: str | None = Query(default=None, pattern=r"^(publicadas)$"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     offset = (page - 1) * page_size
@@ -393,6 +598,7 @@ def list_opportunities(
         procurement_type=procurement_type,
         less_than_100_utm=less_than_100_utm,
         stage=stage,
+        source_view=source_view,
     )
 
     total_row = db.execute(COUNT_SQL, shared_params).one()
@@ -442,6 +648,7 @@ def get_opportunities_summary(
     procurement_type: str | None = Query(default=None, pattern=r"^(public|private|service)$"),
     less_than_100_utm: bool | None = Query(default=None),
     stage: str | None = Query(default=None),
+    source_view: str | None = Query(default=None, pattern=r"^(publicadas)$"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     row = db.execute(
@@ -460,6 +667,7 @@ def get_opportunities_summary(
             procurement_type=procurement_type,
             less_than_100_utm=less_than_100_utm,
             stage=stage,
+            source_view=source_view,
         ),
     ).one()
 
@@ -474,16 +682,31 @@ def get_opportunities_summary(
             "label": "Revocadas o suspendidas",
             "value": _jsonable(row[6]),
         },
+        {
+            "key": "mp_publicada",
+            "label": "Estado Publicada",
+            "value": _jsonable(row[7]),
+        },
+        {
+            "key": "source_publicadas",
+            "label": "Fuente API Publicadas/Detail",
+            "value": _jsonable(row[8]),
+        },
+        {
+            "key": "availability_publicadas",
+            "label": "Contexto Publicadas",
+            "value": _jsonable(row[9]),
+        },
         {"key": "unknown_stage", "label": "Sin clasificar", "value": _jsonable(row[1])},
         {
             "key": "avg_estimated_amount",
             "label": "Monto promedio estimado",
-            "value": _jsonable(row[8]),
+            "value": _jsonable(row[11]),
         },
         {
             "key": "total_estimated_amount",
             "label": "Monto total estimado",
-            "value": _jsonable(row[9]),
+            "value": _jsonable(row[12]),
         },
     ]
 
@@ -530,17 +753,87 @@ def get_opportunity_detail(
         {"key": "award", "label": "Adjudicación", "date": detail.get("awardDate"), "source": "official"},
     ]
 
+    state_canonical_raw = detail.get("mpEstadoCanonical")
+    state_canonical = _normalized_text(state_canonical_raw) or None
+    is_api_source = _normalized_text(detail.get("dataSourceKind")).startswith("api_")
+    informada = _is_informada(detail.get("informada"))
+    has_participants_data = any((line.get("supplierCount") or 0) > 0 for line in lines)
+    has_offers_data = len(offers) > 0
+    has_award_data = detail.get("awardDate") is not None
+    has_purchase_order_data = len(purchase_orders) > 0
+    has_description_data = _normalized_text(detail.get("noticeDescriptionRaw")) != ""
+
+    participants_availability = _derive_availability(
+        kind="participants",
+        has_data=has_participants_data,
+        state_canonical=state_canonical,
+        is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
+        informada=informada,
+    )
+    offers_availability = _derive_availability(
+        kind="offers",
+        has_data=has_offers_data,
+        state_canonical=state_canonical,
+        is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
+        informada=informada,
+    )
+    award_availability = _derive_availability(
+        kind="award",
+        has_data=has_award_data,
+        state_canonical=state_canonical,
+        is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
+        informada=informada,
+    )
+    purchase_order_availability = _derive_availability(
+        kind="purchase_order",
+        has_data=has_purchase_order_data,
+        state_canonical=state_canonical,
+        is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
+        informada=informada,
+    )
+    description_availability = _derive_availability(
+        kind="description",
+        has_data=has_description_data,
+        state_canonical=state_canonical,
+        is_api_source=is_api_source,
+        data_source_kind=detail.get("dataSourceKind"),
+        informada=informada,
+    )
+
     return {
         "noticeId": detail["noticeId"],
         "externalNoticeCode": detail.get("externalNoticeCode"),
         "title": detail.get("title"),
         "officialStatus": detail.get("officialStatus"),
+        "mpEstadoCodigo": detail.get("mpEstadoCodigo"),
+        "mpEstadoNombre": detail.get("mpEstadoNombre"),
+        "mpEstadoCanonical": detail.get("mpEstadoCanonical"),
+        "dataSourceKind": detail.get("dataSourceKind"),
+        "availabilityContext": detail.get("availabilityContext"),
+        "codigoTipo": detail.get("codigoTipo"),
+        "tipo": detail.get("tipo"),
+        "tipoConvocatoria": detail.get("tipoConvocatoria"),
+        "informada": detail.get("informada"),
+        "visibilidadMonto": detail.get("visibilidadMonto"),
+        "fuenteFinanciamiento": detail.get("fuenteFinanciamiento"),
+        "complaintCount": detail.get("complaintCount"),
+        "noticeDescriptionRaw": detail.get("noticeDescriptionRaw"),
         "derivedStage": detail.get("derivedStage"),
         "estimatedAmount": detail.get("estimatedAmount"),
         "currencyCode": detail.get("currencyCode"),
+        "participantsAvailability": participants_availability,
+        "offersAvailability": offers_availability,
+        "awardAvailability": award_availability,
+        "purchaseOrderAvailability": purchase_order_availability,
+        "descriptionAvailability": description_availability,
         "buyer": {
             "buyerName": detail.get("buyerName"),
             "buyerRegion": detail.get("buyerRegion"),
+            "buyerCommune": detail.get("buyerCommune"),
             "contractingUnitName": detail.get("contractingUnitName"),
             "contractingUnitCode": detail.get("contractingUnitCode"),
         },

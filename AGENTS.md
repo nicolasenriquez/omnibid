@@ -13,7 +13,8 @@ This file defines repository behavior guidance for coding agents in `omnibid`.
 ## Project Overview
 
 - Stack: FastAPI + PostgreSQL + SQLAlchemy + Alembic.
-- Runtime/package manager: `uv`.
+- Runtime/package manager (backend): `uv`.
+- Client package manager: `pnpm` (Corepack-pinned via `packageManager` field in `client/package.json`). Never use `npm` in `client/`.
 - Operator interface: `just`.
 - Architecture: monorepo with `backend/` + future `client/`, plus data pipeline modules.
 - Current focus: deterministic procurement data engineering pipeline (Raw/Normalized foundation).
@@ -47,11 +48,14 @@ This file defines repository behavior guidance for coding agents in `omnibid`.
 
 - `backend/core`: config, errors, app wiring.
 - `backend/db`: engine/session/base.
-- `backend/api`: health + operations endpoints.
-- `backend/ingestion`: file contracts and ingestion logic.
-- `backend/normalized`: normalization transforms.
-- `backend/models`: operational, raw, normalized models.
-- `scripts/`: operational pipeline entrypoints (`profile_raw.py`, `ingest_raw.py`, `build_normalized.py`).
+- `backend/api`: health, operations, and opportunities endpoints.
+- `backend/pipeline/extract`: API clients, file contracts, data entry points.
+- `backend/pipeline/transform`: normalization builders, upsert engine, quality gates.
+- `backend/pipeline/load`: persistence, queue management, checkpoint logic.
+- `backend/pipeline/orchestration`: daily pipeline, sync, worker entrypoints.
+- `backend/pipeline/shared`: cross-cutting cleaning and validation utilities.
+- `backend/models`: operational, raw, normalized, and Silver ORM models.
+- `scripts/`: operational pipeline entrypoints (`profile_raw.py`, `ingest_raw.py`, `build_normalized.py`, `fetch_mp_api.py`, `run_mp_api_daily_pipeline.py`).
 
 ## Data Engineering Rules
 

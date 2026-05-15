@@ -1,4 +1,4 @@
-from backend.shared.cleaning import (
+from backend.pipeline.shared.cleaning import (
     is_licitacion_elegible,
     normalize_text_base,
     normalize_tipo_adquisicion,

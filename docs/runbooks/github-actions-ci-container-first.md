@@ -86,10 +86,11 @@ If `DATASET_HOST_PATH` from `.env.docker` is machine-specific, override it in CI
 
 Run in containerized environment with project scripts:
 
-1. `npm ci`
-2. `npm run lint`
-3. `npm run typecheck`
-4. `npm run build`
+1. `corepack enable && corepack prepare pnpm@11.0.8 --activate`
+2. `pnpm install --frozen-lockfile`
+3. `pnpm lint`
+4. `pnpm typecheck`
+5. `pnpm build`
 
 ## Security Controls Checklist
 

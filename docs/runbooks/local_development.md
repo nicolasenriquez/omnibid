@@ -51,9 +51,9 @@ The Opportunity Workspace frontend is Docker-first.
 2. Open the workspace route:
    - `http://127.0.0.1:3000/licitaciones`
 3. Run frontend validation through the containerized client service when needed:
-   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
-   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
-   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'`
+   - `docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'`
 
 Host-local `client/` commands remain fallback only when the Docker path is unavailable.
 

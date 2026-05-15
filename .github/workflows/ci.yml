@@ -97,4 +97,4 @@ jobs:
             -v "${{ github.workspace }}/client:/app" \
             -w /app \
             mcr.microsoft.com/playwright:v1.59.1-noble \
-            sh -lc "npm ci && npm run lint && npm run typecheck && npm run build"
+            sh -lc "corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm install --frozen-lockfile && pnpm lint && pnpm typecheck && pnpm build"

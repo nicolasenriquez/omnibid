@@ -110,6 +110,11 @@ security-host:
     uv run bandit -c pyproject.toml -r backend --severity-level high --confidence-level high
 
 [group('02 Quality')]
+[doc('Fail if client verification notes mention legacy npm commands')]
+client-pnpm-guard:
+    uv run python scripts/check_client_pnpm_refs.py
+
+[group('02 Quality')]
 [doc('Run default test suite (unit tests)')]
 test: test-unit
 
@@ -224,7 +229,7 @@ compose-up:
     {{DOCKER_COMPOSE}} up --build -d
 
 [group('03 Docker')]
-[doc('Start Next.js frontend in Docker with container-managed npm dependencies')]
+[doc('Start Next.js frontend in Docker with container-managed pnpm dependencies')]
 docker-client:
     {{DOCKER_COMPOSE}} up -d client
 

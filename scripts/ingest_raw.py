@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.db.session import SessionLocal  # noqa: E402
-from backend.ingestion.contracts import assert_required_columns  # noqa: E402
+from backend.pipeline.extract.file_contracts import assert_required_columns  # noqa: E402
 from backend.models.operational import (  # noqa: E402
     IngestionBatch,
     PipelineRun,

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Copy, ExternalLink, X } from "lucide-react";
 
 import {
+  formatAvailability,
   formatCount,
   formatDate,
   formatMoney,
@@ -11,7 +12,11 @@ import {
   formatStage,
   formatUnavailable,
 } from "@/src/lib/formatters/opportunities";
-import type { OpportunityDetail, WorkspaceTab } from "@/src/types/opportunities";
+import type {
+  OpportunityDetail,
+  WorkspaceDataMode,
+  WorkspaceTab,
+} from "@/src/types/opportunities";
 import {
   Button,
   DetailSection,
@@ -81,6 +86,7 @@ function NoDataState({
 
 export function WorkspaceDetailPane({
   selectedNoticeId,
+  mode,
   tab,
   detailState,
   onClose,
@@ -88,6 +94,7 @@ export function WorkspaceDetailPane({
   onCopyNoticeCode,
 }: {
   selectedNoticeId: string | null;
+  mode: WorkspaceDataMode;
   tab: WorkspaceTab;
   detailState: RemoteDetailState;
   onClose: () => void;
@@ -278,6 +285,10 @@ export function WorkspaceDetailPane({
             <span>{detailState.data.title}</span>
             <span>{`Estado oficial: ${formatUnavailable(detailState.data.officialStatus)}`}</span>
             <span>{`Etapa: ${formatStage(detailState.data.derivedStage)}`}</span>
+            <span>{`Tipo: ${formatUnavailable(detailState.data.tipo)}`}</span>
+            <span>{`Convocatoria: ${formatUnavailable(detailState.data.tipoConvocatoria)}`}</span>
+            <span>{`Visibilidad de monto: ${formatUnavailable(detailState.data.visibilidadMonto)}`}</span>
+            <span>{`Reclamos reportados: ${formatCount(detailState.data.complaintCount)}`}</span>
             <span>
               {`Monto estimado: ${formatMoney(
                 detailState.data.estimatedAmount,
@@ -285,11 +296,17 @@ export function WorkspaceDetailPane({
               )}`}
             </span>
             <span>{`Comprador: ${formatUnavailable(detailState.data.buyer.buyerName)}`}</span>
+            <span>{`Región / comuna: ${formatUnavailable(detailState.data.buyer.buyerRegion)} / ${formatUnavailable(detailState.data.buyer.buyerCommune)}`}</span>
+            <span>{`Descripción: ${
+              detailState.data.noticeDescriptionRaw
+                ? detailState.data.noticeDescriptionRaw
+                : formatAvailability(detailState.data.descriptionAvailability)
+            }`}</span>
           </DetailSection>
 
           <DetailSection title="Línea de tiempo">
             {detailState.data.timeline.length === 0 ? (
-              <span>No disponible</span>
+              <span>Sin hitos con fecha reportados para esta licitación.</span>
             ) : (
               detailState.data.timeline.map((event) => (
                 <span key={event.key}>{`${event.label}: ${formatDate(event.date)}`}</span>
@@ -316,12 +333,28 @@ export function WorkspaceDetailPane({
           <DetailSection title="Comprador">
             <span>{`Nombre: ${formatUnavailable(detailState.data.buyer.buyerName)}`}</span>
             <span>{`Región: ${formatUnavailable(detailState.data.buyer.buyerRegion)}`}</span>
+            <span>{`Comuna: ${formatUnavailable(detailState.data.buyer.buyerCommune)}`}</span>
             <span>{`Unidad: ${formatUnavailable(detailState.data.buyer.contractingUnitName)}`}</span>
+            <span>{`Código unidad: ${formatUnavailable(detailState.data.buyer.contractingUnitCode)}`}</span>
           </DetailSection>
 
           <DetailSection title="Económico y evidencia">
-            <span>{`Ofertas: ${formatCount(detailState.data.offers.length)}`}</span>
-            <span>{`Órdenes de compra: ${formatCount(detailState.data.purchaseOrders.length)}`}</span>
+            <span>{`Ofertas: ${
+              detailState.data.offers.length > 0
+                ? formatCount(detailState.data.offers.length)
+                : formatAvailability(detailState.data.offersAvailability)
+            }`}</span>
+            <span>{`Órdenes de compra: ${
+              detailState.data.purchaseOrders.length > 0
+                ? formatCount(detailState.data.purchaseOrders.length)
+                : formatAvailability(detailState.data.purchaseOrderAvailability)
+            }`}</span>
+            <span>{`Participantes: ${formatAvailability(detailState.data.participantsAvailability)}`}</span>
+            <span>{`Adjudicación: ${
+              detailState.data.timeline.some((event) => event.key === "award" && event.date)
+                ? "Disponible"
+                : formatAvailability(detailState.data.awardAvailability)
+            }`}</span>
             <span>
               {`Certeza de relación: ${formatRelationshipCertainty(
                 detailState.data.relationshipSummary,
@@ -329,9 +362,9 @@ export function WorkspaceDetailPane({
             </span>
           </DetailSection>
 
-          <DetailSection title="Ofertas">
+          <DetailSection title={mode === "abiertas" ? "Ofertas (ciclo)" : "Ofertas"}>
             {orderedOffers.length === 0 ? (
-              <span>Sin ofertas disponibles en la API.</span>
+              <span>{`Ofertas: ${formatAvailability(detailState.data.offersAvailability)}`}</span>
             ) : (
               <>
                 <div className="detail-offers-summary">
@@ -432,7 +465,7 @@ export function WorkspaceDetailPane({
 
           <DetailSection title="Órdenes de compra">
             {detailState.data.purchaseOrders.length === 0 ? (
-              <span>Sin órdenes de compra disponibles en la API.</span>
+              <span>{`Órdenes de compra: ${formatAvailability(detailState.data.purchaseOrderAvailability)}`}</span>
             ) : (
               detailState.data.purchaseOrders.slice(0, 5).map((order) => (
                 <article key={order.purchaseOrderCode} className="detail-line-card">

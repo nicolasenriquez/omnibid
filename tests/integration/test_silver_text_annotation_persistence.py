@@ -13,7 +13,7 @@ from backend.db.base import Base
 from backend.models.normalized import SilverNotice, SilverNoticeTextAnn
 from backend.models.operational import SourceFile
 from backend.nlp.annotations import build_silver_notice_text_ann_payload
-from backend.normalized.upsert_engine import upsert_rows
+from backend.pipeline.transform.upsert_engine import upsert_rows
 
 
 def _prepare_silver_notice_text_ann_schema(engine: sa.Engine) -> None:

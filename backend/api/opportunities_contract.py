@@ -14,6 +14,14 @@ OpportunityStage = Literal[
 ]
 
 RelationshipCertainty = Literal["high", "medium", "low", "none", "unconfirmed"]
+OpportunityAvailability = Literal[
+    "available",
+    "not_yet_public",
+    "not_applicable",
+    "pending_detail",
+    "not_reported_by_source",
+    "pipeline_missing",
+]
 
 
 class OpportunitySummaryMetric(BaseModel):
@@ -38,6 +46,18 @@ class OpportunityListItem(BaseModel):
     externalNoticeCode: str | None
     title: str | None
     officialStatus: str | None
+    mpEstadoCodigo: int | None
+    mpEstadoNombre: str | None
+    mpEstadoCanonical: str | None
+    dataSourceKind: str | None
+    availabilityContext: str | None
+    codigoTipo: str | None
+    tipo: str | None
+    tipoConvocatoria: str | None
+    informada: str | None
+    visibilidadMonto: str | None
+    fuenteFinanciamiento: str | None
+    complaintCount: int | None = None
     derivedStage: OpportunityStage
     estimatedAmount: float | None
     currencyCode: str | None
@@ -49,6 +69,7 @@ class OpportunityListItem(BaseModel):
     purchaseOrderCount: int | None
     buyerName: str | None
     buyerRegion: str | None
+    buyerCommune: str | None
     primaryCategory: str | None
     procurementType: str | None
     isLessThan100Utm: bool | None
@@ -126,6 +147,7 @@ class OpportunityBuyerSnapshot(BaseModel):
 
     buyerName: str | None
     buyerRegion: str | None
+    buyerCommune: str | None
     contractingUnitName: str | None
     contractingUnitCode: str | None
 
@@ -137,9 +159,27 @@ class OpportunityDetailResponse(BaseModel):
     externalNoticeCode: str | None
     title: str | None
     officialStatus: str | None
+    mpEstadoCodigo: int | None
+    mpEstadoNombre: str | None
+    mpEstadoCanonical: str | None
+    dataSourceKind: str | None
+    availabilityContext: str | None
+    codigoTipo: str | None
+    tipo: str | None
+    tipoConvocatoria: str | None
+    informada: str | None
+    visibilidadMonto: str | None
+    fuenteFinanciamiento: str | None
+    complaintCount: int | None = None
+    noticeDescriptionRaw: str | None = None
     derivedStage: OpportunityStage
     estimatedAmount: float | None
     currencyCode: str | None
+    participantsAvailability: OpportunityAvailability
+    offersAvailability: OpportunityAvailability
+    awardAvailability: OpportunityAvailability
+    purchaseOrderAvailability: OpportunityAvailability
+    descriptionAvailability: OpportunityAvailability
     buyer: OpportunityBuyerSnapshot
     relationshipSummary: RelationshipCertainty
     timeline: list[OpportunityTimelineEvent]

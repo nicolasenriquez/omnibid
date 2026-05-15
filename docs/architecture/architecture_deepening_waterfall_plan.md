@@ -100,9 +100,9 @@ Validation:
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync ruff check backend/api/opportunities_contract.py backend/api/opportunities_query.py backend/api/routers/opportunities.py tests/unit/test_opportunities_contract_models.py tests/unit/test_opportunities_query.py tests/unit/test_opportunity_workspace_api.py`
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync mypy backend/api/opportunities_contract.py backend/api/opportunities_query.py backend/api/routers/opportunities.py`
 - `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm --build backend-tools uv run --no-sync pytest -q tests/unit/test_opportunities_contract_models.py tests/unit/test_opportunities_query.py tests/unit/test_opportunity_workspace_api.py`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'`
 
 ## Remaining Waterfall Tasks
 
@@ -125,9 +125,9 @@ Progress:
 - Slice 7.4 complete: extracted explorer/radar adapters into `workspace-list-views.tsx`.
 
 Validation:
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint`
-- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'`
+- `rtk docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'`
 
 ### Task 8 - Normalized builder seam extraction
 
@@ -142,8 +142,8 @@ Validation gate:
 - pipeline smoke with `just docker-pipeline-full` (or targeted equivalent)
 
 Progress:
-- Extracted quality-gate module seam to `backend/normalized/quality_gate.py` and rewired `scripts/build_normalized.py`.
-- Extracted upsert engine module seam to `backend/normalized/upsert_engine.py` and rewired `scripts/build_normalized.py`.
+- Extracted quality-gate module seam to `backend/normalized/quality_gate.py` (canonical: `backend/pipeline/transform/quality_gate.py`) and rewired `scripts/build_normalized.py`.
+- Extracted upsert engine module seam to `backend/normalized/upsert_engine.py` (canonical: `backend/pipeline/transform/upsert_engine.py`) and rewired `scripts/build_normalized.py`.
 - Preserved script-level API compatibility for existing normalized tests (re-exported expected helpers/constants from script surface).
 
 Validation:
@@ -167,7 +167,7 @@ Progress:
 - Removed strict-type bypasses from `pyproject.toml` for:
   - `backend/api/routers/opportunities.py`
   - `backend/api/routers/operations.py`
-  - `backend/ingestion/manual_uploads.py`
+  - `backend/ingestion/manual_uploads.py` (canonical: `backend/pipeline/`)
   - `scripts/ingest_raw.py`
 - Kept bypasses for:
   - `backend/api/routers/manual_uploads.py`

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
-from backend.integrations.mercado_publico.schemas import parse_licitaciones_response
+from backend.pipeline.extract.mp_api_schemas import parse_licitaciones_response
 
 
 def test_parse_active_discovery_payload() -> None:
@@ -92,6 +94,51 @@ def test_parse_detail_by_codigo_payload_with_nulls() -> None:
     assert notice.estimated_amount is None
 
 
+def test_parse_detail_by_codigo_payload_coerces_numeric_string_fields() -> None:
+    payload = {
+        "Codigo": 0,
+        "Descripcion": "OK",
+        "Cantidad": 1,
+        "Listado": [
+            {
+                "CodigoExterno": "X-1",
+                "Nombre": "Licitacion detallada",
+                "CodigoEstado": 5,
+                "Estado": "Publicada",
+                "CodigoTipo": 1,
+                "FechaPublicacion": "2026-05-08",
+                "Adjudicacion": {"Tipo": 4},
+                "Items": {
+                    "Cantidad": 1,
+                    "Listado": [
+                        {
+                            "Correlativo": 1,
+                            "CodigoProducto": 43222815,
+                            "Cantidad": 1.0,
+                            "CodigoCategoria": "4322",
+                            "Categoria": "Equipos",
+                            "NombreProducto": "Servidor",
+                            "Descripcion": "Equipo",
+                            "UnidadMedida": "Unidad",
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+    item = notice.items.listado[0]
+
+    assert notice.codigo_tipo == "1"
+    assert notice.adjudicacion is not None
+    assert notice.adjudicacion.tipo == "4"
+    assert item.codigo_producto == "43222815"
+    assert item.cantidad == "1.0"
+    assert item.correlativo == 1
+
+
 def test_parse_active_discovery_payload_with_datetime_strings_and_missing_top_level_fields() -> None:
     payload = {
         "Cantidad": 1,
@@ -114,3 +161,81 @@ def test_parse_active_discovery_payload_with_datetime_strings_and_missing_top_le
     assert response.created_at is not None
     assert response.notices[0].publication_date is not None
     assert response.notices[0].close_date is not None
+
+
+def test_parse_detail_payload_discards_description() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.description is not None, (
+        "FAIL (expected): Descripcion is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no description field"
+    )
+
+
+def test_parse_detail_payload_discards_nested_buyer() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.comprador is not None, (
+        "FAIL (expected): Comprador nested object is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no comprador field"
+    )
+    assert notice.comprador.region_unidad == "Metropolitana"
+    assert notice.comprador.comuna_unidad == "Providencia"
+
+
+def test_parse_detail_payload_discards_items() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = parse_licitaciones_response(payload)
+    notice = response.notices[0]
+
+    assert notice.items is not None, (
+        "FAIL (expected): Items.Listado is silently discarded by extra='ignore' "
+        "-- LicitacionNotice has no items field"
+    )
+    assert len(notice.items.listado) == 2
+
+
+def test_parse_detail_payload_uses_official_funding_and_visibility_field_names() -> None:
+    payload = {
+        "Codigo": 0,
+        "Descripcion": "OK",
+        "Cantidad": 1,
+        "Listado": [
+            {
+                "CodigoExterno": "1274285-76-LR25",
+                "Nombre": "Servicio de soporte",
+                "CodigoEstado": 5,
+                "Estado": "Publicada",
+                "FuenteFinanciamiento": "Municipal",
+                "VisibilidadMonto": "Reservado",
+                "Informada": "No",
+            }
+        ],
+    }
+
+    notice = parse_licitaciones_response(payload).notices[0]
+    assert notice.funding_source == "Municipal"
+    assert notice.visibility_amount == "Reservado"
+    assert notice.informada == "No"
+
+
+def test_parse_detail_fixture_preserves_official_public_fields() -> None:
+    fixture_path = Path(__file__).parent.parent / "fixtures" / "detail_by_codigo_payload.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    notice = parse_licitaciones_response(payload).notices[0]
+    assert notice.codigo_tipo == "LR"
+    assert notice.tipo_convocatoria == "Abierta"
+    assert notice.funding_source == "Municipal"
+    assert notice.visibility_amount == "150000000"
+    assert notice.informada == "No"

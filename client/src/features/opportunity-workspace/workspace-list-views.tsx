@@ -443,6 +443,10 @@ export function WorkspaceExplorerTable({
                               <strong>{formatUnavailable(item.primaryCategory)}</strong>
                             </div>
                             <div className="table-evidence-panel__fact">
+                              <span className="evidence-label">Tipo</span>
+                              <strong>{formatUnavailable(item.tipo)}</strong>
+                            </div>
+                            <div className="table-evidence-panel__fact">
                               <span className="evidence-label">Publicación</span>
                               <strong>{formatDate(item.publicationDate)}</strong>
                             </div>
@@ -457,6 +461,20 @@ export function WorkspaceExplorerTable({
                                   ? "Cerrada o sin fecha"
                                   : formatCount(item.daysRemaining)}
                               </strong>
+                            </div>
+                            <div className="table-evidence-panel__fact">
+                              <span className="evidence-label">Región / comuna</span>
+                              <strong>
+                                {`${formatUnavailable(item.buyerRegion)} / ${formatUnavailable(item.buyerCommune)}`}
+                              </strong>
+                            </div>
+                            <div className="table-evidence-panel__fact">
+                              <span className="evidence-label">Visibilidad monto</span>
+                              <strong>{formatUnavailable(item.visibilidadMonto)}</strong>
+                            </div>
+                            <div className="table-evidence-panel__fact">
+                              <span className="evidence-label">Reclamos</span>
+                              <strong>{formatCount(item.complaintCount)}</strong>
                             </div>
                             <div className="table-evidence-panel__fact">
                               <span className="evidence-label">Certeza de relación</span>

@@ -11,8 +11,9 @@ WORKDIR /workspace
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && npm init -y >/dev/null \
-    && npm install --save-dev supabase \
-    && npm cache clean --force
+    && corepack enable \
+    && corepack prepare pnpm@11.0.8 --activate \
+    && pnpm add --save-dev supabase \
+    && pnpm store prune
 
 CMD ["./node_modules/.bin/supabase", "--help"]

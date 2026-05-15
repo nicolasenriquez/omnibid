@@ -6,6 +6,8 @@ This slice is the human-facing consumer of the same decision program driven by t
 
 The benchmark behavior from TodoLicitaciones is strong on fast scanability (title, status, type, buyer, region, dates, amount, required products), but Omnibid must go further than a public listing. Omnibid must feel like a premium supplier-side decision workspace: detect, prioritize, explain fit and gaps, package evidence, and support human bid/no-bid decisions without implying automated legal or commercial authority.
 
+A competitive pattern check across procurement-intelligence tools points the same way: fast search, compact tracking, explicit evidence, and saved-review surfaces beat dashboard-heavy layouts. That supports a surgical reorientation here, not a broad redesign or re-engineering.
+
 A live DB verification pass (2026-05-03) confirms the repo already has high-coverage deterministic data to support this direction:
 - `silver_notice`: `122400` rows
 - `silver_notice_line`: `565146` rows
@@ -37,6 +39,17 @@ Additional coverage evidence matters because the UI must surface supported, part
 - `has_site_visit_flag = true`: `0`
 - `data_quality_issues`: `2`
 
+## Recommendation
+
+This change should be a surgical reorientation of the current workspace, not a full redesign.
+
+- Make `Lista` the primary analyst surface.
+- Keep `Radar` as the secondary follow-up and tracking surface.
+- Move `Centro de Ingesta` out of the main decision path and into a utility surface.
+- Reduce the header to one operational title, one short role sentence, one status row, and one primary action.
+- Keep dense table behavior inside the list and detail drawer instead of making it a peer top-level view.
+- Make the UI read like an analyst tool: fast search, explicit evidence, compact actions, and no decorative dashboard weight.
+
 ## Exact Data Fit
 
 The proposal is only air-tight if it distinguishes between what the DB already supports, what it supports only partially, and what still needs a separate slice. The current corpus is strong enough to build a serious decision workspace, but not strong enough to justify every adjacent product idea as part of this one change.
@@ -63,17 +76,19 @@ Correction rules for the whole proposal:
 
 ## What Changes
 
-- Reframe `/licitaciones` into a supplier-side decision-first information architecture:
-  - executive header with business KPIs that answer urgency and review load.
+- Reframe `/licitaciones` into an analyst-first decision workspace:
+  - compact operational header with only the KPIs needed to decide what to review now.
   - large search entry point for code, buyer, product/category, and description terms.
   - business-priority filters in a clear primary/advanced split.
   - default `Lista` view optimized for fast scan.
-  - secondary `Tabla` and `Radar` views for dense analysis and stage operations.
+  - `Radar` as the secondary follow-up view for stage operations and tracking.
+  - dense table behavior stays inside the list and drawer instead of becoming a peer top-level navigation item.
+  - simplified menu with only the analyst surfaces and the ingestion utility.
 - Normalize user-visible labels to Spanish procurement language with proper accents, and keep raw backend field names out of UI copy.
 - Separate technical ingestion concerns from commercial review flow:
   - keep concise data freshness/status indicators inside `/licitaciones`.
   - move CSV upload timeline/log console emphasis into a dedicated `Centro de Ingesta` surface.
-- Add a premium `Opportunity List` item layout that is readable in seconds and shows:
+- Add a scan-first `Opportunity List` item layout that is readable in seconds and shows:
   - título
   - código
   - estado oficial
@@ -127,8 +142,8 @@ Correction rules for the whole proposal:
 
 ### Modified Capabilities
 
-- `opportunity-workspace-premium-frontend`: Extend read-only workspace composition to include `Lista` as default view and stronger decision-oriented navigation hierarchy.
-- `opportunity-workspace-premium-polish`: Extend visual polish contract from component-level refinement to full decision-flow hierarchy, CTA semantics, and cognitive-load reduction.
+- `opportunity-workspace-premium-frontend`: Extend read-only workspace composition to use `Lista` as the primary analyst surface, `Radar` as the secondary tracking surface, and `Centro de Ingesta` as a separated utility path.
+- `opportunity-workspace-premium-polish`: Extend visual polish contract from component-level refinement to compact decision-flow hierarchy, CTA semantics, and cognitive-load reduction.
 
 ## Impact
 

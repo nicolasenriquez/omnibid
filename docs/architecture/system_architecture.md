@@ -3,9 +3,9 @@
 Monorepo with modular backend:
 - backend/core: config, settings, logging
 - backend/db: engine, session, models
-- backend/ingestion: file discovery + registration
-- backend/integrations/mercado_publico: external API ingestion lane for Mercado Publico notice sync
-- backend/normalized: normalized entities
+- backend/pipeline/extract: file discovery + API ingestion
+- backend/integrations/mercado_publico: backward-compatible shims for Mercado Publico API ingestion (canonical code in pipeline/extract)
+- backend/pipeline/transform: normalized entities
 - backend/models: operational, raw, normalized, and Silver ORM entities
 - backend/api: health, operations, and opportunities endpoints
 - backend/observability: structured logging and CLI display helpers
@@ -18,7 +18,7 @@ The Mercado Publico notice-sync lane is operator-driven and Docker-first:
 
 - `backend/integrations/mercado_publico/`
 - `scripts/fetch_mp_api.py`
-- `backend/pipeline/application.py` (daily sync + Silver notice refresh orchestration)
+- `backend/pipeline/orchestration/daily_pipeline.py` (daily sync + Silver notice refresh orchestration)
 - `scripts/run_mp_api_daily_pipeline.py`
 
 The lane persists request, payload, and snapshot lineage in dedicated operational tables. See `docs/architecture/external_api_ingestion.md` for the detailed boundary, modes, and command surface.
@@ -72,7 +72,7 @@ Investigation responses are derived from Silver procurement-cycle facts. They ma
 
 - Add or change API routes in `backend/api/routers/`.
 - Add or change schema through Alembic revisions in `alembic/versions/` and keep ORM models in `backend/models/` aligned.
-- Add pipeline behavior in `backend/ingestion/`, `backend/normalized/`, or `scripts/` based on existing ownership.
+- Add pipeline behavior in `backend/pipeline/`, or `scripts/` based on existing ownership.
 - Add frontend UI/API integration in `client/`.
 - Keep proposal/task state under `openspec/changes/<change>/`.
 - Keep Supabase readiness work under `docs/operations/supabase-readiness.md` and the `supabase/` scaffold until a separate cutover change is approved.

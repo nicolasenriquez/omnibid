@@ -23,14 +23,16 @@ Open:
 
 - `http://127.0.0.1:3000/licitaciones`
 
-This starts PostgreSQL, applies backend migrations, starts FastAPI, then starts Next.js. The Docker client service installs npm dependencies inside a Docker volume and exposes Next.js on localhost only.
+This starts PostgreSQL, applies backend migrations, starts FastAPI, then starts Next.js. The Docker client service installs pnpm dependencies inside a Docker volume and exposes Next.js on localhost only.
 
 Host-local fallback from `client/`:
 
 ```bash
-npm.cmd install
+corepack enable
+corepack prepare pnpm@11.0.8 --activate
+pnpm install --frozen-lockfile
 copy .env.example .env.local
-npm.cmd run dev -- --hostname 127.0.0.1 --port 3000
+pnpm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `.env.local`.
@@ -41,9 +43,10 @@ From repo root:
 
 ```bash
 rtk just dev
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run lint
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run typecheck
-docker compose --env-file .env.docker -f docker-compose.yml run --rm client npm run build
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm lint'
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm typecheck'
+docker compose --env-file .env.docker -f docker-compose.yml run --rm client sh -lc 'corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm build'
+rtk just client-pnpm-guard
 ```
 
 ## Code Paths

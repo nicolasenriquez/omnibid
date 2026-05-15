@@ -1,0 +1,33 @@
+{
+  "Codigo": 0,
+  "Descripcion": "OK",
+  "FechaCreacion": "2026-05-08",
+  "Cantidad": 2,
+  "Listado": [
+    {
+      "CodigoExterno": "1274285-76-LR25",
+      "Nombre": "Servicio de soporte TI",
+      "CodigoEstado": 5,
+      "Estado": "Publicada",
+      "FechaPublicacion": "08052026",
+      "FechaCierre": "12052026",
+      "CodigoOrganismo": "1234",
+      "NombreOrganismo": "Municipalidad de Providencia",
+      "CodigoUnidad": "U-10",
+      "NombreUnidad": "Compras",
+      "Moneda": "CLP",
+      "MontoEstimado": "1500000"
+    },
+    {
+      "CodigoExterno": "2000000-10-LQ26",
+      "Nombre": "Adquisicion de equipos informaticos",
+      "CodigoEstado": 5,
+      "Estado": "Publicada",
+      "FechaPublicacion": "2026-05-07",
+      "FechaCierre": "2026-05-14",
+      "CodigoOrganismo": "5678",
+      "NombreOrganismo": "Ministerio de Salud",
+      "Moneda": "CLP"
+    }
+  ]
+}

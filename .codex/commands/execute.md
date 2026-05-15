@@ -110,9 +110,9 @@ When target `tasks.md` has no remaining `- [ ]`, run final checks for touched sc
   - `just security`
   - targeted or broader `uv run pytest -q`
 - frontend code touched:
-  - from `client/`: `npm run lint`
-  - from `client/`: `npm run typecheck`
-  - from `client/`: `npm run build`
+  - from `client/`: `pnpm lint`
+  - from `client/`: `pnpm typecheck`
+  - from `client/`: `pnpm build`
 - db/integration touched:
   - `just docker-start`
   - `just test-integration`

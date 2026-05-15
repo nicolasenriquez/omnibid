@@ -17,7 +17,7 @@ This change stays inside current repo boundaries:
 
 ## Terminology Boundary
 
-- User-visible labels use Spanish procurement language and proper accents: `Licitación`, `Lista`, `Tabla`, `Radar`, `Pública`, `Región`, `Publicación`, `Código`, `Compra Ágil`.
+- User-visible labels use Spanish procurement language and proper accents: `Licitación`, `Lista`, `Radar`, `Pública`, `Región`, `Publicación`, `Código`, `Compra Ágil`.
 - Raw backend field names such as `noticeId`, `externalNoticeCode`, and `derivedStage` stay out of visible labels.
 - Internal implementation names can remain technical, but the rendered UI copy must read like business language, not schema language.
 
@@ -46,7 +46,7 @@ Implication:
 **Goals**
 - Make `/licitaciones` answer “what should I review today and why?” in first viewport.
 - Keep scanability first with `Lista` default.
-- Preserve `Tabla` and `Radar` as dense analysis surfaces.
+- Preserve `Radar` as the secondary analysis surface; dense table evidence lives inside `Lista` and the drawer.
 - Add supplier-profile compatibility signals with explainable rules.
 - Add human checklist and evidence package structure in detail drawer.
 - Separate technical ingestion UI from commercial review flow.
@@ -63,8 +63,8 @@ Implication:
 1. **Decision-flow over listing-flow.**
    - `/licitaciones` is treated as commercial review queue, not just tender table.
 
-2. **Default `Lista`, keep `Tabla` + `Radar`.**
-   - `Lista` optimizes quick triage; dense views remain for deeper inspection.
+2. **Default `Lista`, keep `Radar`.**
+   - `Lista` optimizes quick triage; dense views remain inside the list and drawer instead of a separate peer `Tabla` surface.
 
 3. **`Centro de Ingesta` separation.**
    - Upload console/log-heavy interactions move out of main decision surface.
@@ -96,7 +96,8 @@ Implication:
 ### Layer B: Exploration
 - strong search input (code, buyer, product/category, description)
 - primary filters first, advanced filters progressive
-- view switch: `Lista` (default), `Tabla`, `Radar`, `Compra Ágil` (when available)
+- view switch: `Lista` (default), `Radar`, `Compra Ágil` (when available)
+- dense table interactions remain inside `Lista` rows, expansion, and drawer evidence
 
 ### Layer C: Evidence and Actions
 - shared detail drawer as “evidence package”

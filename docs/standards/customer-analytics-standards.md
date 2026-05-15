@@ -14,10 +14,11 @@ This standard applies to:
 - `scripts/ingest_raw.py`
 - `scripts/build_normalized.py`
 - `backend/core/config.py`
-- `backend/ingestion/`
-- `backend/normalized/`
+- `backend/pipeline/extract/`
+- `backend/pipeline/transform/`
+- `backend/pipeline/load/`
+- `backend/pipeline/shared/`
 - `backend/models/`
-- `backend/shared/`
 - `docs/architecture/`
 - `docs/business/`
 - `docs/references/`

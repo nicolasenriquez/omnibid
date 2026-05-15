@@ -196,9 +196,9 @@ Typical commands:
   - `just security`
   - targeted `uv run pytest -q <path-or-node>`
 - Frontend code:
-  - from `client/`: `npm run lint`
-  - from `client/`: `npm run typecheck`
-  - from `client/`: `npm run build`
+  - from `client/`: `pnpm lint`
+  - from `client/`: `pnpm typecheck`
+  - from `client/`: `pnpm build`
 - Integration/db only when needed:
   - `just docker-start`
   - `just test-integration`

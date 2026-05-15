@@ -15,7 +15,7 @@ from backend.normalized.transform_annotations import (
     tokenize_annotation_text,
     top_ngrams_payload,
 )
-from backend.normalized.transform_common import (
+from backend.pipeline.transform.transform_common import (
     BID_SUBMISSION_SIGNAL_COLUMNS,
     DATE_FORMATS,
     NUMERIC_20_6_MAX_ABS,
@@ -31,7 +31,7 @@ from backend.normalized.transform_common import (
     pick,
     tipo_flags,
 )
-from backend.normalized.transform_identity import (
+from backend.pipeline.transform.transform_identity import (
     resolve_buyer_identity_key,
     resolve_buying_org_identity_key,
     resolve_category_identity_key,
@@ -39,7 +39,7 @@ from backend.normalized.transform_identity import (
     resolve_contracting_unit_identity_key,
     resolve_supplier_identity_key,
 )
-from backend.normalized.transform_normalized_payloads import (
+from backend.pipeline.transform.transform_normalized_payloads import (
     build_buyer_domain_payload,
     build_category_domain_payload,
     build_licitacion_item_payload,
@@ -49,7 +49,7 @@ from backend.normalized.transform_normalized_payloads import (
     build_orden_compra_payload,
     build_supplier_domain_payload,
 )
-from backend.normalized.transform_silver_payloads import (
+from backend.pipeline.transform.transform_silver_payloads import (
     build_silver_award_outcome_payload,
     build_silver_bid_submission_payload,
     build_silver_buying_org_payload,

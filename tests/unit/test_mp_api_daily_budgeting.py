@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.pipeline.application import _resolve_rolling_window_days_for_sync
+from backend.pipeline.orchestration.daily_pipeline import _resolve_rolling_window_days_for_sync
 
 
 def test_resolve_rolling_window_days_without_budget_cap() -> None:

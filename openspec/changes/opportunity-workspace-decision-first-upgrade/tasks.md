@@ -1,22 +1,22 @@
 ## 1. Investigation and Contract Freeze
 
-- [ ] 1.1 Confirm current opportunity API/data coverage for decision-flow fields.
+- [x] 1.1 Confirm current opportunity API/data coverage for decision-flow fields.
   Notes: validate list/detail contracts and DB-backed availability for status, stage, amount, dates, buyer, category, procurement type, less-than-100-UTM, lines/offers/purchase-order evidence.
   Notes: include explicit gap list for fields not currently exposed.
   Acceptance: scope references only corroborated fields; missing fields are documented as gaps.
-- [ ] 1.2 Confirm Compra Agil source coverage.
+- [x] 1.2 Confirm Compra Agil source coverage.
   Notes: validate `normalized_ordenes_compra.es_compra_agil` and `silver_purchase_order.is_agile_purchase_flag`.
   Acceptance: dedicated Compra Agil lane requirements are tied to existing source fields.
-- [ ] 1.3 Freeze MVP action semantics and read-only boundaries.
+- [x] 1.3 Freeze MVP action semantics and read-only boundaries.
   Notes: `Descartar` local-session only; no persistent mutation APIs in this slice.
   Acceptance: CTA behavior matrix is explicit and consistent with current architecture docs.
-- [ ] 1.4 Build an exact data-fit matrix from live DB evidence.
+- [x] 1.4 Build an exact data-fit matrix from live DB evidence.
   Notes: capture the current coverage for notices, lines, bids, awards, purchase orders, annotations, procurement-mode flags, and data-quality issues; include the zero-coverage `has_site_visit_flag` case and the partial annotation coverage counts.
   Acceptance: the proposal can clearly separate supported, partial, and unavailable claims.
-- [ ] 1.5 Define signal coverage semantics for the UI contract.
+- [x] 1.5 Define signal coverage semantics for the UI contract.
   Notes: supported, partial, unavailable, with explicit `Sin dato` / `Cobertura parcial` fallbacks; partials remain visibly partial, zero-coverage signals never become primary badges.
   Acceptance: sparse or zero-coverage signals cannot be surfaced as complete truths.
-- [ ] 1.6 Separate benchmark guidance from implementation commitments.
+- [x] 1.6 Separate benchmark guidance from implementation commitments.
   Notes: TodoLicitaciones research informs market direction and UI scanability only; only data-backed repo capabilities may enter this slice.
   Acceptance: SEO, alerts, watchlists, export, and extra procurement-mode lanes remain explicit future slices.
 
@@ -25,8 +25,9 @@
 - [ ] 2.1 Implement compact decision-first header and KPI strip.
   Notes: minimize landing-style hero footprint; maximize operational scannability.
   Acceptance: first viewport answers urgency and review load quickly.
-- [ ] 2.2 Set `Lista` as default with preserved `Tabla` and `Radar` context.
+- [ ] 2.2 Set `Lista` as default with preserved `Radar` context and dense table evidence inside the list.
   Notes: keep filter/query state stable on view switches.
+  Notes: dense evidence stays inside `Lista` rows/expansion/drawer instead of a separate peer `Tabla` view.
   Acceptance: multi-view navigation remains stable and context-preserving.
 - [ ] 2.3 Harden search and primary filter surface.
   Notes: search targets code, buyer, category/product text where available.

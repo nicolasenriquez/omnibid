@@ -24,6 +24,7 @@ def build_opportunities_filter_params(
     procurement_type: str | None,
     less_than_100_utm: bool | None,
     stage: str | None,
+    source_view: str | None,
 ) -> dict[str, Any]:
     return {
         "q": _contains_filter(q),
@@ -39,6 +40,7 @@ def build_opportunities_filter_params(
         "procurement_type": procurement_type,
         "less_than_100_utm": less_than_100_utm,
         "stage": stage,
+        "source_view": source_view,
     }
 
 
@@ -55,6 +57,8 @@ def _shared_filter_sql(
     publication_date_expr: str,
     close_date_expr: str,
     estimated_amount_expr: str,
+    source_state_expr: str,
+    source_kind_expr: str,
 ) -> str:
     return f"""
     where (cast(:q as text) is null or (
@@ -91,6 +95,13 @@ def _shared_filter_sql(
                when :stage = 'unknown' then {close_date_expr} is null
                else true
            end)
+      and (cast(:source_view as text) is null or
+           case
+               when :source_view = 'publicadas' then (
+                   {source_state_expr} = 'publicada'
+               )
+               else true
+           end)
     """
 
 
@@ -101,7 +112,7 @@ coalesce(sn.notice_title, bi.normalized_title) ilike :q
             or bi.buyer_name ilike :q
             or bi.primary_category ilike :q
 """,
-    buyer_region_clause="bi.buyer_region ilike :buyer_region",
+    buyer_region_clause="coalesce(bi.buyer_region, ls.snapshot_buyer_region) ilike :buyer_region",
     primary_category_clause="bi.primary_category ilike :primary_category",
     less_than_100_utm_clause="bi.flag_menos_100_utm = :less_than_100_utm",
     procurement_public_expr="coalesce(sn.is_public_tender_flag, bi.flag_licitacion_publica)",
@@ -111,6 +122,8 @@ coalesce(sn.notice_title, bi.normalized_title) ilike :q
     publication_date_expr="coalesce(sn.publication_date, bi.normalized_publication_date)",
     close_date_expr="coalesce(sn.close_date, bi.normalized_close_date)",
     estimated_amount_expr="coalesce(sn.estimated_amount, bi.normalized_estimated_amount)",
+    source_state_expr="coalesce(sn.mp_estado_canonical, lower(bi.normalized_official_status))",
+    source_kind_expr="sn.data_source_kind",
 )
 
 COUNT_AND_SUMMARY_FILTER_SQL = _shared_filter_sql(
@@ -119,7 +132,7 @@ coalesce(sn.notice_title, nl.nombre) ilike :q
             or sn.external_notice_code ilike :q
             or nl.nombre_unidad ilike :q
 """,
-    buyer_region_clause="nl.region_unidad ilike :buyer_region",
+    buyer_region_clause="coalesce(nl.region_unidad, ls.snapshot_buyer_region) ilike :buyer_region",
     primary_category_clause="""
 exists (
             select 1 from normalized_licitacion_items nli
@@ -135,4 +148,6 @@ exists (
     publication_date_expr="coalesce(sn.publication_date, nl.fecha_publicacion)",
     close_date_expr="coalesce(sn.close_date, nl.fecha_cierre)",
     estimated_amount_expr="coalesce(sn.estimated_amount, nl.monto_estimado)",
+    source_state_expr="coalesce(sn.mp_estado_canonical, lower(nl.estado))",
+    source_kind_expr="sn.data_source_kind",
 )

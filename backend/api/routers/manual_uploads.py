@@ -24,7 +24,7 @@ from backend.ingestion.manual_uploads import (
 )
 from backend.db.session import SessionLocal
 from backend.models.operational import IngestionBatch, PipelineRun, PipelineRunStep, SourceFile
-from backend.pipeline.application import run_normalized_build, run_registered_raw_ingest
+from backend.pipeline.orchestration.daily_pipeline import run_normalized_build, run_registered_raw_ingest
 
 router = APIRouter(prefix="/uploads/procurement-csv", tags=["manual_uploads"])
 DEFAULT_BACKGROUND_TASKS = BackgroundTasks()

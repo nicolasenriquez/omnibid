@@ -133,19 +133,19 @@
 12. `scripts/build_normalized.py`
     - Topic/section: normalized/silver build entrypoint
     - Relevant contract: deterministic upserts, conflict keys, and quality gate wiring
-13. `backend/normalized/transform.py`
+13. `backend/pipeline/transform/` (formerly `backend/normalized/transform.py`)
     - Topic/section: identity resolution and text annotation builders
     - Relevant contract: buyer/supplier/category identity keys and `tfidf://` annotation references
 14. `backend/models/normalized.py`
     - Topic/section: normalized and Silver table definitions
     - Relevant contract: metadata-only text annotations and explicit business keys
-15. `backend/normalized/upsert_engine.py`
+15. `backend/pipeline/transform/upsert_engine.py`
     - Topic/section: upsert guardrails
     - Relevant contract: conflict-key enforcement and Silver leakage guards
-16. `backend/normalized/quality_gate.py`
+16. `backend/pipeline/transform/quality_gate.py`
     - Topic/section: quality gate evaluation
     - Relevant contract: fail/pass/warn decisions and error-rate thresholding
-17. `backend/shared/cleaning.py`
+17. `backend/pipeline/shared/cleaning.py`
     - Topic/section: text normalization helpers
     - Relevant contract: current Unicode decomposition and whitespace normalization behavior
 

@@ -13,6 +13,8 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
   - local development, operations, CI, and implementation runbooks
   - environment contract matrix: [`runbooks/environment-contract.md`](runbooks/environment-contract.md)
   - Docker local runtime: [`runbooks/docker-local.md`](runbooks/docker-local.md)
+  - long-running agent harness: [`runbooks/agent-long-running-harness.md`](runbooks/agent-long-running-harness.md)
+  - working-set note template: [`runbooks/agent-working-set-template.md`](runbooks/agent-working-set-template.md)
   - RTK Windows WSL hardening: [`runbooks/rtk-wsl-hardening.md`](runbooks/rtk-wsl-hardening.md)
   - GitHub Actions CI runtime: [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
   - Mercado Publico API integration: [`runbooks/mercado_publico_api_integration.md`](runbooks/mercado_publico_api_integration.md)
@@ -44,13 +46,15 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 1. [`../AGENTS.md`](../AGENTS.md)
 2. [`../README.md`](../README.md)
 3. [`runbooks/docker-local.md`](runbooks/docker-local.md)
-4. [`runbooks/local_development.md`](runbooks/local_development.md)
-5. [`architecture/system_architecture.md`](architecture/system_architecture.md)
-6. [`architecture/data_architecture.md`](architecture/data_architecture.md)
-7. [`architecture/data_model.md`](architecture/data_model.md)
-8. [`runbooks/operations.md`](runbooks/operations.md)
-9. [`operations/supabase-readiness.md`](operations/supabase-readiness.md)
-10. [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
+4. [`runbooks/agent-long-running-harness.md`](runbooks/agent-long-running-harness.md)
+5. [`runbooks/agent-working-set-template.md`](runbooks/agent-working-set-template.md)
+6. [`runbooks/local_development.md`](runbooks/local_development.md)
+7. [`architecture/system_architecture.md`](architecture/system_architecture.md)
+8. [`architecture/data_architecture.md`](architecture/data_architecture.md)
+9. [`architecture/data_model.md`](architecture/data_model.md)
+10. [`runbooks/operations.md`](runbooks/operations.md)
+11. [`operations/supabase-readiness.md`](operations/supabase-readiness.md)
+12. [`runbooks/github-actions-ci-container-first.md`](runbooks/github-actions-ci-container-first.md)
 
 ## Agent Routing Guide
 
@@ -58,8 +62,8 @@ The repository is Docker-first. Start runtime decisions from [`runbooks/docker-l
 - CI workflows and governance: `.github/`, `docs/standards/github-actions-ci-cd-standard.md`, `docs/runbooks/github-actions-ci-container-first.md`.
 - Backend routes: `backend/api/routers/`.
 - Backend config/database/model work: `backend/core/`, `backend/db/`, `backend/models/`, `alembic/versions/`.
-- Data pipeline work: `backend/ingestion/`, `backend/normalized/`, `scripts/`.
-- External API ingestion work: `backend/integrations/mercado_publico/`, `backend/pipeline/application.py`, `scripts/fetch_mp_api.py`, `scripts/run_mp_api_daily_pipeline.py`.
+- Data pipeline work: `backend/pipeline/extract/`, `backend/pipeline/transform/`, `backend/pipeline/load/`, `backend/pipeline/orchestration/`, `scripts/`.
+- External API ingestion work: `backend/pipeline/extract/`, `backend/pipeline/load/mp_api_store.py`, `backend/pipeline/orchestration/`, `scripts/fetch_mp_api.py`, `scripts/run_mp_api_daily_pipeline.py`.
 - Frontend work: `client/app/licitaciones/`, `client/src/features/opportunity-workspace/`, `client/src/lib/api/`.
 - Change artifacts: `openspec/changes/<change>/`.
 - Validation evidence: `docs/evidence/`.

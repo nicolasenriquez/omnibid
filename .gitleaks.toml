@@ -2,3 +2,11 @@ title = "omnibid gitleaks configuration"
 
 [extend]
 useDefault = true
+
+[[allowlists]]
+description = "Ignore known false positives in Mercado Publico store tests"
+regexTarget = "line"
+regexes = [
+  '''resource_key="codigo=1274285-76-LR25"''',
+  '''request_params=\{"codigo": "1274285-76-LR25", "ticket": "test"\}''',
+]

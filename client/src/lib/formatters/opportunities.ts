@@ -1,5 +1,10 @@
-import type { OpportunityStage, RelationshipCertainty } from "@/src/types/opportunities";
+import type {
+  OpportunityAvailability,
+  OpportunityStage,
+  RelationshipCertainty,
+} from "@/src/types/opportunities";
 import {
+  AVAILABILITY_CAUSE_LABELS,
   OPPORTUNITY_STAGE_LABELS,
   RELATIONSHIP_CERTAINTY_LABELS,
 } from "@/src/features/opportunity-workspace/display-contract";
@@ -73,4 +78,11 @@ export function formatRelationshipCertainty(
 
 export function formatUnavailable(value: string | null | undefined): string {
   return value && value.trim() ? value : "No disponible";
+}
+
+export function formatAvailability(value: OpportunityAvailability | null | undefined): string {
+  if (!value) {
+    return "No informado por la fuente";
+  }
+  return AVAILABILITY_CAUSE_LABELS[value] ?? "No informado por la fuente";
 }

@@ -232,7 +232,7 @@ Operator guidance:
 - Keep `/opportunities` at notice grain; do not join child rows into the list in a way that duplicates parent notices.
 - Use detail endpoint evidence for lines, offers, and purchase orders.
 - Keep frontend API base in `client/.env.local` as `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
-- Validate frontend from `client/` with `npm run lint`, `npm run typecheck`, and `npm run build`.
+- Validate frontend from `client/` with `pnpm lint`, `pnpm typecheck`, and `pnpm build` after `corepack enable && corepack prepare pnpm@11.0.8 --activate`.
 
 ### Manual CSV append
 
