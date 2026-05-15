@@ -18,6 +18,7 @@ OpportunityAvailability = Literal[
     "available",
     "not_yet_public",
     "not_applicable",
+    "pending_detail",
     "not_reported_by_source",
     "pipeline_missing",
 ]
@@ -56,6 +57,7 @@ class OpportunityListItem(BaseModel):
     informada: str | None
     visibilidadMonto: str | None
     fuenteFinanciamiento: str | None
+    complaintCount: int | None = None
     derivedStage: OpportunityStage
     estimatedAmount: float | None
     currencyCode: str | None
@@ -168,6 +170,8 @@ class OpportunityDetailResponse(BaseModel):
     informada: str | None
     visibilidadMonto: str | None
     fuenteFinanciamiento: str | None
+    complaintCount: int | None = None
+    noticeDescriptionRaw: str | None = None
     derivedStage: OpportunityStage
     estimatedAmount: float | None
     currencyCode: str | None
